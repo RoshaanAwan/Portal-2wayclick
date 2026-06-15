@@ -20,7 +20,8 @@ model User {
   name         String
   title        String
   department   String
-  // Role: ADMIN | MANAGER | EMPLOYEE  (SQLite has no native enums)
+  // Role: SUPER_ADMIN | ADMIN | HR | LEAD | PROJECT_MANAGER | EMPLOYEE
+  // (stored as a string; see lib/permissions.ts for the source of truth).
   role         String   @default("EMPLOYEE")
   avatarUrl    String?
   phone        String?
@@ -48,6 +49,8 @@ model User {
   taskComments       TaskComment[]
   ownedProjects      Project[]          @relation("ProjectOwner")
   projectMemberships ProjectMember[]
+  auditLogs          AuditLog[]         @relation("AuditActor")
+  auditedBy          AuditLog[]         @relation("AuditTargetUser")
 }
 
 model Session {
@@ -144,6 +147,40 @@ model Activity {
   target    String // human-readable target
   meta      String? // optional JSON string
   createdAt DateTime @default(now())
+}
+
+// ── Audit log ────────────────────────────────────────────────────────────────
+// The "track everything" trail for privileged actions. Distinct from Activity
+// (which is the social/dashboard feed): AuditLog records WHO did WHAT to WHICH
+// entity, with structured before/after detail and the request IP. Only viewable
+// by Super Admin (see lib/permissions.ts → can.viewAuditLog).
+model AuditLog {
+  id      String @id @default(cuid())
+  // Who performed the action. Kept even if the actor is later deleted.
+  actorId String?
+  actor   User?   @relation("AuditActor", fields: [actorId], references: [id], onDelete: SetNull)
+  // Denormalized actor identity so the log survives user deletion.
+  actorName  String
+  actorRole  String
+  // What happened, e.g. "user.create", "user.role_change", "auth.login".
+  action  String
+  // The kind of entity touched, e.g. "User", "Project", "LeaveRequest".
+  entity   String
+  entityId String?
+  // Optional human-readable summary + structured JSON detail (before/after).
+  summary String?
+  detail  String? // JSON string
+  ip      String?
+  userAgent String?
+  // Optional: the user this action was performed ON (e.g. the created user).
+  targetUserId String?
+  targetUser   User?   @relation("AuditTargetUser", fields: [targetUserId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([action])
+  @@index([actorId])
 }
 
 // ── Task board (Trello-style) ──────────────────────────────────────────────

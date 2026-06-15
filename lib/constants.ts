@@ -1,8 +1,9 @@
-// Shared domain constants. SQLite has no native enums, so these string
-// unions are the source of truth across the app.
+// Shared domain constants. Postgres has no enum requirement here, so these
+// string unions are the source of truth across the app.
 
-export const ROLES = ["ADMIN", "MANAGER", "EMPLOYEE"] as const;
-export type Role = (typeof ROLES)[number];
+// Roles & role-based permissions live in lib/permissions.ts; re-export the
+// role list/type here so existing imports from "@/lib/constants" keep working.
+export { ROLES, ROLE_LABELS, type Role } from "./permissions";
 
 export const REQUEST_STATUSES = ["PENDING", "APPROVED", "DENIED"] as const;
 export type RequestStatus = (typeof REQUEST_STATUSES)[number];

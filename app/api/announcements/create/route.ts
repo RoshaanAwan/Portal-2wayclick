@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { audit } from "@/lib/audit";
+import { can } from "@/lib/permissions";
 import { z } from "zod";
 import { ANNOUNCEMENT_CATEGORIES } from "@/lib/constants";
 
@@ -23,8 +25,8 @@ export async function POST(req: Request) {
   try {
     const user = await requireUser();
 
-    // Only ADMIN / MANAGER may post.
-    if (user.role !== "ADMIN" && user.role !== "MANAGER") {
+    // Only elevated staff may post announcements.
+    if (!can.postAnnouncements(user.role)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
@@ -47,6 +49,15 @@ export async function POST(req: Request) {
         verb: "posted",
         target: title,
       },
+    });
+
+    await audit({
+      actor: user,
+      action: "announcement.create",
+      entity: "Announcement",
+      entityId: announcement.id,
+      summary: `${user.name} posted “${title}”`,
+      detail: { category, pinned },
     });
 
     return NextResponse.json({ ok: true, id: announcement.id });

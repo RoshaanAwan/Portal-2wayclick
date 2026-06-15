@@ -2,11 +2,12 @@ import { FolderKanban } from "lucide-react";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { getCurrentUser } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { can } from "@/lib/permissions";
 import { ProjectsClient, type ProjectDTO, type MemberDTO } from "./ProjectsClient";
 
 export default async function ProjectsPage() {
   const user = await getCurrentUser();
-  const isAdmin = user?.role === "ADMIN";
+  const isAdmin = can.manageProjects(user?.role);
 
   // Admins see every project; everyone else sees only projects they belong to.
   const projects = await db.project.findMany({

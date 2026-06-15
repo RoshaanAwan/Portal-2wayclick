@@ -29,7 +29,7 @@ export default async function AppLayout({
 
   return (
     <div className="min-h-screen">
-      <Sidebar />
+      <Sidebar role={user.role} />
       <div className="lg:pl-64">
         <Topbar user={user} notifications={notifications} />
         <main className="px-4 py-6 lg:px-8">{children}</main>

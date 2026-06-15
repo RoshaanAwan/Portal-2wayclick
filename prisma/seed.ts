@@ -1,8 +1,15 @@
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
 
-// SQLite has no native enums — use string literals.
-const Role = { ADMIN: "ADMIN", MANAGER: "MANAGER", EMPLOYEE: "EMPLOYEE" } as const;
+// Roles as string literals (see lib/permissions.ts for the canonical list).
+const Role = {
+  SUPER_ADMIN: "SUPER_ADMIN",
+  ADMIN: "ADMIN",
+  HR: "HR",
+  LEAD: "LEAD",
+  PROJECT_MANAGER: "PROJECT_MANAGER",
+  EMPLOYEE: "EMPLOYEE",
+} as const;
 const RequestStatus = { PENDING: "PENDING", APPROVED: "APPROVED", DENIED: "DENIED" } as const;
 
 const db = new PrismaClient();
@@ -39,17 +46,19 @@ async function main() {
   const pw = await bcrypt.hash("password123", 10);
 
   const people = [
-    { name: "Ava Chen", title: "CEO", department: "Executive", role: Role.ADMIN, location: "San Francisco", avatar: 12 },
-    { name: "Marcus Reyes", title: "VP Engineering", department: "Engineering", role: Role.MANAGER, location: "Austin", avatar: 13 },
-    { name: "Priya Nair", title: "Head of People", department: "People", role: Role.MANAGER, location: "Remote", avatar: 5 },
-    { name: "Diego Santos", title: "Staff Engineer", department: "Engineering", role: Role.EMPLOYEE, location: "Austin", avatar: 14 },
+    // Dedicated platform owner — full access + all audit logs.
+    { name: "Root Admin", title: "Platform Owner", department: "Executive", role: Role.SUPER_ADMIN, location: "Remote", avatar: 1 },
+    { name: "Ava Chen", title: "CEO", department: "Executive", role: Role.SUPER_ADMIN, location: "San Francisco", avatar: 12 },
+    { name: "Marcus Reyes", title: "VP Engineering", department: "Engineering", role: Role.ADMIN, location: "Austin", avatar: 13 },
+    { name: "Priya Nair", title: "Head of People", department: "People", role: Role.HR, location: "Remote", avatar: 5 },
+    { name: "Diego Santos", title: "Staff Engineer", department: "Engineering", role: Role.LEAD, location: "Austin", avatar: 14 },
     { name: "Lena Park", title: "Product Designer", department: "Design", role: Role.EMPLOYEE, location: "Seattle", avatar: 9 },
     { name: "Omar Haddad", title: "Backend Engineer", department: "Engineering", role: Role.EMPLOYEE, location: "Remote", avatar: 15 },
-    { name: "Sofia Rossi", title: "Marketing Lead", department: "Marketing", role: Role.MANAGER, location: "New York", avatar: 16 },
+    { name: "Sofia Rossi", title: "Marketing Lead", department: "Marketing", role: Role.LEAD, location: "New York", avatar: 16 },
     { name: "Jamal Wright", title: "Data Analyst", department: "Data", role: Role.EMPLOYEE, location: "Chicago", avatar: 17 },
     { name: "Yuki Tanaka", title: "Frontend Engineer", department: "Engineering", role: Role.EMPLOYEE, location: "Remote", avatar: 18 },
-    { name: "Grace Okoro", title: "Finance Manager", department: "Finance", role: Role.MANAGER, location: "London", avatar: 19 },
-    { name: "Tom Becker", title: "Sales Director", department: "Sales", role: Role.MANAGER, location: "Boston", avatar: 11 },
+    { name: "Grace Okoro", title: "Finance Manager", department: "Finance", role: Role.PROJECT_MANAGER, location: "London", avatar: 19 },
+    { name: "Tom Becker", title: "Sales Director", department: "Sales", role: Role.PROJECT_MANAGER, location: "Boston", avatar: 11 },
     { name: "Nadia Volkov", title: "UX Researcher", department: "Design", role: Role.EMPLOYEE, location: "Berlin", avatar: 20 },
   ];
 

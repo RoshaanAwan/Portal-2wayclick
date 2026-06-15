@@ -8,6 +8,7 @@ import { GlassCard } from "@/components/ui/GlassCard";
 import { Button } from "@/components/ui/Button";
 import { Avatar } from "@/components/ui/Avatar";
 import { ANNOUNCEMENT_CATEGORIES } from "@/lib/constants";
+import { can } from "@/lib/permissions";
 import { cn } from "@/lib/utils";
 import type { CurrentUser } from "./AnnouncementsClient";
 
@@ -27,7 +28,7 @@ export function Composer({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  const canPin = currentUser.role === "ADMIN" || currentUser.role === "MANAGER";
+  const canPin = can.postAnnouncements(currentUser.role);
   const canSubmit = title.trim().length >= 3 && body.trim().length > 0;
 
   async function submit(e: React.FormEvent) {
