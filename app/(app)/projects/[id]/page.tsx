@@ -15,13 +15,14 @@ import { AddList } from "./AddList";
 export default async function ProjectBoardPage({
   params,
 }: {
-  params: { id: string };
+  params: Promise<{ id: string }>;
 }) {
+  const { id } = await params;
   const user = await getCurrentUser();
   const isAdmin = user?.role === "ADMIN";
 
   const project = await db.project.findUnique({
-    where: { id: params.id },
+    where: { id },
     include: {
       owner: { select: { id: true, name: true, avatarUrl: true } },
       members: {

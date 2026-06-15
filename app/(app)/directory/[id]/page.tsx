@@ -44,10 +44,11 @@ function deptColor(dept: string) {
 export default async function PersonDetailPage({
   params,
 }: {
-  params: { id: string };
+  params: Promise<{ id: string }>;
 }) {
+  const { id } = await params;
   const user = await db.user.findUnique({
-    where: { id: params.id },
+    where: { id },
     include: {
       manager: {
         select: { id: true, name: true, title: true, avatarUrl: true },
