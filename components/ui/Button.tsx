@@ -13,18 +13,17 @@ interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
 }
 
 const variants: Record<Variant, string> = {
-  // Primary — confident warm gradient + soft glow + a shine sweep on hover.
+  // Primary — confident warm gradient that reads as a raised soft-UI key. Lifts
+  // slightly and brightens on hover; depresses on press.
   primary:
-    "shine bg-accent-grad text-white shadow-accent-glow hover:shadow-pop hover:brightness-[1.04] active:brightness-95",
-  // Glass → bordered "secondary" surface.
-  glass:
-    "bg-surface-2 text-ink-700 border border-line shadow-xs hover:bg-surface hover:border-line-strong hover:text-ink",
+    "shine bg-accent-grad text-white shadow-accent-glow hover:-translate-y-0.5 hover:brightness-[1.05] active:translate-y-0 active:brightness-95",
+  // Glass → neumorphic "secondary": a raised surface chip that presses in on click.
+  glass: "nm-button text-ink-700 hover:text-ink",
   // Ghost — quiet, text-only.
-  ghost:
-    "hover-surface text-ink-500 hover:text-ink",
+  ghost: "hover-surface text-ink-500 hover:text-ink",
   // Danger.
   danger:
-    "bg-danger text-white shadow-xs hover:brightness-[1.06]",
+    "bg-danger text-white shadow-accent-glow hover:brightness-[1.06] active:brightness-95",
 };
 
 const sizes: Record<Size, string> = {
