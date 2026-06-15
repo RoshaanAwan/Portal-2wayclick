@@ -13,13 +13,21 @@ import {
   LogOut,
   Check,
   ExternalLink,
+  Moon,
+  Sun,
 } from "lucide-react";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { Button } from "@/components/ui/Button";
 import { Avatar } from "@/components/ui/Avatar";
 import { Reveal, RevealItem } from "@/components/ui/Reveal";
+import { useTheme, type Theme } from "@/components/ThemeProvider";
 import { cn } from "@/lib/utils";
+
+const THEMES: { key: Theme; label: string; desc: string; Icon: typeof Moon }[] = [
+  { key: "dark", label: "Dark", desc: "Charcoal canvas, warm accent", Icon: Moon },
+  { key: "light", label: "Light", desc: "Bright canvas, clean surfaces", Icon: Sun },
+];
 
 interface SettingsUser {
   id: string;
@@ -96,6 +104,7 @@ function Row({
 
 export function SettingsClient({ user }: { user: SettingsUser }) {
   const router = useRouter();
+  const { theme, setTheme } = useTheme();
   const [active, setActive] = useState<(typeof SECTIONS)[number]["id"]>("profile");
 
   // Local preference state. There's no preferences model yet, so these persist
@@ -136,7 +145,7 @@ export function SettingsClient({ user }: { user: SettingsUser }) {
                   "relative flex shrink-0 items-center gap-2.5 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors",
                   on
                     ? "text-white"
-                    : "text-ink-500 hover:bg-white/[0.04] hover:text-ink",
+                    : "hover-surface text-ink-500 hover:text-ink",
                 )}
               >
                 {on && (
@@ -202,6 +211,55 @@ export function SettingsClient({ user }: { user: SettingsUser }) {
 
           {active === "appearance" && (
             <Reveal className="space-y-5">
+              <RevealItem>
+                <GlassCard hover={false}>
+                  <h3 className="font-display text-[15px] font-semibold tracking-tight text-ink">
+                    Theme
+                  </h3>
+                  <p className="mt-0.5 text-xs text-ink-400">
+                    Switch between dark and light. Saved to this browser.
+                  </p>
+                  <div className="mt-4 grid grid-cols-2 gap-3">
+                    {THEMES.map((t) => {
+                      const on = theme === t.key;
+                      return (
+                        <button
+                          key={t.key}
+                          onClick={() => setTheme(t.key)}
+                          aria-pressed={on}
+                          className={cn(
+                            "flex items-center gap-3 rounded-xl border px-3.5 py-3 text-left transition",
+                            on
+                              ? "border-accent bg-accent-soft"
+                              : "border-line hover:border-line-strong",
+                          )}
+                        >
+                          <span
+                            className={cn(
+                              "grid h-9 w-9 shrink-0 place-items-center rounded-lg border",
+                              on
+                                ? "border-accent/40 text-accent-ink"
+                                : "border-line bg-surface-2 text-ink-500",
+                            )}
+                          >
+                            <t.Icon className="h-[18px] w-[18px]" />
+                          </span>
+                          <span className="min-w-0">
+                            <span className="flex items-center gap-1.5 text-sm font-medium text-ink">
+                              {t.label}
+                              {on && <Check className="h-3.5 w-3.5 text-accent-ink" />}
+                            </span>
+                            <span className="mt-0.5 block truncate text-xs text-ink-400">
+                              {t.desc}
+                            </span>
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </GlassCard>
+              </RevealItem>
+
               <RevealItem>
                 <GlassCard hover={false}>
                   <h3 className="font-display text-[15px] font-semibold tracking-tight text-ink">

@@ -63,7 +63,7 @@ export function AddTask({
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="flex items-center gap-1.5 rounded-xl px-2 py-2 text-xs font-medium text-ink-400 transition-colors hover:bg-white/[0.04] hover:text-ink"
+        className="hover-surface flex items-center gap-1.5 rounded-xl px-2 py-2 text-xs font-medium text-ink-400 hover:text-ink"
       >
         <Plus className="h-4 w-4" />
         Add a card
@@ -134,7 +134,7 @@ export function AddTask({
             type="button"
             onClick={reset}
             aria-label="Cancel"
-            className="grid h-8 w-8 place-items-center rounded-lg text-ink-400 transition-colors hover:bg-white/[0.05] hover:text-ink"
+            className="hover-surface grid h-8 w-8 place-items-center rounded-lg text-ink-400 hover:text-ink"
           >
             <X className="h-4 w-4" />
           </button>

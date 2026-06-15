@@ -120,7 +120,7 @@ export function FocusTimer() {
       <div className="relative mx-auto mb-5 h-44 w-44">
         <svg
           viewBox="0 0 180 180"
-          className="h-full w-full -rotate-90"
+          className="h-full w-full -rotate-90 text-line"
           aria-hidden
         >
           <circle
@@ -128,7 +128,7 @@ export function FocusTimer() {
             cy="90"
             r={RADIUS}
             fill="none"
-            stroke="#26262d"
+            stroke="currentColor"
             strokeWidth="8"
           />
           <motion.circle

@@ -109,7 +109,7 @@ export function TaskModal({
                 type="button"
                 onClick={onClose}
                 aria-label="Close"
-                className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-ink-400 transition-colors hover:bg-white/[0.06] hover:text-ink"
+                className="hover-surface grid h-8 w-8 shrink-0 place-items-center rounded-lg text-ink-400 hover:text-ink"
               >
                 <X className="h-4.5 w-4.5" />
               </button>

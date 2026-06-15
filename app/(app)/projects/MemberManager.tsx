@@ -119,7 +119,7 @@ export function MemberManager({
                 type="button"
                 onClick={onClose}
                 aria-label="Close"
-                className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-ink-400 transition-colors hover:bg-white/[0.06] hover:text-ink"
+                className="hover-surface grid h-8 w-8 shrink-0 place-items-center rounded-lg text-ink-400 hover:text-ink"
               >
                 <X className="h-4 w-4" />
               </button>
@@ -155,7 +155,7 @@ export function MemberManager({
                           "flex w-full items-center gap-3 rounded-xl px-2.5 py-2 text-left transition-colors",
                           isOwner
                             ? "cursor-default"
-                            : "hover:bg-white/[0.05]",
+                            : "hover-surface",
                           isMember && "bg-accent-soft/40",
                         )}
                       >

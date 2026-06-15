@@ -127,7 +127,7 @@ export function AssigneePicker({
                       type="button"
                       onClick={() => onToggle(m, !isAssigned)}
                       className={cn(
-                        "flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-white/[0.05]",
+                        "hover-surface flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left",
                         isAssigned && "bg-accent-soft/50",
                       )}
                     >

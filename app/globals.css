@@ -2,9 +2,150 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
+/* ────────────────────────────────────────────────────────────────────────────
+   THEME TOKENS
+   Colors are stored as space-separated RGB channels so Tailwind's
+   `rgb(var(--c-x) / <alpha-value>)` tokens can apply opacity modifiers.
+   :root is the DARK theme (default). [data-theme="light"] overrides it.
+   Switching the attribute on <html> re-themes the entire app.
+──────────────────────────────────────────────────────────────────────────── */
+:root,
+[data-theme="dark"] {
   --font-sans: "Inter", system-ui, sans-serif;
   --font-display: "Space Grotesk", "Inter", system-ui, sans-serif;
+
+  /* ── "Metric Flow" dark palette ── near-black blue-charcoal canvas. */
+  --c-paper: 13 13 17; /* #0d0d11 */
+  --c-surface: 23 23 28; /* #17171c */
+  --c-surface-2: 30 30 36; /* #1e1e24 */
+
+  --c-ink: 244 244 246; /* #f4f4f6 */
+  --c-ink-700: 212 212 218; /* #d4d4da */
+  --c-ink-500: 154 154 165; /* #9a9aa5 */
+  --c-ink-400: 116 116 127; /* #74747f */
+  --c-ink-300: 86 86 95; /* #56565f */
+
+  --c-line: 38 38 45; /* #26262d */
+  --c-line-strong: 52 52 60; /* #34343c */
+
+  --c-accent: 245 104 63; /* #f5683f */
+  --c-accent-600: 232 84 44; /* #e8542c */
+  --c-accent-500: 245 104 63; /* #f5683f */
+  --c-accent-400: 255 129 89; /* #ff8159 */
+  --c-accent-soft: 42 26 22; /* #2a1a16 */
+  --c-accent-ink: 255 129 89; /* #ff8159 */
+
+  --c-success: 52 211 153; /* #34d399 */
+  --c-success-soft: 16 38 31; /* #10261f */
+  --c-success-ink: 74 222 128; /* #4ade80 */
+  --c-warn: 251 191 36; /* #fbbf24 */
+  --c-warn-soft: 42 33 16; /* #2a2110 */
+  --c-warn-ink: 252 211 77; /* #fcd34d */
+  --c-danger: 248 113 113; /* #f87171 */
+  --c-danger-soft: 42 21 24; /* #2a1518 */
+  --c-danger-ink: 252 165 165; /* #fca5a5 */
+  --c-info: 96 165 250; /* #60a5fa */
+  --c-info-soft: 18 29 46; /* #121d2e */
+  --c-info-ink: 147 197 253; /* #93c5fd */
+
+  /* Effect tokens — overlays, sheens, textures, shadows (dark-tuned). */
+  --hover: 255 255 255; /* hover/active overlay base (RGB) */
+  --hover-opacity: 0.05; /* default hover overlay strength */
+  --highlight: 255 255 255; /* glass top "lit edge" */
+  --sheen-strong: 0.05; /* glass-strong vertical sheen */
+  --sheen: 0.035; /* glass vertical sheen */
+  --texture: 255 255 255; /* grid / noise base */
+  --texture-opacity: 0.03;
+  --scrollbar: 255 255 255;
+  --selection: 255, 255, 255; /* selection text color (comma list) */
+  --focus-bg: 13 13 17; /* focus ring inner gap = paper */
+  --frost-bg: 23 23 28; /* topbar frost base */
+  --frost-opacity: 0.7;
+
+  --paper-wash: radial-gradient(
+      at 0% 0%,
+      rgba(245, 104, 63, 0.1) 0px,
+      transparent 42%
+    ),
+    radial-gradient(at 100% 0%, rgba(245, 104, 63, 0.05) 0px, transparent 38%);
+
+  --shadow-xs: 0 1px 2px 0 rgba(0, 0, 0, 0.4);
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.35), 0 1px 3px rgba(0, 0, 0, 0.3);
+  --shadow-elevated: 0 1px 2px rgba(0, 0, 0, 0.4),
+    0 10px 30px -10px rgba(0, 0, 0, 0.6);
+  --shadow-pop: 0 16px 40px -12px rgba(0, 0, 0, 0.7),
+    0 2px 8px rgba(0, 0, 0, 0.5);
+
+  color-scheme: dark;
+}
+
+[data-theme="light"] {
+  /* ── Light palette ── warm off-white canvas, clean white cards, same coral
+     accent. Inks are dark greys; lines are soft warm hairlines. */
+  --c-paper: 247 247 249; /* #f7f7f9 */
+  --c-surface: 255 255 255; /* #ffffff */
+  --c-surface-2: 243 243 246; /* #f3f3f6 */
+
+  --c-ink: 24 24 28; /* #18181c */
+  --c-ink-700: 56 56 63; /* #38383f */
+  --c-ink-500: 99 99 109; /* #63636d */
+  --c-ink-400: 132 132 142; /* #84848e */
+  --c-ink-300: 168 168 178; /* #a8a8b2 */
+
+  --c-line: 230 230 235; /* #e6e6eb */
+  --c-line-strong: 213 213 220; /* #d5d5dc */
+
+  /* Accent base stays the same coral; soft/ink tints flip for light surfaces. */
+  --c-accent: 233 84 44; /* #e9542c — slightly deeper for contrast on white */
+  --c-accent-600: 211 71 35; /* #d34723 */
+  --c-accent-500: 245 104 63; /* #f5683f */
+  --c-accent-400: 255 129 89; /* #ff8159 */
+  --c-accent-soft: 254 237 230; /* #feede6 */
+  --c-accent-ink: 200 64 30; /* #c8401e */
+
+  --c-success: 5 150 105; /* #059669 */
+  --c-success-soft: 220 245 233; /* #dcf5e9 */
+  --c-success-ink: 4 120 87; /* #047857 */
+  --c-warn: 217 119 6; /* #d97706 */
+  --c-warn-soft: 254 243 219; /* #fef3db */
+  --c-warn-ink: 180 83 9; /* #b45309 */
+  --c-danger: 220 38 38; /* #dc2626 */
+  --c-danger-soft: 254 232 232; /* #fee8e8 */
+  --c-danger-ink: 185 28 28; /* #b91c1c */
+  --c-info: 37 99 235; /* #2563eb */
+  --c-info-soft: 224 234 254; /* #e0eafe */
+  --c-info-ink: 29 78 216; /* #1d4ed8 */
+
+  /* Effect tokens — on light, overlays/textures are dark-on-light, sheens off. */
+  --hover: 17 17 24; /* hover overlay base = near-black */
+  --hover-opacity: 0.04;
+  --highlight: 255 255 255; /* lit edge stays white but barely shows */
+  --sheen-strong: 0;
+  --sheen: 0;
+  --texture: 17 17 24;
+  --texture-opacity: 0.025;
+  --scrollbar: 17 17 24;
+  --selection: 17, 17, 24;
+  --focus-bg: 247 247 249;
+  --frost-bg: 255 255 255;
+  --frost-opacity: 0.72;
+
+  --paper-wash: radial-gradient(
+      at 0% 0%,
+      rgba(245, 104, 63, 0.08) 0px,
+      transparent 42%
+    ),
+    radial-gradient(at 100% 0%, rgba(245, 104, 63, 0.04) 0px, transparent 38%);
+
+  --shadow-xs: 0 1px 2px 0 rgba(17, 24, 39, 0.06);
+  --shadow-card: 0 1px 2px rgba(17, 24, 39, 0.05),
+    0 1px 3px rgba(17, 24, 39, 0.07);
+  --shadow-elevated: 0 1px 2px rgba(17, 24, 39, 0.06),
+    0 12px 28px -12px rgba(17, 24, 39, 0.18);
+  --shadow-pop: 0 18px 40px -14px rgba(17, 24, 39, 0.22),
+    0 2px 8px rgba(17, 24, 39, 0.08);
+
+  color-scheme: light;
 }
 
 * {
@@ -15,11 +156,13 @@ html,
 body {
   padding: 0;
   margin: 0;
-  background: #0d0d11; /* paper (dark canvas) */
-  color: #f4f4f6; /* ink */
+  background: rgb(var(--c-paper));
+  color: rgb(var(--c-ink));
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
+  /* Smooth the swap when toggling themes. */
+  transition: background-color 0.3s ease, color 0.3s ease;
 }
 
 body {
@@ -44,17 +187,17 @@ body {
 /* Selection — tinted with the brand accent. */
 ::selection {
   background: rgba(245, 104, 63, 0.3);
-  color: #ffffff;
+  color: rgb(var(--selection));
 }
 
 /* Focus — visible, branded, never on mouse clicks. */
 :focus-visible {
   outline: none;
-  box-shadow: 0 0 0 2px #0d0d11, 0 0 0 4px rgba(245, 104, 63, 0.55);
+  box-shadow: 0 0 0 2px rgb(var(--focus-bg)), 0 0 0 4px rgba(245, 104, 63, 0.55);
   border-radius: 6px;
 }
 
-/* Custom scrollbar — quiet, thin, dark. */
+/* Custom scrollbar — quiet, thin, theme-aware. */
 ::-webkit-scrollbar {
   width: 10px;
   height: 10px;
@@ -63,29 +206,30 @@ body {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.09);
+  background: rgba(var(--scrollbar), 0.16);
   border-radius: 8px;
   border: 3px solid transparent;
   background-clip: content-box;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.18);
+  background: rgba(var(--scrollbar), 0.3);
   background-clip: content-box;
 }
 
 @layer components {
-  /* ── Premium dark surfaces ─────────────────────────────────────────────
-     Class names reused across the app. A "material" look: charcoal base,
+  /* ── Premium surfaces ──────────────────────────────────────────────────
+     Class names reused across the app. A "material" look: a base surface,
      a 1px top inner-highlight (light catching the top edge), and a faint
-     vertical sheen — the trick that makes flat dark cards read as physical.*/
+     vertical sheen — the trick that makes flat cards read as physical.
+     The sheen/highlight strengths re-theme (strong on dark, off on light). */
 
   .glass {
     position: relative;
     @apply rounded-2xl border border-line bg-surface shadow-card;
     background-image: linear-gradient(
       180deg,
-      rgba(255, 255, 255, 0.035) 0%,
-      rgba(255, 255, 255, 0) 38%
+      rgba(var(--highlight), var(--sheen)) 0%,
+      rgba(var(--highlight), 0) 38%
     );
   }
   /* Inner top-edge highlight — the premium "lit edge". */
@@ -97,7 +241,7 @@ body {
     padding-top: 1px;
     background: linear-gradient(
       180deg,
-      rgba(255, 255, 255, 0.14),
+      rgba(var(--highlight), 0.14),
       transparent 1px
     );
     -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
@@ -111,8 +255,8 @@ body {
     @apply rounded-2xl border border-line bg-surface shadow-elevated;
     background-image: linear-gradient(
       180deg,
-      rgba(255, 255, 255, 0.05) 0%,
-      rgba(255, 255, 255, 0) 42%
+      rgba(var(--highlight), var(--sheen-strong)) 0%,
+      rgba(var(--highlight), 0) 42%
     );
   }
   .glass-strong::before {
@@ -123,7 +267,7 @@ body {
     padding-top: 1px;
     background: linear-gradient(
       180deg,
-      rgba(255, 255, 255, 0.18),
+      rgba(var(--highlight), 0.18),
       transparent 1px
     );
     -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
@@ -162,9 +306,22 @@ body {
 
   /* Frosted bar — sticky chrome (topbar). */
   .frost {
-    background-color: rgba(23, 23, 28, 0.7);
+    background-color: rgba(var(--frost-bg), var(--frost-opacity));
     -webkit-backdrop-filter: saturate(160%) blur(14px);
     backdrop-filter: saturate(160%) blur(14px);
+  }
+
+  /* Theme-aware hover/active overlay. Replaces hardcoded `bg-white/[0.0x]`
+     so interactive surfaces read correctly on both dark and light. */
+  .hover-surface {
+    @apply transition-colors;
+  }
+  .hover-surface:hover {
+    background-color: rgba(var(--hover), var(--hover-opacity));
+  }
+  /* A slightly stronger variant for prominent controls (icon buttons, menus). */
+  .hover-surface-strong:hover {
+    background-color: rgba(var(--hover), calc(var(--hover-opacity) + 0.02));
   }
 
   /* Animated shine sweep — overlay for primary CTAs / hero. */
@@ -199,13 +356,13 @@ body {
   }
 }
 
-/* Shimmer loading skeleton — dark. */
+/* Shimmer loading skeleton — theme-aware. */
 .skeleton {
   background: linear-gradient(
     90deg,
-    rgba(255, 255, 255, 0.04) 25%,
-    rgba(255, 255, 255, 0.09) 37%,
-    rgba(255, 255, 255, 0.04) 63%
+    rgba(var(--texture), calc(var(--texture-opacity) + 0.01)) 25%,
+    rgba(var(--texture), calc(var(--texture-opacity) + 0.06)) 37%,
+    rgba(var(--texture), calc(var(--texture-opacity) + 0.01)) 63%
   );
   background-size: 400% 100%;
   animation: skeleton-loading 1.4s ease infinite;
@@ -219,11 +376,11 @@ body {
   }
 }
 
-/* Faint grid texture. */
+/* Faint grid texture (theme-aware). */
 .bg-grid {
   background-image:
-    linear-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+    linear-gradient(rgba(var(--texture), var(--texture-opacity)) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(var(--texture), var(--texture-opacity)) 1px, transparent 1px);
   background-size: 56px 56px;
 }
 

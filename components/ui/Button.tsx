@@ -21,7 +21,7 @@ const variants: Record<Variant, string> = {
     "bg-surface-2 text-ink-700 border border-line shadow-xs hover:bg-surface hover:border-line-strong hover:text-ink",
   // Ghost — quiet, text-only.
   ghost:
-    "text-ink-500 hover:text-ink hover:bg-white/[0.05]",
+    "hover-surface text-ink-500 hover:text-ink",
   // Danger.
   danger:
     "bg-danger text-white shadow-xs hover:brightness-[1.06]",

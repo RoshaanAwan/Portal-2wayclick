@@ -1,7 +1,8 @@
 "use client";
 
+import { useTransition } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import {
   LayoutDashboard,
@@ -15,6 +16,7 @@ import {
   Hexagon,
   Sparkles,
 } from "lucide-react";
+import { useState } from "react";
 import { cn } from "@/lib/utils";
 
 const NAV = [
@@ -30,6 +32,32 @@ const NAV = [
 
 export function Sidebar() {
   const pathname = usePathname();
+  const router = useRouter();
+  const [isPending, startTransition] = useTransition();
+  // Optimistic target: the href the user just clicked. We light it up instantly
+  // instead of waiting for the destination's server data to load (which is what
+  // makes the highlight feel laggy when bound to `pathname` alone).
+  const [target, setTarget] = useState<string | null>(null);
+
+  // While a navigation is in flight, treat the clicked href as the active one.
+  // Once it lands (or no nav is pending) fall back to the real pathname.
+  const activePath = isPending && target ? target : pathname;
+
+  function isActive(href: string) {
+    return (
+      activePath === href ||
+      (href !== "/dashboard" && activePath.startsWith(href))
+    );
+  }
+
+  function go(e: React.MouseEvent, href: string) {
+    // Let modified clicks (new tab, etc.) behave natively.
+    if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+    e.preventDefault();
+    if (href === pathname) return;
+    setTarget(href); // flip the highlight immediately
+    startTransition(() => router.push(href));
+  }
 
   return (
     <aside className="fixed inset-y-0 left-0 z-30 hidden w-64 flex-col p-3 lg:flex">
@@ -55,19 +83,19 @@ export function Sidebar() {
         <nav className="flex-1 space-y-0.5">
           <p className="eyebrow mb-2 px-3">Workspace</p>
           {NAV.map((item) => {
-            const active =
-              pathname === item.href ||
-              (item.href !== "/dashboard" && pathname.startsWith(item.href));
+            const active = isActive(item.href);
             const Icon = item.icon;
             return (
               <Link
                 key={item.href}
                 href={item.href}
+                onClick={(e) => go(e, item.href)}
+                aria-current={active ? "page" : undefined}
                 className={cn(
                   "group relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors",
                   active
                     ? "text-white"
-                    : "text-ink-500 hover:text-ink hover:bg-white/[0.04]",
+                    : "hover-surface text-ink-500 hover:text-ink",
                 )}
               >
                 {active && (

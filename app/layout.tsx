@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Inter, Space_Grotesk } from "next/font/google";
 import "./globals.css";
 import { AnimatedBackground } from "@/components/AnimatedBackground";
+import { ThemeProvider, themeInitScript } from "@/components/ThemeProvider";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -30,11 +31,20 @@ export default function RootLayout({
   return (
     <html
       lang="en"
+      // Default to dark for SSR; the inline script below corrects it before
+      // paint based on the saved/OS preference, so there's no theme flash.
+      data-theme="dark"
+      suppressHydrationWarning
       className={`${inter.variable} ${spaceGrotesk.variable}`}
     >
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
+      </head>
       <body>
-        <AnimatedBackground />
-        {children}
+        <ThemeProvider>
+          <AnimatedBackground />
+          {children}
+        </ThemeProvider>
       </body>
     </html>
   );

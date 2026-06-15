@@ -14,6 +14,7 @@ import {
   CheckCheck,
 } from "lucide-react";
 import { Avatar } from "@/components/ui/Avatar";
+import { ThemeToggle } from "@/components/ThemeToggle";
 import { timeAgo } from "@/lib/utils";
 import type { SafeUser } from "@/lib/auth";
 
@@ -73,6 +74,9 @@ export function Topbar({
 
         <div className="flex-1" />
 
+        {/* Theme switch */}
+        <ThemeToggle />
+
         {/* Notifications */}
         <div className="relative">
           <button
@@ -82,7 +86,7 @@ export function Topbar({
               setNotifOpen((o) => !o);
               setMenuOpen(false);
             }}
-            className="relative grid h-9 w-9 place-items-center rounded-xl text-ink-400 transition hover:bg-white/[0.05] hover:text-ink-700"
+            className="hover-surface relative grid h-9 w-9 place-items-center rounded-xl text-ink-400 transition hover:text-ink-700"
           >
             <Bell className="h-[18px] w-[18px]" />
             {hasUnread && (
@@ -131,7 +135,7 @@ export function Topbar({
                     <ul className="max-h-80 overflow-y-auto py-1">
                       {notifications.map((n) => (
                         <li key={n.id}>
-                          <div className="flex items-start gap-2.5 px-3 py-2.5 transition hover:bg-white/[0.04]">
+                          <div className="hover-surface flex items-start gap-2.5 px-3 py-2.5">
                             <Avatar
                               name={n.user.name}
                               src={n.user.avatarUrl}
@@ -162,7 +166,7 @@ export function Topbar({
                   <Link
                     href="/dashboard"
                     onClick={() => setNotifOpen(false)}
-                    className="block border-t border-line px-4 py-2.5 text-center text-xs font-medium text-ink-500 transition hover:bg-white/[0.04] hover:text-ink"
+                    className="hover-surface block border-t border-line px-4 py-2.5 text-center text-xs font-medium text-ink-500 hover:text-ink"
                   >
                     View all activity
                   </Link>
@@ -182,7 +186,7 @@ export function Topbar({
               setNotifOpen(false);
             }}
             aria-expanded={menuOpen}
-            className="flex items-center gap-2.5 rounded-xl py-1 pl-1 pr-2 transition hover:bg-white/[0.05]"
+            className="hover-surface flex items-center gap-2.5 rounded-xl py-1 pl-1 pr-2"
           >
             <Avatar name={user.name} src={user.avatarUrl} size="sm" />
             <div className="hidden text-left sm:block">
@@ -225,7 +229,7 @@ export function Topbar({
                     <Link
                       href={`/directory/${user.id}`}
                       onClick={() => setMenuOpen(false)}
-                      className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-ink-500 transition hover:bg-white/[0.05] hover:text-ink"
+                      className="hover-surface flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-ink-500 hover:text-ink"
                     >
                       <User className="h-4 w-4" />
                       My profile
@@ -233,7 +237,7 @@ export function Topbar({
                     <Link
                       href="/settings"
                       onClick={() => setMenuOpen(false)}
-                      className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-ink-500 transition hover:bg-white/[0.05] hover:text-ink"
+                      className="hover-surface flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-ink-500 hover:text-ink"
                     >
                       <Settings className="h-4 w-4" />
                       Settings

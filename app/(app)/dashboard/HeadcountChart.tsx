@@ -12,11 +12,19 @@ import {
   type TooltipProps,
 } from "recharts";
 import { GlassCard } from "@/components/ui/GlassCard";
+import { useTheme } from "@/components/ThemeProvider";
 
 interface DeptCount {
   department: string;
   count: number;
 }
+
+// Axis/grid colors per theme — recharts needs concrete values (it renders into
+// SVG attributes, not Tailwind classes), so we pick them from the active theme.
+const AXIS = {
+  dark: { xTick: "#9a9aa5", yTick: "#74747f", axis: "#26262d" },
+  light: { xTick: "#63636d", yTick: "#84848e", axis: "#e6e6eb" },
+} as const;
 
 function CustomTooltip({ active, payload }: TooltipProps<number, string>) {
   if (!active || !payload || payload.length === 0) return null;
@@ -40,6 +48,8 @@ export function HeadcountChart({
   total: number;
 }) {
   const peak = data.length ? Math.max(...data.map((d) => d.count)) : 0;
+  const { theme } = useTheme();
+  const c = AXIS[theme];
 
   return (
     <GlassCard
@@ -88,15 +98,15 @@ export function HeadcountChart({
             </defs>
             <XAxis
               dataKey="department"
-              tick={{ fill: "#9a9aa5", fontSize: 11 }}
+              tick={{ fill: c.xTick, fontSize: 11 }}
               tickLine={false}
-              axisLine={{ stroke: "#26262d" }}
+              axisLine={{ stroke: c.axis }}
               interval={0}
               tickFormatter={(v: string) => (v.length > 7 ? v.slice(0, 6) + "…" : v)}
             />
             <YAxis
               allowDecimals={false}
-              tick={{ fill: "#74747f", fontSize: 11 }}
+              tick={{ fill: c.yTick, fontSize: 11 }}
               tickLine={false}
               axisLine={false}
               width={32}
