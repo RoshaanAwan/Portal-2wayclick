@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { audit } from "@/lib/audit";
 import { z } from "zod";
 
 const schema = z.object({
@@ -10,11 +11,26 @@ const schema = z.object({
 
 export async function POST(req: Request) {
   try {
-    await requireUser();
+    const actor = await requireUser();
     const { taskId, userId } = schema.parse(await req.json());
 
     // deleteMany is idempotent — removing a non-existent assignment is fine.
     await db.taskAssignee.deleteMany({ where: { taskId, userId } });
+
+    const [task, member] = await Promise.all([
+      db.task.findUnique({ where: { id: taskId }, select: { title: true } }),
+      db.user.findUnique({ where: { id: userId }, select: { name: true } }),
+    ]);
+
+    await audit({
+      actor,
+      action: "task.unassign",
+      entity: "Task",
+      entityId: taskId,
+      targetUserId: userId,
+      summary: `${actor.name} unassigned ${member?.name ?? "a member"} from “${task?.title ?? "a task"}”`,
+      detail: { removedUserId: userId, taskId },
+    });
 
     return NextResponse.json({ ok: true });
   } catch (e: any) {

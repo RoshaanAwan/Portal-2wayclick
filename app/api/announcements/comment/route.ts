@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { audit } from "@/lib/audit";
+import { recordActivity } from "@/lib/activityFeed";
 import { z } from "zod";
 
 const schema = z.object({
@@ -25,12 +27,15 @@ export async function POST(req: Request) {
       data: { announcementId, authorId: user.id, body },
     });
 
-    await db.activity.create({
-      data: {
-        userId: user.id,
-        verb: "commented",
-        target: announcement.title,
-      },
+    await recordActivity({ actor: user, verb: "commented", target: announcement.title });
+
+    await audit({
+      actor: user,
+      action: "announcement.comment",
+      entity: "Announcement",
+      entityId: announcement.id,
+      summary: `${user.name} commented on “${announcement.title}”`,
+      detail: { body },
     });
 
     return NextResponse.json({ ok: true });

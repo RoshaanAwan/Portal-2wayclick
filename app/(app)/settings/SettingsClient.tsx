@@ -27,8 +27,8 @@ import { useTheme, type Theme } from "@/components/ThemeProvider";
 import { cn } from "@/lib/utils";
 
 const THEMES: { key: Theme; label: string; desc: string; Icon: typeof Moon }[] = [
-  { key: "dark", label: "Dark", desc: "Charcoal canvas, warm accent", Icon: Moon },
-  { key: "light", label: "Light", desc: "Bright canvas, clean surfaces", Icon: Sun },
+  { key: "dark", label: "Dark", desc: "Deep canvas, flat surfaces", Icon: Moon },
+  { key: "light", label: "Light", desc: "Bright canvas, flat surfaces", Icon: Sun },
 ];
 
 interface SettingsUser {
@@ -107,7 +107,14 @@ function Row({
   );
 }
 
-export function SettingsClient({ user }: { user: SettingsUser }) {
+export function SettingsClient({
+  user,
+  canViewProfile = true,
+}: {
+  user: SettingsUser;
+  /** Public profile is under the admin-tier-only directory. */
+  canViewProfile?: boolean;
+}) {
   const router = useRouter();
   const { theme, setTheme } = useTheme();
   const [active, setActive] = useState<(typeof SECTIONS)[number]["id"]>("profile");
@@ -235,7 +242,7 @@ export function SettingsClient({ user }: { user: SettingsUser }) {
                 {on && (
                   <motion.span
                     layoutId="settings-nav"
-                    className="absolute inset-0 rounded-xl bg-accent-grad shadow-accent-glow"
+                    className="absolute inset-0 rounded-xl bg-accent-grad"
                     transition={{ type: "spring", stiffness: 380, damping: 32 }}
                   />
                 )}
@@ -267,7 +274,7 @@ export function SettingsClient({ user }: { user: SettingsUser }) {
                           onClick={() => fileInput.current?.click()}
                           disabled={uploading}
                           aria-label="Change profile photo"
-                          className="absolute -bottom-1 -right-1 grid h-8 w-8 place-items-center rounded-full bg-accent-grad text-white shadow-accent-glow transition hover:brightness-105 active:scale-95 disabled:opacity-60"
+                          className="absolute -bottom-1 -right-1 grid h-8 w-8 place-items-center rounded-full bg-accent-grad text-white transition hover:brightness-105 active:scale-95 disabled:opacity-60"
                         >
                           {uploading ? (
                             <Loader2 className="h-4 w-4 animate-spin" />
@@ -304,12 +311,14 @@ export function SettingsClient({ user }: { user: SettingsUser }) {
                           </button>
                         )}
                       </div>
-                      <Link href={`/directory/${user.id}`}>
-                        <Button type="button" variant="glass" size="sm">
-                          View public profile
-                          <ExternalLink className="h-3.5 w-3.5" />
-                        </Button>
-                      </Link>
+                      {canViewProfile && (
+                        <Link href={`/directory/${user.id}`}>
+                          <Button type="button" variant="glass" size="sm">
+                            View public profile
+                            <ExternalLink className="h-3.5 w-3.5" />
+                          </Button>
+                        </Link>
+                      )}
                     </div>
                   </GlassCard>
                 </RevealItem>

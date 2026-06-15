@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { audit } from "@/lib/audit";
+import { notifyMany } from "@/lib/notifications";
+import { recordActivity } from "@/lib/activityFeed";
 import { z } from "zod";
 
 const schema = z.object({
@@ -15,7 +18,12 @@ export async function POST(req: Request) {
 
     const task = await db.task.findUnique({
       where: { id: taskId },
-      select: { id: true, title: true },
+      select: {
+        id: true,
+        title: true,
+        creatorId: true,
+        assignees: { select: { userId: true } },
+      },
     });
     if (!task) {
       return NextResponse.json({ error: "Task not found" }, { status: 404 });
@@ -28,12 +36,28 @@ export async function POST(req: Request) {
       },
     });
 
-    await db.activity.create({
-      data: {
-        userId: user.id,
-        verb: "commented",
-        target: `on “${task.title}”`,
-      },
+    await recordActivity({ actor: user, verb: "commented", target: `on “${task.title}”` });
+
+    // Notify everyone watching the card — its creator and assignees — except the
+    // commenter (notifyMany de-dupes; notify() drops the self-notification).
+    const watchers = [
+      task.creatorId,
+      ...task.assignees.map((a) => a.userId),
+    ].filter((id) => id !== user.id);
+    await notifyMany(watchers, {
+      type: "task.comment",
+      message: `commented on “${task.title}”`,
+      link: "/tasks",
+      actor: user,
+    });
+
+    await audit({
+      actor: user,
+      action: "task.comment",
+      entity: "Task",
+      entityId: task.id,
+      summary: `${user.name} commented on “${task.title}”`,
+      detail: { body },
     });
 
     // Return the created comment so the client can render it immediately.

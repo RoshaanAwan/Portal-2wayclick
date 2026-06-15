@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { audit } from "@/lib/audit";
 import { can } from "@/lib/permissions";
 import { z } from "zod";
 
@@ -44,6 +45,15 @@ export async function POST(req: Request) {
 
     const list = await db.boardList.create({
       data: { name, position, boardId },
+    });
+
+    await audit({
+      actor: user,
+      action: "project.list_create",
+      entity: "BoardList",
+      entityId: list.id,
+      summary: `${user.name} created list “${name}” in project ${board.project.id}`,
+      detail: { name, boardId, projectId: board.project.id },
     });
 
     return NextResponse.json({ ok: true, id: list.id });

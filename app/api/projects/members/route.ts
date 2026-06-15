@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { audit } from "@/lib/audit";
 import { can } from "@/lib/permissions";
 import { z } from "zod";
 
@@ -39,6 +40,16 @@ export async function POST(req: Request) {
         create: { projectId, userId },
         update: {},
       });
+
+      await audit({
+        actor,
+        action: "project.member_add",
+        entity: "Project",
+        entityId: project.id,
+        targetUserId: member.id,
+        summary: `${actor.name} added ${member.name} to ${project.name}`,
+        detail: { memberId: member.id, projectId: project.id },
+      });
     } else {
       // The owner can't be removed from their own project.
       if (userId === project.ownerId) {
@@ -48,6 +59,16 @@ export async function POST(req: Request) {
         );
       }
       await db.projectMember.deleteMany({ where: { projectId, userId } });
+
+      await audit({
+        actor,
+        action: "project.member_remove",
+        entity: "Project",
+        entityId: project.id,
+        targetUserId: member.id,
+        summary: `${actor.name} removed ${member.name} from ${project.name}`,
+        detail: { memberId: member.id, projectId: project.id },
+      });
     }
 
     return NextResponse.json({ ok: true });

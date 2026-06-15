@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { audit } from "@/lib/audit";
+import { recordActivity } from "@/lib/activityFeed";
 import { can } from "@/lib/permissions";
 import { z } from "zod";
 
@@ -49,13 +50,7 @@ export async function POST(req: Request) {
       },
     });
 
-    await db.activity.create({
-      data: {
-        userId: actor.id,
-        verb: "created",
-        target: `the “${name}” project`,
-      },
-    });
+    await recordActivity({ actor, verb: "created", target: `the “${name}” project` });
 
     await audit({
       actor,

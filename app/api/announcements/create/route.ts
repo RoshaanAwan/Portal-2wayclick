@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { audit } from "@/lib/audit";
+import { notifyMany } from "@/lib/notifications";
+import { recordActivity } from "@/lib/activityFeed";
 import { can } from "@/lib/permissions";
 import { z } from "zod";
 import { ANNOUNCEMENT_CATEGORIES } from "@/lib/constants";
@@ -43,13 +45,7 @@ export async function POST(req: Request) {
       },
     });
 
-    await db.activity.create({
-      data: {
-        userId: user.id,
-        verb: "posted",
-        target: title,
-      },
-    });
+    await recordActivity({ actor: user, verb: "posted", target: title });
 
     await audit({
       actor: user,
@@ -59,6 +55,18 @@ export async function POST(req: Request) {
       summary: `${user.name} posted “${title}”`,
       detail: { category, pinned },
     });
+
+    // Notify the whole company (the author is dropped by notify()'s self-check).
+    const everyone = await db.user.findMany({ select: { id: true } });
+    await notifyMany(
+      everyone.map((u) => u.id),
+      {
+        type: "announcement.created",
+        message: `posted “${title}”`,
+        link: "/announcements",
+        actor: user,
+      },
+    );
 
     return NextResponse.json({ ok: true, id: announcement.id });
   } catch (e: any) {

@@ -27,18 +27,26 @@ interface QuickLink {
 export function QuickLinks({
   peopleCount,
   docCount,
+  canSeeDirectory = true,
 }: {
   peopleCount: number;
   docCount: number;
+  /** Directory is admin-tier only — omits the directory link when false. */
+  canSeeDirectory?: boolean;
 }) {
   const LINKS: QuickLink[] = [
-    {
-      label: "Org chart",
-      hint: `${peopleCount} people · Directory`,
-      href: "/directory",
-      icon: Users,
-      tint: "text-accent",
-    },
+    // Directory link only for admin tier; everyone else skips it.
+    ...(canSeeDirectory
+      ? [
+          {
+            label: "Org chart",
+            hint: `${peopleCount} people · Directory`,
+            href: "/directory",
+            icon: Users,
+            tint: "text-accent",
+          } as QuickLink,
+        ]
+      : []),
     {
       label: "Brand assets",
       hint: `${docCount} files · Documents`,

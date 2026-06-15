@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { audit } from "@/lib/audit";
 import { z } from "zod";
 import { TASK_PRIORITIES } from "@/lib/constants";
 
@@ -43,6 +44,15 @@ export async function POST(req: Request) {
           ? { create: { userId: assigneeId } }
           : undefined,
       },
+    });
+
+    await audit({
+      actor: user,
+      action: "task.create",
+      entity: "Task",
+      entityId: task.id,
+      summary: `${user.name} created task “${title}”`,
+      detail: { listId, priority },
     });
 
     return NextResponse.json({ ok: true, id: task.id });

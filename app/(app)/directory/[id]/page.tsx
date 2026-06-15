@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import {
   ArrowLeft,
   Mail,
@@ -11,12 +11,14 @@ import {
   UserRound,
 } from "lucide-react";
 import { db } from "@/lib/db";
+import { getCurrentUser } from "@/lib/auth";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { Avatar } from "@/components/ui/Avatar";
 import { Badge } from "@/components/ui/Badge";
 import { ROLES, ROLE_LABELS } from "@/lib/constants";
 import { isAdminTier } from "@/lib/permissions";
 import { formatDate } from "@/lib/utils";
+import { SlackLinkEditor } from "./SlackLinkEditor";
 
 const deptVariant: Record<
   string,
@@ -42,6 +44,12 @@ export default async function PersonDetailPage({
 }: {
   params: Promise<{ id: string }>;
 }) {
+  // Directory is admin tier only — gate the detail page too, so it can't be
+  // reached by deep-linking to a person's id.
+  const viewer = await getCurrentUser();
+  if (!viewer) redirect("/login");
+  if (!isAdminTier(viewer.role)) redirect("/dashboard");
+
   const { id } = await params;
   const user = await db.user.findUnique({
     where: { id },
@@ -135,13 +143,18 @@ export default async function PersonDetailPage({
       </GlassCard>
 
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
-        {/* Bio */}
-        <GlassCard hover={false} className="lg:col-span-2 p-6">
-          <h2 className="eyebrow">About</h2>
-          <p className="mt-3 text-sm leading-relaxed text-ink-700">
-            {user.bio || "No bio has been added yet."}
-          </p>
-        </GlassCard>
+        {/* Bio + Slack identity */}
+        <div className="lg:col-span-2 space-y-5">
+          <GlassCard hover={false} className="p-6">
+            <h2 className="eyebrow">About</h2>
+            <p className="mt-3 text-sm leading-relaxed text-ink-700">
+              {user.bio || "No bio has been added yet."}
+            </p>
+          </GlassCard>
+          <GlassCard hover={false} className="p-6">
+            <SlackLinkEditor userId={user.id} initial={user.slackUserId} />
+          </GlassCard>
+        </div>
 
         {/* Manager */}
         <GlassCard hover={false} className="p-6">

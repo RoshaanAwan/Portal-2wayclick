@@ -86,8 +86,11 @@ export const can = {
   manageProjectMembers: (role?: string | null) => isAdminTier(role),
   /** Reach the /admin section (user management). */
   accessAdmin: (role?: string | null) => isAdminTier(role),
-  /** View the full audit log — Super Admin only. */
-  viewAuditLog: (role?: string | null) => isSuperAdmin(role),
+  /** View the full audit log — Super Admin, Admin, and Project Manager. */
+  viewAuditLog: (role?: string | null) =>
+    isAdminTier(role) || role === "PROJECT_MANAGER",
+  /** See the whole company's attendance (not just one's own). Manager tier. */
+  viewAllAttendance: (role?: string | null) => isManagerTier(role),
 };
 
 // ── User-creation authorization ──────────────────────────────────────────────

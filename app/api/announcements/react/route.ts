@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { audit } from "@/lib/audit";
 import { z } from "zod";
 
 const REACTION_EMOJIS = ["🎉", "🔥", "❤️", "👏", "🚀"] as const;
@@ -18,7 +19,7 @@ export async function POST(req: Request) {
     // Ensure the announcement exists before mutating.
     const announcement = await db.announcement.findUnique({
       where: { id: announcementId },
-      select: { id: true },
+      select: { id: true, title: true },
     });
     if (!announcement) {
       return NextResponse.json({ error: "Not found" }, { status: 404 });
@@ -42,6 +43,16 @@ export async function POST(req: Request) {
     await db.reaction.create({
       data: { announcementId, userId: user.id, emoji },
     });
+
+    await audit({
+      actor: user,
+      action: "announcement.react",
+      entity: "Announcement",
+      entityId: announcement.id,
+      summary: `${user.name} reacted to “${announcement.title}”`,
+      detail: { emoji },
+    });
+
     return NextResponse.json({ ok: true, reacted: true });
   } catch (e: any) {
     if (e?.message === "UNAUTHENTICATED")

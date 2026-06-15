@@ -16,41 +16,26 @@ import {
 import { Avatar } from "@/components/ui/Avatar";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { timeAgo } from "@/lib/utils";
+import { useNotifications } from "@/lib/useNotifications";
+import { isAdminTier } from "@/lib/permissions";
 import type { SafeUser } from "@/lib/auth";
 
-export interface TopbarNotification {
-  id: string;
-  verb: string;
-  target: string;
-  createdAt: string;
-  user: { name: string; avatarUrl?: string | null };
-}
-
-// Tint the verb word so each notification reads at a glance.
-const verbColor: Record<string, string> = {
-  posted: "text-accent",
-  approved: "text-success",
-  denied: "text-danger",
-  requested: "text-warn",
-  uploaded: "text-info",
-  commented: "text-accent",
-  joined: "text-success",
+// Tint the notification type so each line reads at a glance.
+const typeColor: Record<string, string> = {
+  "announcement.created": "text-accent",
+  "leave.decided": "text-success",
+  "task.assigned": "text-info",
+  "task.comment": "text-accent",
 };
 
-export function Topbar({
-  user,
-  notifications = [],
-}: {
-  user: SafeUser;
-  notifications?: TopbarNotification[];
-}) {
+export function Topbar({ user }: { user: SafeUser }) {
   const router = useRouter();
   const [menuOpen, setMenuOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
-  // Local "read" state — clearing the dot is a client concern; the feed itself
-  // lives on the dashboard. Persisting per-user read state would need a model.
-  const [read, setRead] = useState(false);
-  const hasUnread = notifications.length > 0 && !read;
+  // Real per-user notifications: loaded over HTTP, kept live via SSE, read state
+  // persisted to the DB. See lib/useNotifications.ts.
+  const { items: notifications, unread, markAllRead } = useNotifications();
+  const hasUnread = unread > 0;
 
   async function logout() {
     await fetch("/api/auth/logout", { method: "POST" });
@@ -90,9 +75,11 @@ export function Topbar({
           >
             <Bell className="h-[18px] w-[18px]" />
             {hasUnread && (
-              <span className="absolute right-2 top-2 flex h-2 w-2">
-                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-accent/70" />
-                <span className="relative inline-flex h-2 w-2 rounded-full bg-accent ring-2 ring-surface" />
+              <span className="absolute -right-0.5 -top-0.5 flex min-w-[18px] items-center justify-center">
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-accent/40" />
+                <span className="relative inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-accent px-1 text-[10px] font-bold leading-none text-white ring-2 ring-surface">
+                  {unread > 9 ? "9+" : unread}
+                </span>
               </span>
             )}
           </button>
@@ -117,7 +104,7 @@ export function Topbar({
                     </h3>
                     {hasUnread && (
                       <button
-                        onClick={() => setRead(true)}
+                        onClick={() => markAllRead()}
                         className="inline-flex items-center gap-1 text-[11px] font-medium text-ink-400 transition hover:text-accent"
                       >
                         <CheckCheck className="h-3.5 w-3.5" />
@@ -133,33 +120,55 @@ export function Topbar({
                     </div>
                   ) : (
                     <ul className="max-h-80 overflow-y-auto py-1">
-                      {notifications.map((n) => (
-                        <li key={n.id}>
+                      {notifications.map((n) => {
+                        const row = (
                           <div className="hover-surface flex items-start gap-2.5 px-3 py-2.5">
+                            {/* Unread marker keeps the dropdown scannable. */}
+                            <span
+                              className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${n.readAt ? "bg-transparent" : "bg-accent"}`}
+                            />
                             <Avatar
-                              name={n.user.name}
-                              src={n.user.avatarUrl}
+                              name={n.actorName ?? "System"}
+                              src={n.actorAvatar}
                               size="sm"
                             />
                             <div className="min-w-0 flex-1">
-                              <p className="text-[13px] leading-snug text-ink-700">
-                                <span className="font-semibold text-ink">
-                                  {n.user.name}
-                                </span>{" "}
+                              <p
+                                className={`text-[13px] leading-snug ${n.readAt ? "text-ink-400" : "text-ink-700"}`}
+                              >
+                                {n.actorName && (
+                                  <span className="font-semibold text-ink">
+                                    {n.actorName}
+                                  </span>
+                                )}{" "}
                                 <span
-                                  className={`font-medium ${verbColor[n.verb] ?? "text-ink-500"}`}
+                                  className={`font-medium ${typeColor[n.type] ?? "text-ink-500"}`}
                                 >
-                                  {n.verb}
-                                </span>{" "}
-                                <span className="text-ink-500">{n.target}</span>
+                                  {n.message}
+                                </span>
                               </p>
                               <p className="mt-0.5 text-[11px] text-ink-400">
                                 {timeAgo(n.createdAt)}
                               </p>
                             </div>
                           </div>
-                        </li>
-                      ))}
+                        );
+                        return (
+                          <li key={n.id}>
+                            {n.link ? (
+                              <Link
+                                href={n.link}
+                                onClick={() => setNotifOpen(false)}
+                                className="block"
+                              >
+                                {row}
+                              </Link>
+                            ) : (
+                              row
+                            )}
+                          </li>
+                        );
+                      })}
                     </ul>
                   )}
 
@@ -226,14 +235,18 @@ export function Topbar({
                     </div>
                   </div>
                   <div className="mt-1 space-y-0.5">
-                    <Link
-                      href={`/directory/${user.id}`}
-                      onClick={() => setMenuOpen(false)}
-                      className="hover-surface flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-ink-500 hover:text-ink"
-                    >
-                      <User className="h-4 w-4" />
-                      My profile
-                    </Link>
+                    {/* Profile page lives under the directory, which is admin
+                        tier only. Others manage their profile via Settings. */}
+                    {isAdminTier(user.role) && (
+                      <Link
+                        href={`/directory/${user.id}`}
+                        onClick={() => setMenuOpen(false)}
+                        className="hover-surface flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-ink-500 hover:text-ink"
+                      >
+                        <User className="h-4 w-4" />
+                        My profile
+                      </Link>
+                    )}
                     <Link
                       href="/settings"
                       onClick={() => setMenuOpen(false)}

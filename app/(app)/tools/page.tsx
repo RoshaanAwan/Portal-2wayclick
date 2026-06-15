@@ -1,5 +1,6 @@
 import { LayoutGrid } from "lucide-react";
 import { getCurrentUser } from "@/lib/auth";
+import { isAdminTier } from "@/lib/permissions";
 import { db } from "@/lib/db";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { AppsGrid } from "./AppsGrid";
@@ -34,7 +35,11 @@ export default async function ToolsPage() {
         {/* Main column — apps + quick links */}
         <div className="space-y-6 lg:col-span-2">
           <AppsGrid />
-          <QuickLinks peopleCount={peopleCount} docCount={docCount} />
+          <QuickLinks
+            peopleCount={peopleCount}
+            docCount={docCount}
+            canSeeDirectory={isAdminTier(user?.role)}
+          />
         </div>
 
         {/* Side column — focus timer + today */}

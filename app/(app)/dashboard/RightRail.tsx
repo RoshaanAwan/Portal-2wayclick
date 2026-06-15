@@ -58,11 +58,19 @@ export function RightRail({
   pinned,
   team,
   department,
+  canSeeDirectory = true,
 }: {
   pinned: PinnedCard[];
   team: TeamMember[];
   department: string;
+  /** Directory is admin-tier only — hides directory links when false. */
+  canSeeDirectory?: boolean;
 }) {
+  // Drop the "Browse directory" quick action for those who can't reach it.
+  const quickActions = canSeeDirectory
+    ? QUICK_ACTIONS
+    : QUICK_ACTIONS.filter((a) => a.href !== "/directory");
+
   return (
     <div className="space-y-6">
       {/* Pinned */}
@@ -151,17 +159,9 @@ export function RightRail({
           </p>
         ) : (
           <div className="space-y-1">
-            {team.map((m, i) => (
-              <motion.div
-                key={m.id}
-                initial={{ opacity: 0, x: 10 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: 0.36 + i * 0.05, duration: 0.3 }}
-              >
-                <Link
-                  href="/directory"
-                  className="flex items-center gap-2.5 rounded-xl px-2 py-1.5 transition hover:bg-surface-2"
-                >
+            {team.map((m, i) => {
+              const row = (
+                <>
                   <Avatar name={m.name} src={m.avatarUrl} size="sm" />
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-medium text-ink-700">
@@ -171,9 +171,30 @@ export function RightRail({
                       {m.title}
                     </p>
                   </div>
-                </Link>
-              </motion.div>
-            ))}
+                </>
+              );
+              return (
+                <motion.div
+                  key={m.id}
+                  initial={{ opacity: 0, x: 10 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ delay: 0.36 + i * 0.05, duration: 0.3 }}
+                >
+                  {canSeeDirectory ? (
+                    <Link
+                      href="/directory"
+                      className="flex items-center gap-2.5 rounded-xl px-2 py-1.5 transition hover:bg-surface-2"
+                    >
+                      {row}
+                    </Link>
+                  ) : (
+                    <div className="flex items-center gap-2.5 rounded-xl px-2 py-1.5">
+                      {row}
+                    </div>
+                  )}
+                </motion.div>
+              );
+            })}
           </div>
         )}
       </GlassCard>
@@ -190,7 +211,7 @@ export function RightRail({
           <h2 className="font-display text-[15px] font-semibold tracking-tight text-ink">Quick actions</h2>
         </div>
         <div className="space-y-2">
-          {QUICK_ACTIONS.map((a, i) => (
+          {quickActions.map((a, i) => (
             <motion.div
               key={a.href}
               initial={{ opacity: 0, y: 8 }}

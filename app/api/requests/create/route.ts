@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { audit } from "@/lib/audit";
+import { recordActivity } from "@/lib/activityFeed";
 import { LEAVE_TYPES } from "@/lib/constants";
 
 const schema = z
@@ -47,13 +49,20 @@ export async function POST(req: Request) {
       },
     });
 
-    await db.activity.create({
-      data: {
-        userId: user.id,
-        verb: "requested",
-        target: `${type} time off`,
-        meta: JSON.stringify({ requestId: request.id }),
-      },
+    await recordActivity({
+      actor: user,
+      verb: "requested",
+      target: `${type} time off`,
+      meta: { requestId: request.id },
+    });
+
+    await audit({
+      actor: user,
+      action: "leave.create",
+      entity: "LeaveRequest",
+      entityId: request.id,
+      summary: `${user.name} requested ${type} time off`,
+      detail: { type, startDate, endDate },
     });
 
     return NextResponse.json({ ok: true, id: request.id });

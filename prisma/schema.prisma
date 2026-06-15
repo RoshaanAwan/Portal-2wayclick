@@ -26,6 +26,12 @@ model User {
   phone        String?
   location     String?
   bio          String?
+  // Slack identity, used to attribute Slack check-in/out events to this user.
+  // slackUserId is the stable Slack user ID (e.g. "U012ABCDEF"); slackHandle is
+  // the human-friendly @name kept only for display/debugging. Either may be set
+  // by an admin; the webhook also falls back to matching Slack email → email.
+  slackUserId  String?  @unique
+  slackHandle  String?
   startDate    DateTime @default(now())
   managerId    String?
   manager      User?    @relation("ManagerReports", fields: [managerId], references: [id])
@@ -50,6 +56,9 @@ model User {
   projectMemberships ProjectMember[]
   auditLogs          AuditLog[]         @relation("AuditActor")
   auditedBy          AuditLog[]         @relation("AuditTargetUser")
+  notifications      Notification[]     @relation("NotifRecipient")
+  triggeredNotifs    Notification[]     @relation("NotifActor")
+  attendance         Attendance[]
 }
 
 model Session {
@@ -138,6 +147,37 @@ model LeaveRequest {
   decidedAt  DateTime?
 }
 
+// ── Attendance ───────────────────────────────────────────────────────────────
+// One row per user per calendar day, driven by Slack check-in/check-out events
+// the local bot forwards to POST /api/attendance/slack. The first check-in of a
+// day opens the row (sets checkInAt + status PRESENT); a check-out stamps
+// checkOutAt and sets status CHECKED_OUT. `day` is the date at midnight (server
+// time) and is unique per user so repeated events update the same row instead of
+// creating duplicates. See lib/attendance.ts for the recording logic.
+model Attendance {
+  id         String    @id @default(cuid())
+  userId     String
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // Calendar day this record covers, normalized to midnight (server time).
+  day        DateTime
+  // First check-in and most recent check-out for the day (null until they happen).
+  checkInAt  DateTime?
+  checkOutAt DateTime?
+  // Status: PRESENT (checked in, not yet out) | CHECKED_OUT.
+  status     String    @default("PRESENT")
+  // Where the event came from, for provenance ("slack" today; room to grow).
+  source     String    @default("slack")
+  // Count of raw events received for the day (a person may check in/out twice).
+  events     Int       @default(0)
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  // One row per person per day; lets the webhook upsert idempotently.
+  @@unique([userId, day])
+  // Newest-first lookups for the attendance dashboard.
+  @@index([day])
+}
+
 model Activity {
   id        String   @id @default(cuid())
   userId    String
@@ -154,23 +194,23 @@ model Activity {
 // entity, with structured before/after detail and the request IP. Only viewable
 // by Super Admin (see lib/permissions.ts → can.viewAuditLog).
 model AuditLog {
-  id      String @id @default(cuid())
+  id           String  @id @default(cuid())
   // Who performed the action. Kept even if the actor is later deleted.
-  actorId String?
-  actor   User?   @relation("AuditActor", fields: [actorId], references: [id], onDelete: SetNull)
+  actorId      String?
+  actor        User?   @relation("AuditActor", fields: [actorId], references: [id], onDelete: SetNull)
   // Denormalized actor identity so the log survives user deletion.
-  actorName  String
-  actorRole  String
+  actorName    String
+  actorRole    String
   // What happened, e.g. "user.create", "user.role_change", "auth.login".
-  action  String
+  action       String
   // The kind of entity touched, e.g. "User", "Project", "LeaveRequest".
-  entity   String
-  entityId String?
+  entity       String
+  entityId     String?
   // Optional human-readable summary + structured JSON detail (before/after).
-  summary String?
-  detail  String? // JSON string
-  ip      String?
-  userAgent String?
+  summary      String?
+  detail       String? // JSON string
+  ip           String?
+  userAgent    String?
   // Optional: the user this action was performed ON (e.g. the created user).
   targetUserId String?
   targetUser   User?   @relation("AuditTargetUser", fields: [targetUserId], references: [id], onDelete: SetNull)
@@ -267,6 +307,40 @@ model TaskComment {
   authorId  String
   author    User     @relation(fields: [authorId], references: [id])
   createdAt DateTime @default(now())
+}
+
+// ── Notifications ─────────────────────────────────────────────────────────────
+// Per-user inbox. Distinct from Activity (a global social feed) and AuditLog
+// (privileged-action trail): a Notification is addressed TO one user, carries a
+// deep link to the thing that happened, and tracks its own read state. Written
+// by lib/notifications.ts → notify(); surfaced in the topbar bell with a live
+// (SSE) unread badge.
+model Notification {
+  id          String    @id @default(cuid())
+  // Recipient — whose inbox this lands in.
+  userId      String
+  user        User      @relation("NotifRecipient", fields: [userId], references: [id], onDelete: Cascade)
+  // Who caused it (optional — system notifications have no actor). Denormalized
+  // name/avatar are stored so the bell renders without a join even if the actor
+  // is later deleted.
+  actorId     String?
+  actor       User?     @relation("NotifActor", fields: [actorId], references: [id], onDelete: SetNull)
+  actorName   String?
+  actorAvatar String?
+  // Kind, e.g. "leave.decided", "task.assigned", "task.comment",
+  // "announcement.created". Keep grep-able and consistent.
+  type        String
+  // Human-readable line shown in the bell.
+  message     String
+  // In-app deep link to the relevant page, e.g. "/requests" or "/tasks".
+  link        String?
+  // Null until the user reads it.
+  readAt      DateTime?
+  createdAt   DateTime  @default(now())
+
+  // Newest-first lookups scoped to a recipient, and unread counts.
+  @@index([userId, createdAt])
+  @@index([userId, readAt])
 }
 
 // Many-to-many join: who is assigned to a card (Trello "members").

@@ -3,6 +3,7 @@ import { z } from "zod";
 import { requireUser, hashPassword } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { audit } from "@/lib/audit";
+import { recordActivity } from "@/lib/activityFeed";
 import {
   ROLES,
   ROLE_LABELS,
@@ -16,7 +17,15 @@ const schema = z.object({
   email: z.string().trim().toLowerCase().email("Valid email required"),
   password: z.string().min(8, "Password must be at least 8 characters").max(200),
   role: z.enum(ROLES),
-  title: z.string().trim().min(1).max(120).optional(),
+  // Job title is optional in the form. The client sends "" for a blank field,
+  // so normalize empty/whitespace to undefined before validating the length —
+  // otherwise "" trips .min(1) ("String must contain at least 1 character(s)").
+  title: z
+    .string()
+    .trim()
+    .max(120)
+    .optional()
+    .transform((v) => (v ? v : undefined)),
   department: z.enum(DEPARTMENTS).optional(),
 });
 
@@ -63,7 +72,7 @@ export async function POST(req: Request) {
         title: data.title?.trim() || ROLE_LABELS[data.role],
         department: data.department ?? "Executive",
       },
-      select: { id: true, name: true, email: true, role: true },
+      select: { id: true, name: true, email: true, role: true, title: true },
     });
 
     // 4. Audit trail (the "track everything" requirement) — never log the
@@ -83,13 +92,12 @@ export async function POST(req: Request) {
       },
     });
 
-    // 5. Social feed entry (the dashboard "joined" activity).
-    await db.activity.create({
-      data: {
-        userId: created.id,
-        verb: "joined",
-        target: "the workspace",
-      },
+    // 5. Social feed entry (the dashboard "joined" activity). The actor IS the
+    //    new hire — they have no avatar yet, so the wall shows their initials.
+    await recordActivity({
+      actor: { id: created.id, name: created.name, title: created.title, avatarUrl: null },
+      verb: "joined",
+      target: "the workspace",
     });
 
     return NextResponse.json({ ok: true, id: created.id });

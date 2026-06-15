@@ -69,7 +69,7 @@ export function ProjectComposer({
     <GlassCard strong glow hover={false} className="p-5">
       <form onSubmit={submit} className="space-y-4">
         <div className="flex items-center gap-2.5">
-          <div className="grid h-9 w-9 place-items-center rounded-xl bg-accent-grad text-white shadow-accent-glow">
+          <div className="grid h-9 w-9 place-items-center rounded-xl bg-accent-grad text-white">
             <FolderPlus className="h-[18px] w-[18px]" />
           </div>
           <div>

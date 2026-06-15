@@ -3,6 +3,8 @@ import { z } from "zod";
 import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { audit } from "@/lib/audit";
+import { notify } from "@/lib/notifications";
+import { recordActivity } from "@/lib/activityFeed";
 import { can } from "@/lib/permissions";
 
 const schema = z.object({
@@ -44,13 +46,11 @@ export async function POST(req: Request) {
       },
     });
 
-    await db.activity.create({
-      data: {
-        userId: user.id,
-        verb: decision === "APPROVED" ? "approved" : "denied",
-        target: `${request.owner.name}'s ${request.type} request`,
-        meta: JSON.stringify({ requestId: request.id }),
-      },
+    await recordActivity({
+      actor: user,
+      verb: decision === "APPROVED" ? "approved" : "denied",
+      target: `${request.owner.name}'s ${request.type} request`,
+      meta: { requestId: request.id },
     });
 
     await audit({
@@ -61,6 +61,15 @@ export async function POST(req: Request) {
       targetUserId: request.ownerId,
       summary: `${user.name} ${decision === "APPROVED" ? "approved" : "denied"} ${request.owner.name}'s ${request.type} request`,
       detail: { decision, type: request.type },
+    });
+
+    // Tell the requester their time-off was decided.
+    await notify({
+      userId: request.ownerId,
+      type: "leave.decided",
+      message: `${decision === "APPROVED" ? "approved" : "denied"} your ${request.type} request`,
+      link: "/requests",
+      actor: user,
     });
 
     return NextResponse.json({ ok: true });

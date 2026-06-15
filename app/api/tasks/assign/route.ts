@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { audit } from "@/lib/audit";
+import { notify } from "@/lib/notifications";
+import { recordActivity } from "@/lib/activityFeed";
 import { z } from "zod";
 
 const schema = z.object({
@@ -29,12 +32,29 @@ export async function POST(req: Request) {
 
     // Surface assignment in the activity feed (skip self-assignment noise).
     if (actor.id !== userId) {
-      await db.activity.create({
-        data: {
-          userId: actor.id,
-          verb: "assigned",
-          target: `${member.name} to “${task.title}”`,
-        },
+      await recordActivity({
+        actor,
+        verb: "assigned",
+        target: `${member.name} to “${task.title}”`,
+      });
+
+      // Tell the assignee they're now on this card.
+      await notify({
+        userId,
+        type: "task.assigned",
+        message: `assigned you to “${task.title}”`,
+        link: "/tasks",
+        actor,
+      });
+
+      await audit({
+        actor,
+        action: "task.assign",
+        entity: "Task",
+        entityId: task.id,
+        targetUserId: userId,
+        summary: `${actor.name} assigned ${member.name} to “${task.title}”`,
+        detail: { assigneeId: userId, taskId: task.id },
       });
     }
 

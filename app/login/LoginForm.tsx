@@ -3,7 +3,8 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
-import { Hexagon, Mail, Lock, ArrowRight } from "lucide-react";
+import { Mail, Lock, ArrowRight } from "lucide-react";
+import { Logo } from "@/components/ui/Logo";
 import { Button } from "@/components/ui/Button";
 
 export function LoginForm() {
@@ -40,77 +41,79 @@ export function LoginForm() {
       className="w-full max-w-md"
     >
       <div className="mb-8">
-        {/* Brand mark — always centered above the form. */}
+        {/* Brand mark — only on small screens, where the gradient hero panel
+            (which carries the brand) is hidden. */}
         <motion.div
           initial={{ scale: 0.8, opacity: 0 }}
           animate={{ scale: 1, opacity: 1 }}
           transition={{ delay: 0.15, type: "spring", stiffness: 220 }}
-          className="relative mx-auto mb-5 grid h-14 w-14 place-items-center rounded-2xl bg-accent-grad"
+          className="relative mb-5 lg:hidden"
         >
-          <Hexagon className="relative h-7 w-7 text-white" strokeWidth={2.4} />
+          <Logo size="lg" />
         </motion.div>
-        <h1 className="text-center font-display text-[1.85rem] font-semibold tracking-tight text-ink">
-          Welcome back
+        <h1 className="font-display text-[2rem] font-semibold tracking-tight text-ink">
+          Welcome{" "}
+          <span className="bg-gradient-to-r from-accent-400 to-accent-600 bg-clip-text text-transparent">
+            back
+          </span>
         </h1>
-        <p className="mt-1.5 text-center text-sm text-ink-500">
+        <p className="mt-1.5 text-sm text-ink-500">
           Sign in to your 2WayClick workspace
         </p>
       </div>
 
-      <div className="glass-strong p-7">
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className="mb-1.5 block text-xs font-medium text-ink-500">
-              Email
-            </label>
-            <div className="relative">
-              <Mail className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-300" />
-              <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
-                className="input pl-10"
-                placeholder="you@2wayclick.com"
-              />
-            </div>
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <div>
+          <label className="mb-1.5 block text-xs font-medium text-ink-500">
+            Email
+          </label>
+          <div className="relative">
+            <Mail className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-300" />
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              required
+              className="input pl-10"
+              placeholder="you@2wayclick.com"
+            />
           </div>
+        </div>
 
-          <div>
-            <label className="mb-1.5 block text-xs font-medium text-ink-500">
-              Password
-            </label>
-            <div className="relative">
-              <Lock className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-300" />
-              <input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-                className="input pl-10"
-                placeholder="••••••••"
-              />
-            </div>
+        <div>
+          <label className="mb-1.5 block text-xs font-medium text-ink-500">
+            Password
+          </label>
+          <div className="relative">
+            <Lock className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-300" />
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+              className="input pl-10"
+              placeholder="••••••••"
+            />
           </div>
+        </div>
 
-          {error && (
-            <motion.p
-              initial={{ opacity: 0, x: -8 }}
-              animate={{ opacity: 1, x: 0 }}
-              className="text-sm text-danger-ink"
-            >
-              {error}
-            </motion.p>
-          )}
+        {error && (
+          <motion.p
+            initial={{ opacity: 0, x: -8 }}
+            animate={{ opacity: 1, x: 0 }}
+            className="text-sm text-danger-ink"
+          >
+            {error}
+          </motion.p>
+        )}
 
-          <Button type="submit" loading={loading} className="w-full" size="lg">
-            Sign in
-            {!loading && <ArrowRight className="h-4 w-4" />}
-          </Button>
-        </form>
-      </div>
+        <Button type="submit" loading={loading} className="w-full" size="lg">
+          Sign in
+          {!loading && <ArrowRight className="h-4 w-4" />}
+        </Button>
+      </form>
 
-      <p className="mt-6 text-center text-xs text-ink-400">
+      <p className="mt-6 text-xs text-ink-400">
         Trouble signing in? Contact your administrator.
       </p>
     </motion.div>

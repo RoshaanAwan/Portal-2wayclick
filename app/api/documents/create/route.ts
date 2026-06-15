@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { audit } from "@/lib/audit";
+import { recordActivity } from "@/lib/activityFeed";
 import { DOC_CATEGORIES } from "@/lib/constants";
 
 const FILE_TYPES = ["pdf", "doc", "sheet", "slide", "img"] as const;
@@ -32,12 +34,15 @@ export async function POST(req: Request) {
       },
     });
 
-    await db.activity.create({
-      data: {
-        userId: user.id,
-        verb: "uploaded",
-        target: doc.title,
-      },
+    await recordActivity({ actor: user, verb: "uploaded", target: doc.title });
+
+    await audit({
+      actor: user,
+      action: "document.create",
+      entity: "Document",
+      entityId: doc.id,
+      summary: `${user.name} added document “${doc.title}”`,
+      detail: { category: doc.category, fileType: doc.fileType },
     });
 
     return NextResponse.json({ ok: true, id: doc.id });

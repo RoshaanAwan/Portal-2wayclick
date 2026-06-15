@@ -1,4 +1,5 @@
 import { getCurrentUser } from "@/lib/auth";
+import { isAdminTier } from "@/lib/permissions";
 import { redirect } from "next/navigation";
 import { SettingsClient } from "./SettingsClient";
 
@@ -19,6 +20,8 @@ export default async function SettingsPage() {
         phone: user.phone,
         location: user.location,
       }}
+      // The public profile lives under the admin-tier-only directory.
+      canViewProfile={isAdminTier(user.role)}
     />
   );
 }

@@ -10,26 +10,27 @@ import {
   Users,
   FileText,
   CalendarCheck,
-  KanbanSquare,
   FolderKanban,
   Wrench,
-  Hexagon,
   Sparkles,
   ShieldCheck,
   ScrollText,
+  Activity,
+  Clock,
 } from "lucide-react";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
-import { can } from "@/lib/permissions";
+import { Logo } from "@/components/ui/Logo";
+import { can, isManagerTier } from "@/lib/permissions";
 
 const NAV = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/announcements", label: "Announcements", icon: Megaphone },
-  { href: "/tasks", label: "Tasks", icon: KanbanSquare },
   { href: "/projects", label: "Projects", icon: FolderKanban },
-  { href: "/directory", label: "Directory", icon: Users },
+  // Directory is admin-tier only — see adminTierNav below.
   { href: "/documents", label: "Documents", icon: FileText },
   { href: "/requests", label: "Time Off", icon: CalendarCheck },
+  { href: "/attendance", label: "Attendance", icon: Clock },
   { href: "/tools", label: "Tools", icon: Wrench },
 ];
 
@@ -62,8 +63,19 @@ export function Sidebar({ role }: { role?: string | null }) {
     startTransition(() => router.push(href));
   }
 
+  // Team Pulse — manager tier and up (they manage people / can decide leave).
+  const managerNav = isManagerTier(role)
+    ? [{ href: "/pulse", label: "Team Pulse", icon: Activity }]
+    : [];
+
+  // Directory (the people list + org chart) — admin tier only (Super Admin /
+  // Admin). Hidden from HR, Lead, PM, and Employee.
+  const adminTierNav = can.accessAdmin(role)
+    ? [{ href: "/directory", label: "Directory", icon: Users }]
+    : [];
+
   // Admin section — shown only to those allowed. /admin/users for the admin
-  // tier; /admin/logs for Super Admin only.
+  // tier; /admin/logs for Super Admin, Admin, and Project Manager.
   const adminNav = [
     ...(can.accessAdmin(role)
       ? [{ href: "/admin/users", label: "Users", icon: ShieldCheck }]
@@ -81,10 +93,7 @@ export function Sidebar({ role }: { role?: string | null }) {
           href="/dashboard"
           className="group mb-7 flex items-center gap-2.5 px-2 pt-1"
         >
-          <div className="relative grid h-9 w-9 place-items-center overflow-hidden rounded-xl bg-accent-grad shadow-accent-glow">
-            <span className="absolute -inset-2 animate-breathe rounded-full bg-accent/40 blur-lg" />
-            <Hexagon className="relative h-[18px] w-[18px] text-white" strokeWidth={2.4} />
-          </div>
+          <Logo size="sm" />
           <span className="font-display text-[18px] font-semibold tracking-tight text-ink">
             2WayClick
           </span>
@@ -93,10 +102,35 @@ export function Sidebar({ role }: { role?: string | null }) {
           </span>
         </Link>
 
-        {/* Nav */}
-        <nav className="flex-1 space-y-0.5">
+        {/* Nav — scrolls when entries + footer exceed the viewport (admins have
+            the most items). min-h-0 lets this flex child actually scroll. */}
+        <nav className="min-h-0 flex-1 space-y-0.5 overflow-y-auto">
           <p className="eyebrow mb-2 px-3">Workspace</p>
           {NAV.map((item) => (
+            <NavLink
+              key={item.href}
+              href={item.href}
+              label={item.label}
+              Icon={item.icon}
+              active={isActive(item.href)}
+              onGo={go}
+            />
+          ))}
+
+          {/* Directory — admin tier only. */}
+          {adminTierNav.map((item) => (
+            <NavLink
+              key={item.href}
+              href={item.href}
+              label={item.label}
+              Icon={item.icon}
+              active={isActive(item.href)}
+              onGo={go}
+            />
+          ))}
+
+          {/* Team Pulse — manager tier and up. */}
+          {managerNav.map((item) => (
             <NavLink
               key={item.href}
               href={item.href}
@@ -125,8 +159,8 @@ export function Sidebar({ role }: { role?: string | null }) {
           )}
         </nav>
 
-        {/* Upgrade / changelog card */}
-        <div className="relative mt-4 overflow-hidden rounded-xl border border-line bg-surface-2 p-3.5">
+        {/* Upgrade / changelog card — pinned below the scrollable nav. */}
+        <div className="relative mt-4 shrink-0 overflow-hidden rounded-xl border border-line bg-surface-2 p-3.5">
           <div className="relative flex items-center gap-1.5">
             <Sparkles className="h-3.5 w-3.5 text-accent" />
             <p className="text-xs font-semibold text-ink-700">2WayClick 3.0</p>
@@ -167,7 +201,7 @@ function NavLink({
       {active && (
         <motion.div
           layoutId="nav-active"
-          className="shine absolute inset-0 overflow-hidden rounded-xl bg-accent-grad shadow-accent-glow"
+          className="absolute inset-0 overflow-hidden rounded-xl bg-accent-grad"
           transition={{ type: "spring", stiffness: 380, damping: 32 }}
         />
       )}

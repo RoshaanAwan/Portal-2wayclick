@@ -55,7 +55,7 @@ export function TaskCard({
     <div className="relative">
       {/* Drop indicator above this card */}
       {showDropHint && (
-        <div className="absolute -top-[7px] left-0 right-0 z-10 h-0.5 rounded-full bg-accent shadow-accent-glow" />
+        <div className="absolute -top-[7px] left-0 right-0 z-10 h-0.5 rounded-full bg-accent" />
       )}
 
       <motion.div

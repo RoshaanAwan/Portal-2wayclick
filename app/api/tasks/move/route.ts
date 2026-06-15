@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { audit } from "@/lib/audit";
 import { z } from "zod";
 
 // The client sends the destination list and the ids of the cards that should
@@ -16,7 +17,7 @@ const schema = z.object({
 
 export async function POST(req: Request) {
   try {
-    await requireUser();
+    const user = await requireUser();
     const { taskId, listId, beforeId, afterId } = schema.parse(
       await req.json(),
     );
@@ -53,6 +54,15 @@ export async function POST(req: Request) {
     await db.task.update({
       where: { id: taskId },
       data: { listId, position },
+    });
+
+    await audit({
+      actor: user,
+      action: "task.move",
+      entity: "Task",
+      entityId: task.id,
+      summary: `${user.name} moved “${task.title}” to ${list.name}`,
+      detail: { fromListId: task.listId, toListId: listId, position },
     });
 
     return NextResponse.json({ ok: true, position });

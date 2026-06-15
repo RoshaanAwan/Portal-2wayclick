@@ -2,9 +2,10 @@ import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/auth";
 import { can } from "@/lib/permissions";
 
-// Gate the entire /admin section: only the admin tier (SUPER_ADMIN, ADMIN) may
-// enter. Individual pages further restrict (e.g. /admin/logs is Super Admin
-// only). This is defense-in-depth on top of the sidebar visibility check.
+// Gate the entire /admin section. Admin tier (SUPER_ADMIN, ADMIN) gets the full
+// section; Project Managers may enter only to reach the audit log. Individual
+// pages enforce their own stricter checks (e.g. /admin/users stays admin-tier,
+// /admin/logs uses viewAuditLog). Defense-in-depth on top of sidebar visibility.
 export default async function AdminLayout({
   children,
 }: {
@@ -12,7 +13,9 @@ export default async function AdminLayout({
 }) {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
-  if (!can.accessAdmin(user.role)) redirect("/dashboard");
+  if (!can.accessAdmin(user.role) && !can.viewAuditLog(user.role)) {
+    redirect("/dashboard");
+  }
 
   return <>{children}</>;
 }

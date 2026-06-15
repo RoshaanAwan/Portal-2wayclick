@@ -31,7 +31,8 @@ const accentStyles: Record<
 interface Tile {
   label: string;
   value: number;
-  href: string;
+  /** Destination, or null for a non-clickable tile (e.g. gated directory). */
+  href: string | null;
   accent: Accent;
   Icon: React.ComponentType<LucideProps>;
   hint: string;
@@ -40,6 +41,7 @@ interface Tile {
 
 export function StatTiles({
   stats,
+  canSeeDirectory = true,
 }: {
   stats: {
     userCount: number;
@@ -47,12 +49,15 @@ export function StatTiles({
     pendingLeave: number;
     documentCount: number;
   };
+  /** Directory is admin-tier only — when false the Team-members tile is static. */
+  canSeeDirectory?: boolean;
 }) {
   const tiles: Tile[] = [
     {
       label: "Team members",
       value: stats.userCount,
-      href: "/directory",
+      // Non-admins can't reach the directory — keep the metric, drop the link.
+      href: canSeeDirectory ? "/directory" : null,
       accent: "accent",
       Icon: Users,
       hint: "Across the company",
@@ -90,50 +95,59 @@ export function StatTiles({
     <Reveal gap={0.07} className="grid grid-cols-2 gap-4 lg:grid-cols-4">
       {tiles.map((tile) => {
         const s = accentStyles[tile.accent];
+        const body = (
+          <GlassCard className="relative h-full">
+            {/* soft hue glow that brightens on hover */}
+            <div
+              className={`pointer-events-none absolute -right-8 -top-10 h-28 w-28 rounded-full blur-3xl transition-opacity duration-300 ${s.glow} opacity-40 group-hover:opacity-80`}
+            />
+
+            <div className="relative flex items-start justify-between">
+              <div className={`grid h-11 w-11 place-items-center rounded-xl ${s.chip}`}>
+                <tile.Icon className={`h-5 w-5 ${s.icon}`} />
+              </div>
+              {tile.href && (
+                <ArrowUpRight className="h-4 w-4 text-ink-300 transition group-hover:translate-x-0.5 group-hover:text-ink-500" />
+              )}
+            </div>
+
+            <div className="relative mt-4">
+              <div className="flex items-end gap-2">
+                <p className="font-display text-[2rem] font-semibold leading-none tracking-tight text-ink">
+                  <CountUp value={tile.value} />
+                </p>
+                {tile.delta && (
+                  <span className="chip-up mb-1">
+                    <TrendingUp className="h-3 w-3" />
+                    {tile.delta}
+                  </span>
+                )}
+              </div>
+              <p className="mt-2 text-sm font-medium text-ink-700">
+                {tile.label}
+              </p>
+              <p className="mt-0.5 text-[11px] text-ink-400">{tile.hint}</p>
+            </div>
+
+            {/* accent underline that grows in */}
+            <motion.div
+              initial={{ scaleX: 0 }}
+              whileInView={{ scaleX: 1 }}
+              viewport={{ once: true }}
+              transition={{ delay: 0.3, duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
+              className={`relative mt-4 h-1 origin-left rounded-full ${s.bar} opacity-80`}
+            />
+          </GlassCard>
+        );
         return (
           <RevealItem variant="pop" key={tile.label}>
-            <Link href={tile.href} className="group block h-full">
-              <GlassCard className="relative h-full">
-                {/* soft hue glow that brightens on hover */}
-                <div
-                  className={`pointer-events-none absolute -right-8 -top-10 h-28 w-28 rounded-full blur-3xl transition-opacity duration-300 ${s.glow} opacity-40 group-hover:opacity-80`}
-                />
-
-                <div className="relative flex items-start justify-between">
-                  <div className={`grid h-11 w-11 place-items-center rounded-xl ${s.chip}`}>
-                    <tile.Icon className={`h-5 w-5 ${s.icon}`} />
-                  </div>
-                  <ArrowUpRight className="h-4 w-4 text-ink-300 transition group-hover:translate-x-0.5 group-hover:text-ink-500" />
-                </div>
-
-                <div className="relative mt-4">
-                  <div className="flex items-end gap-2">
-                    <p className="font-display text-[2rem] font-semibold leading-none tracking-tight text-ink">
-                      <CountUp value={tile.value} />
-                    </p>
-                    {tile.delta && (
-                      <span className="chip-up mb-1">
-                        <TrendingUp className="h-3 w-3" />
-                        {tile.delta}
-                      </span>
-                    )}
-                  </div>
-                  <p className="mt-2 text-sm font-medium text-ink-700">
-                    {tile.label}
-                  </p>
-                  <p className="mt-0.5 text-[11px] text-ink-400">{tile.hint}</p>
-                </div>
-
-                {/* accent underline that grows in */}
-                <motion.div
-                  initial={{ scaleX: 0 }}
-                  whileInView={{ scaleX: 1 }}
-                  viewport={{ once: true }}
-                  transition={{ delay: 0.3, duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
-                  className={`relative mt-4 h-1 origin-left rounded-full ${s.bar} opacity-80`}
-                />
-              </GlassCard>
-            </Link>
+            {tile.href ? (
+              <Link href={tile.href} className="group block h-full">
+                {body}
+              </Link>
+            ) : (
+              <div className="group block h-full">{body}</div>
+            )}
           </RevealItem>
         );
       })}

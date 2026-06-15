@@ -188,7 +188,7 @@ export function FocusTimer() {
           disabled={remaining === 0}
           className={cn(
             "flex h-12 items-center gap-2 rounded-xl px-7 font-semibold text-white transition-all active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40",
-            "bg-gradient-to-r from-accent-500 to-accent shadow-accent-glow hover:brightness-110",
+            "bg-gradient-to-r from-accent-500 to-accent hover:brightness-110",
           )}
         >
           {running ? (

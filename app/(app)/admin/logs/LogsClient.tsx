@@ -5,12 +5,24 @@ import {
   Search,
   ChevronDown,
   UserPlus,
+  UserCog,
+  Image as ImageIcon,
   LogIn,
   LogOut,
   ShieldAlert,
   FolderPlus,
+  ListPlus,
+  UserMinus,
   CalendarCheck,
+  CalendarPlus,
   Megaphone,
+  MessageSquare,
+  Smile,
+  FileText,
+  Upload,
+  SquareCheck,
+  UserCheck,
+  Move,
   Activity as ActivityIcon,
 } from "lucide-react";
 import { Avatar } from "@/components/ui/Avatar";
@@ -40,14 +52,35 @@ const ACTION_META: Record<
   string,
   { icon: typeof UserPlus; tone: "accent" | "emerald" | "amber" | "red" | "cyan" | "neutral"; label: string }
 > = {
+  // Users & auth
   "user.create": { icon: UserPlus, tone: "emerald", label: "User created" },
   "user.role_change": { icon: ShieldAlert, tone: "amber", label: "Role changed" },
   "user.delete": { icon: ShieldAlert, tone: "red", label: "User deleted" },
+  "user.profile_update": { icon: UserCog, tone: "neutral", label: "Profile updated" },
+  "user.avatar_update": { icon: ImageIcon, tone: "neutral", label: "Photo updated" },
   "auth.login": { icon: LogIn, tone: "cyan", label: "Signed in" },
   "auth.logout": { icon: LogOut, tone: "neutral", label: "Signed out" },
+  // Projects
   "project.create": { icon: FolderPlus, tone: "accent", label: "Project created" },
+  "project.list_create": { icon: ListPlus, tone: "accent", label: "List created" },
+  "project.member_add": { icon: UserPlus, tone: "emerald", label: "Member added" },
+  "project.member_remove": { icon: UserMinus, tone: "red", label: "Member removed" },
+  // Leave
+  "leave.create": { icon: CalendarPlus, tone: "cyan", label: "Leave requested" },
   "leave.decide": { icon: CalendarCheck, tone: "amber", label: "Leave decided" },
+  // Announcements
   "announcement.create": { icon: Megaphone, tone: "accent", label: "Announcement" },
+  "announcement.comment": { icon: MessageSquare, tone: "neutral", label: "Comment" },
+  "announcement.react": { icon: Smile, tone: "neutral", label: "Reaction" },
+  // Documents
+  "document.create": { icon: FileText, tone: "emerald", label: "Document added" },
+  "document.upload": { icon: Upload, tone: "emerald", label: "File uploaded" },
+  // Tasks
+  "task.create": { icon: SquareCheck, tone: "accent", label: "Task created" },
+  "task.assign": { icon: UserCheck, tone: "emerald", label: "Task assigned" },
+  "task.unassign": { icon: UserMinus, tone: "amber", label: "Task unassigned" },
+  "task.comment": { icon: MessageSquare, tone: "neutral", label: "Task comment" },
+  "task.move": { icon: Move, tone: "neutral", label: "Task moved" },
 };
 
 function actionMeta(action: string) {

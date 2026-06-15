@@ -2,10 +2,17 @@
 
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { Sun, Sunrise, Moon, ArrowUpRight } from "lucide-react";
+import { Sun, Sunrise, Moon, ArrowUpRight, UserCheck, Plane, ListChecks } from "lucide-react";
 import Link from "next/link";
 import { Avatar } from "@/components/ui/Avatar";
+import { CountUp } from "@/components/ui/CountUp";
 import { rise } from "@/lib/motion";
+
+interface TodayStats {
+  availableNow: number;
+  outToday: number;
+  openTasks: number;
+}
 
 function greetingFor(hour: number): { label: string; Icon: typeof Sun } {
   if (hour < 5) return { label: "Good evening", Icon: Moon };
@@ -20,12 +27,14 @@ export function Hero({
   title,
   department,
   avatarUrl,
+  todayStats,
 }: {
   firstName: string;
   name: string;
   title: string;
   department: string;
   avatarUrl?: string | null;
+  todayStats?: TodayStats;
 }) {
   // Compute on the client so the greeting reflects the viewer's local time
   // without a hydration mismatch. Start with morning, then settle on mount.
@@ -54,6 +63,34 @@ export function Hero({
       {...rise()}
       className="glass-strong group relative overflow-hidden p-6 sm:p-8"
     >
+      {/* slow-drifting accent aurora — pure ambience, lives behind the content */}
+      <motion.div
+        aria-hidden
+        initial={{ opacity: 0 }}
+        animate={{
+          opacity: 0.5,
+          x: [0, 28, -12, 0],
+          y: [0, -16, 10, 0],
+        }}
+        transition={{
+          opacity: { duration: 1.2 },
+          x: { duration: 18, repeat: Infinity, ease: "easeInOut" },
+          y: { duration: 22, repeat: Infinity, ease: "easeInOut" },
+        }}
+        className="pointer-events-none absolute -right-16 -top-24 h-72 w-72 rounded-full bg-accent/25 blur-[90px]"
+      />
+      <motion.div
+        aria-hidden
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 0.35, x: [0, -20, 8, 0], y: [0, 14, -8, 0] }}
+        transition={{
+          opacity: { duration: 1.2, delay: 0.2 },
+          x: { duration: 24, repeat: Infinity, ease: "easeInOut" },
+          y: { duration: 20, repeat: Infinity, ease: "easeInOut" },
+        }}
+        className="pointer-events-none absolute -bottom-24 left-1/3 h-64 w-64 rounded-full bg-info/20 blur-[90px]"
+      />
+
       <div className="relative z-[1] flex flex-col gap-6 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-5">
           <motion.div
@@ -103,7 +140,7 @@ export function Hero({
             href="/announcements"
             className="group/cta flex items-center gap-3 rounded-xl border border-line bg-surface-2 px-4 py-3 transition hover:border-accent/40 hover:bg-accent-soft"
           >
-            <div className="grid h-9 w-9 place-items-center rounded-lg bg-accent-grad font-display text-sm font-bold text-white shadow-accent-glow">
+            <div className="grid h-9 w-9 place-items-center rounded-lg bg-accent-grad font-display text-sm font-bold text-white">
               3.0
             </div>
             <div>
@@ -116,6 +153,66 @@ export function Hero({
           </Link>
         </motion.div>
       </div>
+
+      {/* Live "today" snapshot — animated count-ups, real numbers. */}
+      {todayStats && (
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.35, duration: 0.45 }}
+          className="relative z-[1] mt-6 flex flex-wrap gap-2.5 border-t border-line/70 pt-5"
+        >
+          <StatPill
+            Icon={UserCheck}
+            tone="success"
+            value={todayStats.availableNow}
+            label="available now"
+          />
+          <StatPill
+            Icon={Plane}
+            tone="info"
+            value={todayStats.outToday}
+            label="out today"
+          />
+          <StatPill
+            Icon={ListChecks}
+            tone="accent"
+            value={todayStats.openTasks}
+            label="open tasks"
+          />
+        </motion.div>
+      )}
     </motion.div>
+  );
+}
+
+const TONES = {
+  success: { chip: "bg-success-soft", icon: "text-success", dot: "bg-success" },
+  info: { chip: "bg-info-soft", icon: "text-info", dot: "bg-info" },
+  accent: { chip: "bg-accent-soft", icon: "text-accent", dot: "bg-accent" },
+} as const;
+
+function StatPill({
+  Icon,
+  tone,
+  value,
+  label,
+}: {
+  Icon: typeof UserCheck;
+  tone: keyof typeof TONES;
+  value: number;
+  label: string;
+}) {
+  const t = TONES[tone];
+  return (
+    <div className="inline-flex items-center gap-2.5 rounded-xl border border-line bg-surface-2 px-3.5 py-2">
+      <span className={`grid h-7 w-7 place-items-center rounded-lg ${t.chip}`}>
+        <Icon className={`h-3.5 w-3.5 ${t.icon}`} />
+      </span>
+      <span className="font-display text-lg font-semibold leading-none text-ink">
+        <CountUp value={value} />
+      </span>
+      <span className="text-[11px] font-medium text-ink-500">{label}</span>
+    </div>
   );
 }

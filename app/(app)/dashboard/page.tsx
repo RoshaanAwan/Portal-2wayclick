@@ -1,4 +1,5 @@
 import { getCurrentUser } from "@/lib/auth";
+import { isAdminTier } from "@/lib/permissions";
 import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { Hero } from "./Hero";
@@ -11,6 +12,11 @@ export default async function DashboardPage() {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
 
+  // Directory is admin tier only — drives whether we surface links to it.
+  const canSeeDirectory = isAdminTier(user.role);
+
+  const now = new Date();
+
   // Fetch everything in parallel — this is the landing page, keep it snappy.
   const [
     userCount,
@@ -21,6 +27,8 @@ export default async function DashboardPage() {
     pinned,
     teammates,
     deptGroups,
+    outTodayCount,
+    openTaskCount,
   ] = await Promise.all([
     db.user.count(),
     db.announcement.count(),
@@ -46,7 +54,37 @@ export default async function DashboardPage() {
       by: ["department"],
       _count: { _all: true },
     }),
+    // How many people are on approved leave covering today (live hero stat).
+    db.leaveRequest.count({
+      where: {
+        status: "APPROVED",
+        startDate: { lte: now },
+        endDate: { gte: now },
+      },
+    }),
+    // Open tasks across the org — anything not parked in a Done/Archived-style
+    // list. Mirrors Team Pulse's "open" notion (kept simple for a headline stat).
+    db.task.count({
+      where: {
+        NOT: {
+          OR: [
+            { list: { name: { contains: "done", mode: "insensitive" } } },
+            { list: { name: { contains: "complete", mode: "insensitive" } } },
+            { list: { name: { contains: "archiv", mode: "insensitive" } } },
+            { list: { name: { contains: "shipped", mode: "insensitive" } } },
+            { list: { name: { contains: "closed", mode: "insensitive" } } },
+          ],
+        },
+      },
+    }),
   ]);
+
+  // "Available now" = everyone not on leave today. Snapshot for the hero pills.
+  const todayStats = {
+    availableNow: Math.max(0, userCount - outTodayCount),
+    outToday: outTodayCount,
+    openTasks: openTaskCount,
+  };
 
   const stats = {
     userCount,
@@ -96,9 +134,10 @@ export default async function DashboardPage() {
         title={user.title}
         department={user.department}
         avatarUrl={user.avatarUrl}
+        todayStats={todayStats}
       />
 
-      <StatTiles stats={stats} />
+      <StatTiles stats={stats} canSeeDirectory={canSeeDirectory} />
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
         {/* Main column */}
@@ -109,7 +148,12 @@ export default async function DashboardPage() {
 
         {/* Right rail */}
         <div className="lg:col-span-1">
-          <RightRail pinned={pinnedCards} team={team} department={user.department} />
+          <RightRail
+            pinned={pinnedCards}
+            team={team}
+            department={user.department}
+            canSeeDirectory={canSeeDirectory}
+          />
         </div>
       </div>
     </div>

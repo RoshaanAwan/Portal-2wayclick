@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { put } from "@vercel/blob";
 import { requireUser } from "@/lib/auth";
+import { audit } from "@/lib/audit";
 
 // Accepts a single image file (multipart/form-data, field "file") and returns a
 // hosted URL the caller can save to user.avatarUrl. Uploading to Vercel Blob
@@ -43,11 +44,29 @@ export async function POST(req: Request) {
         addRandomSuffix: true, // bust CDN cache on re-upload
         contentType: file.type,
       });
+      await audit({
+        actor: user,
+        action: "user.avatar_update",
+        entity: "User",
+        entityId: user.id,
+        targetUserId: user.id,
+        summary: `${user.name} updated their profile photo`,
+        detail: { url: blob.url },
+      });
       return NextResponse.json({ ok: true, url: blob.url });
     }
 
     const bytes = Buffer.from(await file.arrayBuffer());
     const dataUrl = `data:${file.type};base64,${bytes.toString("base64")}`;
+    // Fallback path stores an inline data URL — never log the multi-MB payload.
+    await audit({
+      actor: user,
+      action: "user.avatar_update",
+      entity: "User",
+      entityId: user.id,
+      targetUserId: user.id,
+      summary: `${user.name} updated their profile photo`,
+    });
     return NextResponse.json({ ok: true, url: dataUrl });
   } catch (e: any) {
     if (e?.message === "UNAUTHENTICATED") {
