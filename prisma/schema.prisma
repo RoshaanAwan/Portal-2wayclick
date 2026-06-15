@@ -1,0 +1,246 @@
+// Nexus Portal — data model
+// PostgreSQL in every environment. Locally, point DATABASE_URL at a local
+// Postgres or a free Neon branch; in production, at your Neon database.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  // Neon's pooled connection; Prisma uses the direct URL for migrations.
+  directUrl = env("DIRECT_URL")
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  name         String
+  title        String
+  department   String
+  // Role: ADMIN | MANAGER | EMPLOYEE  (SQLite has no native enums)
+  role         String   @default("EMPLOYEE")
+  avatarUrl    String?
+  phone        String?
+  location     String?
+  bio          String?
+  startDate    DateTime @default(now())
+  managerId    String?
+  manager      User?    @relation("ManagerReports", fields: [managerId], references: [id])
+  reports      User[]   @relation("ManagerReports")
+
+  createdAt DateTime @default(now())
+
+  // Relations
+  sessions           Session[]
+  authoredPosts      Announcement[]     @relation("PostAuthor")
+  uploadedDocs       Document[]         @relation("DocUploader")
+  leaveRequests      LeaveRequest[]     @relation("RequestOwner")
+  reviewedRequests   LeaveRequest[]     @relation("RequestReviewer")
+  comments           Comment[]
+  reactions          Reaction[]
+  activities         Activity[]
+  readReceipts       AnnouncementRead[]
+  createdTasks       Task[]             @relation("TaskCreator")
+  taskAssignments    TaskAssignee[]
+  taskComments       TaskComment[]
+  ownedProjects      Project[]          @relation("ProjectOwner")
+  projectMemberships ProjectMember[]
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  token     String   @unique
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+}
+
+model Announcement {
+  id         String   @id @default(cuid())
+  title      String
+  body       String
+  category   String   @default("General") // General, Product, People, Policy, Event
+  pinned     Boolean  @default(false)
+  coverColor String   @default("accent")
+  authorId   String
+  author     User     @relation("PostAuthor", fields: [authorId], references: [id])
+  createdAt  DateTime @default(now())
+
+  comments  Comment[]
+  reactions Reaction[]
+  reads     AnnouncementRead[]
+}
+
+model AnnouncementRead {
+  id             String       @id @default(cuid())
+  announcementId String
+  announcement   Announcement @relation(fields: [announcementId], references: [id], onDelete: Cascade)
+  userId         String
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  readAt         DateTime     @default(now())
+
+  @@unique([announcementId, userId])
+}
+
+model Comment {
+  id             String       @id @default(cuid())
+  body           String
+  announcementId String
+  announcement   Announcement @relation(fields: [announcementId], references: [id], onDelete: Cascade)
+  authorId       String
+  author         User         @relation(fields: [authorId], references: [id])
+  createdAt      DateTime     @default(now())
+}
+
+model Reaction {
+  id             String       @id @default(cuid())
+  emoji          String
+  announcementId String
+  announcement   Announcement @relation(fields: [announcementId], references: [id], onDelete: Cascade)
+  userId         String
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([announcementId, userId, emoji])
+}
+
+model Document {
+  id          String   @id @default(cuid())
+  title       String
+  description String?
+  category    String   @default("General") // HR, Engineering, Finance, Legal, Brand
+  fileType    String   @default("pdf") // pdf, doc, sheet, slide, img
+  sizeKb      Int      @default(0)
+  url         String   @default("#")
+  uploaderId  String
+  uploader    User     @relation("DocUploader", fields: [uploaderId], references: [id])
+  createdAt   DateTime @default(now())
+}
+
+model LeaveRequest {
+  id         String    @id @default(cuid())
+  type       String // Vacation, Sick, Personal, WFH
+  startDate  DateTime
+  endDate    DateTime
+  reason     String?
+  // Status: PENDING | APPROVED | DENIED
+  status     String    @default("PENDING")
+  ownerId    String
+  owner      User      @relation("RequestOwner", fields: [ownerId], references: [id])
+  reviewerId String?
+  reviewer   User?     @relation("RequestReviewer", fields: [reviewerId], references: [id])
+  createdAt  DateTime  @default(now())
+  decidedAt  DateTime?
+}
+
+model Activity {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  verb      String // "posted", "uploaded", "requested", "approved", "joined", "commented"
+  target    String // human-readable target
+  meta      String? // optional JSON string
+  createdAt DateTime @default(now())
+}
+
+// ── Task board (Trello-style) ──────────────────────────────────────────────
+
+model Board {
+  id        String   @id @default(cuid())
+  name      String
+  createdAt DateTime @default(now())
+
+  lists   BoardList[]
+  // A board may belong to a project (every project gets its own board). The
+  // standalone /tasks board has no project.
+  project Project?
+}
+
+// ── Projects ────────────────────────────────────────────────────────────────
+// An admin-managed workspace. Each project owns exactly one board, giving it a
+// separate Trello-style card section, and has its own roster of members.
+
+model Project {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  createdAt   DateTime @default(now())
+
+  ownerId String
+  owner   User   @relation("ProjectOwner", fields: [ownerId], references: [id])
+
+  // 1:1 with the board that holds this project's Trello cards.
+  boardId String @unique
+  board   Board  @relation(fields: [boardId], references: [id], onDelete: Cascade)
+
+  members ProjectMember[]
+}
+
+// Many-to-many join: which users belong to a project.
+model ProjectMember {
+  id        String   @id @default(cuid())
+  projectId String
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  addedAt   DateTime @default(now())
+
+  @@unique([projectId, userId])
+}
+
+model BoardList {
+  id        String   @id @default(cuid())
+  name      String
+  // Position of the list within its board (left → right).
+  position  Float    @default(0)
+  boardId   String
+  board     Board    @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  tasks Task[]
+}
+
+model Task {
+  id          String    @id @default(cuid())
+  title       String
+  description String?
+  // Position of the card within its list (top → bottom). Fractional so cards
+  // can be reordered without rewriting every sibling.
+  position    Float     @default(0)
+  // Priority: LOW | MEDIUM | HIGH
+  priority    String    @default("MEDIUM")
+  dueDate     DateTime?
+  listId      String
+  list        BoardList @relation(fields: [listId], references: [id], onDelete: Cascade)
+  creatorId   String
+  creator     User      @relation("TaskCreator", fields: [creatorId], references: [id])
+  createdAt   DateTime  @default(now())
+
+  assignees TaskAssignee[]
+  comments  TaskComment[]
+}
+
+model TaskComment {
+  id        String   @id @default(cuid())
+  body      String
+  taskId    String
+  task      Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  authorId  String
+  author    User     @relation(fields: [authorId], references: [id])
+  createdAt DateTime @default(now())
+}
+
+// Many-to-many join: who is assigned to a card (Trello "members").
+model TaskAssignee {
+  id         String   @id @default(cuid())
+  taskId     String
+  task       Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  assignedAt DateTime @default(now())
+
+  @@unique([taskId, userId])
+}

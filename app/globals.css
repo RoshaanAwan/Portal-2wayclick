@@ -1,0 +1,254 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --font-sans: "Inter", system-ui, sans-serif;
+  --font-display: "Space Grotesk", "Inter", system-ui, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  padding: 0;
+  margin: 0;
+  background: #0d0d11; /* paper (dark canvas) */
+  color: #f4f4f6; /* ink */
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+body {
+  font-family: var(--font-sans);
+  min-height: 100vh;
+  font-feature-settings: "cv11", "ss01";
+}
+
+/* Display headings — geometric face, tight tracking, optical balance. */
+.font-display {
+  font-family: var(--font-display);
+  letter-spacing: -0.02em;
+  font-feature-settings: "ss01";
+}
+
+/* Tabular, slashed-zero figures for any number that should align/animate. */
+.nums {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum", "zero";
+}
+
+/* Selection — tinted with the brand accent. */
+::selection {
+  background: rgba(245, 104, 63, 0.3);
+  color: #ffffff;
+}
+
+/* Focus — visible, branded, never on mouse clicks. */
+:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px #0d0d11, 0 0 0 4px rgba(245, 104, 63, 0.55);
+  border-radius: 6px;
+}
+
+/* Custom scrollbar — quiet, thin, dark. */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.09);
+  border-radius: 8px;
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.18);
+  background-clip: content-box;
+}
+
+@layer components {
+  /* ── Premium dark surfaces ─────────────────────────────────────────────
+     Class names reused across the app. A "material" look: charcoal base,
+     a 1px top inner-highlight (light catching the top edge), and a faint
+     vertical sheen — the trick that makes flat dark cards read as physical.*/
+
+  .glass {
+    position: relative;
+    @apply rounded-2xl border border-line bg-surface shadow-card;
+    background-image: linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.035) 0%,
+      rgba(255, 255, 255, 0) 38%
+    );
+  }
+  /* Inner top-edge highlight — the premium "lit edge". */
+  .glass::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    padding-top: 1px;
+    background: linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.14),
+      transparent 1px
+    );
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    pointer-events: none;
+  }
+
+  .glass-strong {
+    position: relative;
+    @apply rounded-2xl border border-line bg-surface shadow-elevated;
+    background-image: linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.05) 0%,
+      rgba(255, 255, 255, 0) 42%
+    );
+  }
+  .glass-strong::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    padding-top: 1px;
+    background: linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.18),
+      transparent 1px
+    );
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    pointer-events: none;
+  }
+
+  /* Interactive lift — spring-like via transform + shadow. */
+  .glass-hover {
+    @apply transition-[transform,box-shadow,border-color] duration-300 ease-out
+      hover:-translate-y-1 hover:border-line-strong hover:shadow-pop;
+  }
+
+  /* Headline treatment — solid accent run. */
+  .text-gradient {
+    @apply text-accent;
+  }
+
+  /* Accent hairline frame for emphasized/featured cards. */
+  .glow-ring {
+    @apply ring-1 ring-accent/25;
+  }
+
+  /* Section eyebrow / label. */
+  .eyebrow {
+    @apply text-[11px] font-semibold uppercase tracking-[0.16em] text-ink-400;
+  }
+
+  /* Standard form input on dark. */
+  .input {
+    @apply w-full rounded-xl border border-line bg-surface-2 px-3.5 py-2.5 text-sm text-ink
+      placeholder-ink-300 outline-none transition
+      focus:border-accent focus:shadow-focus-ring;
+  }
+
+  /* Frosted bar — sticky chrome (topbar). */
+  .frost {
+    background-color: rgba(23, 23, 28, 0.7);
+    -webkit-backdrop-filter: saturate(160%) blur(14px);
+    backdrop-filter: saturate(160%) blur(14px);
+  }
+
+  /* Animated shine sweep — overlay for primary CTAs / hero. */
+  .shine {
+    position: relative;
+    overflow: hidden;
+  }
+  .shine::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    transform: translateX(-130%) skewX(-18deg);
+    background: linear-gradient(
+      90deg,
+      transparent,
+      rgba(255, 255, 255, 0.28),
+      transparent
+    );
+    transition: transform 0.7s ease;
+    pointer-events: none;
+  }
+  .shine:hover::after {
+    transform: translateX(130%) skewX(-18deg);
+  }
+
+  /* KPI delta chips. */
+  .chip-up {
+    @apply inline-flex items-center gap-1 rounded-md bg-success-soft px-1.5 py-0.5 text-[11px] font-semibold text-success;
+  }
+  .chip-down {
+    @apply inline-flex items-center gap-1 rounded-md bg-danger-soft px-1.5 py-0.5 text-[11px] font-semibold text-danger;
+  }
+}
+
+/* Shimmer loading skeleton — dark. */
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0.04) 25%,
+    rgba(255, 255, 255, 0.09) 37%,
+    rgba(255, 255, 255, 0.04) 63%
+  );
+  background-size: 400% 100%;
+  animation: skeleton-loading 1.4s ease infinite;
+}
+@keyframes skeleton-loading {
+  0% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0 50%;
+  }
+}
+
+/* Faint grid texture. */
+.bg-grid {
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+  background-size: 56px 56px;
+}
+
+/* Subtle film grain — sits over the canvas to kill banding on dark gradients. */
+.bg-noise {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.5'/%3E%3C/svg%3E");
+}
+
+/* Ambient looping glow (used sparingly behind hero/brand). */
+@keyframes breathe {
+  0%, 100% { opacity: 0.5; transform: scale(1); }
+  50% { opacity: 0.85; transform: scale(1.06); }
+}
+.animate-breathe {
+  animation: breathe 8s ease-in-out infinite;
+}
+
+/* Honor reduced-motion globally — kill transforms/animations for a11y. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}

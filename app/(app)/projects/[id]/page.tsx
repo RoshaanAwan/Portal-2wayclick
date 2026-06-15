@@ -1,0 +1,171 @@
+import Link from "next/link";
+import { notFound } from "next/navigation";
+import { ArrowLeft, KanbanSquare, Users } from "lucide-react";
+import { getCurrentUser } from "@/lib/auth";
+import { db } from "@/lib/db";
+import { PageHeader } from "@/components/ui/PageHeader";
+import { Avatar } from "@/components/ui/Avatar";
+import {
+  BoardClient,
+  type ListDTO,
+  type MemberDTO,
+} from "../../tasks/BoardClient";
+import { AddList } from "./AddList";
+
+export default async function ProjectBoardPage({
+  params,
+}: {
+  params: { id: string };
+}) {
+  const user = await getCurrentUser();
+  const isAdmin = user?.role === "ADMIN";
+
+  const project = await db.project.findUnique({
+    where: { id: params.id },
+    include: {
+      owner: { select: { id: true, name: true, avatarUrl: true } },
+      members: {
+        include: {
+          user: {
+            select: { id: true, name: true, avatarUrl: true, title: true },
+          },
+        },
+      },
+      board: {
+        include: {
+          lists: {
+            orderBy: { position: "asc" },
+            include: {
+              tasks: {
+                orderBy: { position: "asc" },
+                include: {
+                  creator: {
+                    select: { id: true, name: true, avatarUrl: true },
+                  },
+                  assignees: {
+                    include: {
+                      user: {
+                        select: {
+                          id: true,
+                          name: true,
+                          avatarUrl: true,
+                          title: true,
+                        },
+                      },
+                    },
+                  },
+                  comments: {
+                    orderBy: { createdAt: "asc" },
+                    include: {
+                      author: {
+                        select: { id: true, name: true, avatarUrl: true },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  });
+
+  if (!project) notFound();
+
+  // Access control: admins see every project; others only their own.
+  const isMember = project.members.some((m) => m.userId === user?.id);
+  if (!isAdmin && !isMember) notFound();
+
+  const lists: ListDTO[] = project.board.lists.map((list) => ({
+    id: list.id,
+    name: list.name,
+    position: list.position,
+    tasks: list.tasks.map((t) => ({
+      id: t.id,
+      title: t.title,
+      priority: t.priority,
+      position: t.position,
+      dueDate: t.dueDate ? t.dueDate.toISOString() : null,
+      listId: t.listId,
+      creator: {
+        id: t.creator.id,
+        name: t.creator.name,
+        avatarUrl: t.creator.avatarUrl,
+      },
+      assignees: t.assignees.map((a) => ({
+        id: a.user.id,
+        name: a.user.name,
+        avatarUrl: a.user.avatarUrl,
+        title: a.user.title,
+      })),
+      comments: t.comments.map((c) => ({
+        id: c.id,
+        body: c.body,
+        createdAt: c.createdAt.toISOString(),
+        author: {
+          id: c.author.id,
+          name: c.author.name,
+          avatarUrl: c.author.avatarUrl,
+        },
+      })),
+    })),
+  }));
+
+  // Assignment is scoped to the project's own roster.
+  const members: MemberDTO[] = project.members.map((m) => ({
+    id: m.user.id,
+    name: m.user.name,
+    avatarUrl: m.user.avatarUrl,
+    title: m.user.title,
+  }));
+
+  return (
+    <div className="mx-auto max-w-[1400px]">
+      <Link
+        href="/projects"
+        className="mb-4 inline-flex items-center gap-1.5 text-xs font-medium text-ink-400 transition-colors hover:text-ink"
+      >
+        <ArrowLeft className="h-3.5 w-3.5" />
+        All projects
+      </Link>
+
+      <PageHeader
+        icon={KanbanSquare}
+        title={project.name}
+        subtitle={project.description || "This project's dedicated Trello board."}
+        action={
+          <div className="flex items-center gap-1.5">
+            <div className="flex items-center">
+              {members.slice(0, 5).map((m, i) => (
+                <div
+                  key={m.id}
+                  className={i > 0 ? "-ml-2 rounded-full ring-2 ring-surface" : "rounded-full ring-2 ring-surface"}
+                >
+                  <Avatar name={m.name} src={m.avatarUrl} size="sm" />
+                </div>
+              ))}
+              {members.length > 5 && (
+                <span className="-ml-2 grid h-8 w-8 place-items-center rounded-full bg-surface-2 text-[10px] font-semibold text-ink-400 ring-2 ring-surface">
+                  +{members.length - 5}
+                </span>
+              )}
+            </div>
+            <span className="ml-1 inline-flex items-center gap-1 rounded-full border border-line bg-surface-2 px-2.5 py-1 text-[11px] font-medium text-ink-500">
+              <Users className="h-3.5 w-3.5" />
+              {members.length}
+            </span>
+          </div>
+        }
+      />
+
+      <BoardClient
+        lists={lists}
+        members={members}
+        currentUserId={user?.id ?? null}
+      />
+
+      <AddList boardId={project.board.id} />
+    </div>
+  );
+}

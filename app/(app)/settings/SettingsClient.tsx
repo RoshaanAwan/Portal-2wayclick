@@ -1,0 +1,366 @@
+"use client";
+
+import { useState } from "react";
+import { useRouter } from "next/navigation";
+import Link from "next/link";
+import { motion } from "framer-motion";
+import {
+  Settings as SettingsIcon,
+  User,
+  Palette,
+  Bell,
+  ShieldCheck,
+  LogOut,
+  Check,
+  ExternalLink,
+} from "lucide-react";
+import { PageHeader } from "@/components/ui/PageHeader";
+import { GlassCard } from "@/components/ui/GlassCard";
+import { Button } from "@/components/ui/Button";
+import { Avatar } from "@/components/ui/Avatar";
+import { Reveal, RevealItem } from "@/components/ui/Reveal";
+import { cn } from "@/lib/utils";
+
+interface SettingsUser {
+  id: string;
+  name: string;
+  email: string;
+  title: string;
+  department: string;
+  avatarUrl: string | null;
+}
+
+const SECTIONS = [
+  { id: "profile", label: "Profile", Icon: User },
+  { id: "appearance", label: "Appearance", Icon: Palette },
+  { id: "notifications", label: "Notifications", Icon: Bell },
+  { id: "account", label: "Account", Icon: ShieldCheck },
+] as const;
+
+const ACCENTS = [
+  { key: "orange", label: "Coral", color: "#f5683f" },
+  { key: "violet", label: "Violet", color: "#8b5cf6" },
+  { key: "blue", label: "Azure", color: "#3b82f6" },
+  { key: "emerald", label: "Emerald", color: "#10b981" },
+];
+
+function Toggle({
+  on,
+  onChange,
+}: {
+  on: boolean;
+  onChange: (v: boolean) => void;
+}) {
+  return (
+    <button
+      role="switch"
+      aria-checked={on}
+      onClick={() => onChange(!on)}
+      className={cn(
+        "relative h-6 w-11 shrink-0 rounded-full border transition-colors",
+        on ? "border-accent bg-accent" : "border-line bg-surface-2",
+      )}
+    >
+      <motion.span
+        layout
+        transition={{ type: "spring", stiffness: 500, damping: 32 }}
+        className={cn(
+          "absolute top-0.5 h-4.5 w-4.5 rounded-full bg-white shadow-sm",
+          on ? "right-0.5" : "left-0.5",
+        )}
+        style={{ height: 18, width: 18 }}
+      />
+    </button>
+  );
+}
+
+function Row({
+  title,
+  desc,
+  children,
+}: {
+  title: string;
+  desc: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-4 py-3.5">
+      <div className="min-w-0">
+        <p className="text-sm font-medium text-ink">{title}</p>
+        <p className="mt-0.5 text-xs text-ink-400">{desc}</p>
+      </div>
+      {children}
+    </div>
+  );
+}
+
+export function SettingsClient({ user }: { user: SettingsUser }) {
+  const router = useRouter();
+  const [active, setActive] = useState<(typeof SECTIONS)[number]["id"]>("profile");
+
+  // Local preference state. There's no preferences model yet, so these persist
+  // for the session only — clearly a UI-level demo of the controls.
+  const [accent, setAccent] = useState("orange");
+  const [prefs, setPrefs] = useState({
+    announcements: true,
+    mentions: true,
+    approvals: true,
+    weeklyDigest: false,
+    reducedMotion: false,
+  });
+
+  async function logout() {
+    await fetch("/api/auth/logout", { method: "POST" });
+    router.push("/login");
+    router.refresh();
+  }
+
+  return (
+    <div className="mx-auto max-w-5xl">
+      <PageHeader
+        title="Settings"
+        subtitle="Manage your profile, appearance, and notifications"
+        icon={SettingsIcon}
+      />
+
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[200px_1fr]">
+        {/* Section nav */}
+        <nav className="flex gap-2 overflow-x-auto lg:flex-col lg:gap-1 lg:overflow-visible">
+          {SECTIONS.map((s) => {
+            const on = active === s.id;
+            return (
+              <button
+                key={s.id}
+                onClick={() => setActive(s.id)}
+                className={cn(
+                  "relative flex shrink-0 items-center gap-2.5 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors",
+                  on
+                    ? "text-white"
+                    : "text-ink-500 hover:bg-white/[0.04] hover:text-ink",
+                )}
+              >
+                {on && (
+                  <motion.span
+                    layoutId="settings-nav"
+                    className="absolute inset-0 rounded-xl bg-accent-grad shadow-accent-glow"
+                    transition={{ type: "spring", stiffness: 380, damping: 32 }}
+                  />
+                )}
+                <s.Icon className="relative z-10 h-4 w-4" />
+                <span className="relative z-10">{s.label}</span>
+              </button>
+            );
+          })}
+        </nav>
+
+        {/* Section content */}
+        <div className="min-w-0">
+          {active === "profile" && (
+            <Reveal className="space-y-5">
+              <RevealItem>
+                <GlassCard hover={false} spotlight>
+                  <div className="flex flex-col items-start gap-5 sm:flex-row sm:items-center">
+                    <Avatar name={user.name} src={user.avatarUrl} size="xl" ring />
+                    <div className="min-w-0 flex-1">
+                      <h2 className="font-display text-xl font-semibold tracking-tight text-ink">
+                        {user.name}
+                      </h2>
+                      <p className="mt-0.5 text-sm text-ink-500">
+                        {user.title} · {user.department}
+                      </p>
+                      <p className="mt-0.5 text-xs text-ink-400">{user.email}</p>
+                    </div>
+                    <Link href={`/directory/${user.id}`}>
+                      <Button variant="glass" size="sm">
+                        View public profile
+                        <ExternalLink className="h-3.5 w-3.5" />
+                      </Button>
+                    </Link>
+                  </div>
+                </GlassCard>
+              </RevealItem>
+
+              <RevealItem>
+                <GlassCard hover={false}>
+                  <h3 className="font-display text-[15px] font-semibold tracking-tight text-ink">
+                    Profile details
+                  </h3>
+                  <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                    <Field label="Full name" value={user.name} />
+                    <Field label="Email" value={user.email} />
+                    <Field label="Job title" value={user.title} />
+                    <Field label="Department" value={user.department} />
+                  </div>
+                  <p className="mt-4 text-xs text-ink-400">
+                    Profile details are managed by your HR admin. Contact People
+                    Ops to request a change.
+                  </p>
+                </GlassCard>
+              </RevealItem>
+            </Reveal>
+          )}
+
+          {active === "appearance" && (
+            <Reveal className="space-y-5">
+              <RevealItem>
+                <GlassCard hover={false}>
+                  <h3 className="font-display text-[15px] font-semibold tracking-tight text-ink">
+                    Accent color
+                  </h3>
+                  <p className="mt-0.5 text-xs text-ink-400">
+                    Choose the highlight color used across the workspace.
+                  </p>
+                  <div className="mt-4 flex flex-wrap gap-3">
+                    {ACCENTS.map((a) => {
+                      const on = accent === a.key;
+                      return (
+                        <button
+                          key={a.key}
+                          onClick={() => setAccent(a.key)}
+                          className={cn(
+                            "flex items-center gap-2 rounded-xl border px-3 py-2 text-sm transition",
+                            on
+                              ? "border-line-strong bg-surface-2 text-ink"
+                              : "border-line text-ink-500 hover:border-line-strong hover:text-ink",
+                          )}
+                        >
+                          <span
+                            className="grid h-5 w-5 place-items-center rounded-full"
+                            style={{ background: a.color }}
+                          >
+                            {on && <Check className="h-3 w-3 text-white" />}
+                          </span>
+                          {a.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </GlassCard>
+              </RevealItem>
+
+              <RevealItem>
+                <GlassCard hover={false}>
+                  <h3 className="font-display text-[15px] font-semibold tracking-tight text-ink">
+                    Motion
+                  </h3>
+                  <div className="mt-1 divide-y divide-line">
+                    <Row
+                      title="Reduce motion"
+                      desc="Minimize animations and transitions across the app."
+                    >
+                      <Toggle
+                        on={prefs.reducedMotion}
+                        onChange={(v) => setPrefs((p) => ({ ...p, reducedMotion: v }))}
+                      />
+                    </Row>
+                  </div>
+                </GlassCard>
+              </RevealItem>
+            </Reveal>
+          )}
+
+          {active === "notifications" && (
+            <Reveal className="space-y-5">
+              <RevealItem>
+                <GlassCard hover={false}>
+                  <h3 className="font-display text-[15px] font-semibold tracking-tight text-ink">
+                    Email & in-app notifications
+                  </h3>
+                  <div className="mt-1 divide-y divide-line">
+                    <Row
+                      title="New announcements"
+                      desc="When someone posts a company-wide announcement."
+                    >
+                      <Toggle
+                        on={prefs.announcements}
+                        onChange={(v) => setPrefs((p) => ({ ...p, announcements: v }))}
+                      />
+                    </Row>
+                    <Row
+                      title="Mentions & comments"
+                      desc="When you're mentioned or someone replies to you."
+                    >
+                      <Toggle
+                        on={prefs.mentions}
+                        onChange={(v) => setPrefs((p) => ({ ...p, mentions: v }))}
+                      />
+                    </Row>
+                    <Row
+                      title="Time-off approvals"
+                      desc="Status updates on requests you submitted or review."
+                    >
+                      <Toggle
+                        on={prefs.approvals}
+                        onChange={(v) => setPrefs((p) => ({ ...p, approvals: v }))}
+                      />
+                    </Row>
+                    <Row
+                      title="Weekly digest"
+                      desc="A Monday summary of what happened across Nexus."
+                    >
+                      <Toggle
+                        on={prefs.weeklyDigest}
+                        onChange={(v) => setPrefs((p) => ({ ...p, weeklyDigest: v }))}
+                      />
+                    </Row>
+                  </div>
+                </GlassCard>
+              </RevealItem>
+            </Reveal>
+          )}
+
+          {active === "account" && (
+            <Reveal className="space-y-5">
+              <RevealItem>
+                <GlassCard hover={false}>
+                  <h3 className="font-display text-[15px] font-semibold tracking-tight text-ink">
+                    Session
+                  </h3>
+                  <p className="mt-0.5 text-xs text-ink-400">
+                    You&apos;re signed in as {user.email}.
+                  </p>
+                  <div className="mt-4">
+                    <Button variant="glass" size="sm" onClick={logout}>
+                      <LogOut className="h-4 w-4" />
+                      Sign out
+                    </Button>
+                  </div>
+                </GlassCard>
+              </RevealItem>
+
+              <RevealItem>
+                <GlassCard hover={false} className="border-danger/20">
+                  <h3 className="font-display text-[15px] font-semibold tracking-tight text-danger-ink">
+                    Danger zone
+                  </h3>
+                  <p className="mt-0.5 text-xs text-ink-400">
+                    Account deletion is handled by your administrator and cannot
+                    be undone.
+                  </p>
+                  <div className="mt-4">
+                    <Button variant="danger" size="sm" disabled>
+                      Delete account
+                    </Button>
+                  </div>
+                </GlassCard>
+              </RevealItem>
+            </Reveal>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Field({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <label className="mb-1.5 block text-xs font-medium text-ink-500">
+        {label}
+      </label>
+      <div className="rounded-xl border border-line bg-surface-2 px-3.5 py-2.5 text-sm text-ink-700">
+        {value}
+      </div>
+    </div>
+  );
+}
