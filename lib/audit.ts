@@ -16,6 +16,7 @@ export type AuditAction =
   | "user.delete"
   | "user.profile_update"
   | "user.avatar_update"
+  | "user.password_change"
   | "auth.login"
   | "auth.logout"
   | "project.create"

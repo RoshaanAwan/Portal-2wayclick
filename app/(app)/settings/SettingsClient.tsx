@@ -17,6 +17,7 @@ import {
   Sun,
   Camera,
   Loader2,
+  KeyRound,
 } from "lucide-react";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { GlassCard } from "@/components/ui/GlassCard";
@@ -206,6 +207,55 @@ export function SettingsClient({
       setProfileError("Could not save changes");
     } finally {
       setSaving(false);
+    }
+  }
+
+  // ── Password change ───────────────────────────────────────────────────────
+  const [pw, setPw] = useState({
+    currentPassword: "",
+    newPassword: "",
+    confirmPassword: "",
+  });
+  const [pwSaving, setPwSaving] = useState(false);
+  const [pwError, setPwError] = useState("");
+  const [pwSaved, setPwSaved] = useState(false);
+
+  const pwValid =
+    pw.currentPassword.length > 0 &&
+    pw.newPassword.length >= 8 &&
+    pw.confirmPassword.length > 0 &&
+    pw.newPassword === pw.confirmPassword &&
+    pw.newPassword !== pw.currentPassword;
+
+  function setPwField(key: keyof typeof pw, value: string) {
+    setPw((p) => ({ ...p, [key]: value }));
+    setPwError("");
+    setPwSaved(false);
+  }
+
+  async function changePassword(e: React.FormEvent) {
+    e.preventDefault();
+    if (!pwValid) return;
+    setPwSaving(true);
+    setPwError("");
+    setPwSaved(false);
+    try {
+      const res = await fetch("/api/user/password/change", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(pw),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setPwError(data.error || "Could not update password");
+      } else {
+        setPwSaved(true);
+        setPw({ currentPassword: "", newPassword: "", confirmPassword: "" });
+      }
+    } catch {
+      setPwError("Could not update password");
+    } finally {
+      setPwSaving(false);
     }
   }
 
@@ -572,6 +622,63 @@ export function SettingsClient({
               </RevealItem>
 
               <RevealItem>
+                <GlassCard hover={false}>
+                  <div className="flex items-center gap-2">
+                    <KeyRound className="h-4 w-4 text-ink-500" />
+                    <h3 className="font-display text-[15px] font-semibold tracking-tight text-ink">
+                      Change password
+                    </h3>
+                  </div>
+                  <p className="mt-0.5 text-xs text-ink-400">
+                    Use at least 8 characters. Changing it signs you out of all
+                    your other devices.
+                  </p>
+                  <form onSubmit={changePassword} className="mt-4 space-y-4">
+                    <PasswordField
+                      label="Current password"
+                      value={pw.currentPassword}
+                      onChange={(v) => setPwField("currentPassword", v)}
+                      autoComplete="current-password"
+                    />
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <PasswordField
+                        label="New password"
+                        value={pw.newPassword}
+                        onChange={(v) => setPwField("newPassword", v)}
+                        autoComplete="new-password"
+                      />
+                      <PasswordField
+                        label="Confirm new password"
+                        value={pw.confirmPassword}
+                        onChange={(v) => setPwField("confirmPassword", v)}
+                        autoComplete="new-password"
+                      />
+                    </div>
+                    {pw.confirmPassword.length > 0 &&
+                      pw.newPassword !== pw.confirmPassword && (
+                        <p className="text-xs text-danger-ink">
+                          New passwords don&apos;t match.
+                        </p>
+                      )}
+                    <div className="flex items-center justify-end gap-3">
+                      {pwError && (
+                        <span className="text-sm text-danger-ink">{pwError}</span>
+                      )}
+                      {pwSaved && (
+                        <span className="flex items-center gap-1.5 text-sm text-success-ink">
+                          <Check className="h-4 w-4" />
+                          Password updated
+                        </span>
+                      )}
+                      <Button type="submit" loading={pwSaving} disabled={!pwValid}>
+                        Update password
+                      </Button>
+                    </div>
+                  </form>
+                </GlassCard>
+              </RevealItem>
+
+              <RevealItem>
                 <GlassCard hover={false} className="border-danger/20">
                   <h3 className="font-display text-[15px] font-semibold tracking-tight text-danger-ink">
                     Danger zone
@@ -632,6 +739,33 @@ function EditField({
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
         required={required}
+        className="input"
+      />
+    </div>
+  );
+}
+
+function PasswordField({
+  label,
+  value,
+  onChange,
+  autoComplete,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  autoComplete?: string;
+}) {
+  return (
+    <div>
+      <label className="mb-1.5 block text-xs font-medium text-ink-500">
+        {label}
+      </label>
+      <input
+        type="password"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        autoComplete={autoComplete}
         className="input"
       />
     </div>
