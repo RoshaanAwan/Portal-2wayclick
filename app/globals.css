@@ -14,19 +14,26 @@
   --font-sans: "Inter", system-ui, sans-serif;
   --font-display: "Space Grotesk", "Inter", system-ui, sans-serif;
 
-  /* ── "Metric Flow" dark palette ── near-black blue-charcoal canvas. */
-  --c-paper: 13 13 17; /* #0d0d11 */
-  --c-surface: 23 23 28; /* #17171c */
-  --c-surface-2: 30 30 36; /* #1e1e24 */
+  /* ── Neumorphic dark palette ── a single mid-charcoal tone for canvas AND
+     surfaces (soft-UI needs panels to share the background color so the dual
+     light/dark shadows read as extrusion). Lifted from near-black so the
+     highlight/shadow pair is actually visible. */
+  --c-paper: 35 38 46; /* #23262e — the one canvas tone */
+  --c-surface: 35 38 46; /* same as paper — panels are monochromatic */
+  --c-surface-2: 31 34 41; /* #1f2229 — slightly recessed wells/inputs */
 
-  --c-ink: 244 244 246; /* #f4f4f6 */
-  --c-ink-700: 212 212 218; /* #d4d4da */
-  --c-ink-500: 154 154 165; /* #9a9aa5 */
-  --c-ink-400: 116 116 127; /* #74747f */
-  --c-ink-300: 86 86 95; /* #56565f */
+  --c-ink: 233 236 243; /* #e9ecf3 */
+  --c-ink-700: 200 205 215; /* #c8cdd7 */
+  --c-ink-500: 150 156 168; /* #969ca8 */
+  --c-ink-400: 116 122 134; /* #747a86 */
+  --c-ink-300: 90 96 108; /* #5a606c */
 
-  --c-line: 38 38 45; /* #26262d */
-  --c-line-strong: 52 52 60; /* #34343c */
+  /* Soft-UI has no borders. Make `border-line` blend into the surface so the
+     ~53 existing `border border-line` elements lose their visible edge without
+     per-file edits; recessed wells read via their bg-surface-2 tone + inset
+     shadows instead. `line-strong` stays faintly visible for true dividers. */
+  --c-line: 35 38 46; /* == surface (invisible border) */
+  --c-line-strong: 48 52 61; /* faint divider when explicitly wanted */
 
   --c-accent: 245 104 63; /* #f5683f */
   --c-accent-600: 232 84 44; /* #e8542c */
@@ -48,60 +55,78 @@
   --c-info-soft: 18 29 46; /* #121d2e */
   --c-info-ink: 147 197 253; /* #93c5fd */
 
-  /* Effect tokens — overlays, sheens, textures, shadows (dark-tuned). */
+  /* Effect tokens. The glass sheen/highlight are neutralized (soft-UI has no
+     borders or lit edges); kept as 0 so the old .glass rules render flat. */
   --hover: 255 255 255; /* hover/active overlay base (RGB) */
-  --hover-opacity: 0.05; /* default hover overlay strength */
-  --highlight: 255 255 255; /* glass top "lit edge" */
-  --sheen-strong: 0.05; /* glass-strong vertical sheen */
-  --sheen: 0.035; /* glass vertical sheen */
+  --hover-opacity: 0.04;
+  --highlight: 255 255 255;
+  --sheen-strong: 0;
+  --sheen: 0;
   --texture: 255 255 255; /* grid / noise base */
-  --texture-opacity: 0.03;
+  --texture-opacity: 0.02;
   --scrollbar: 255 255 255;
-  --selection: 255, 255, 255; /* selection text color (comma list) */
-  --focus-bg: 13 13 17; /* focus ring inner gap = paper */
-  --frost-bg: 23 23 28; /* topbar frost base */
-  --frost-opacity: 0.7;
+  --selection: 255, 255, 255;
+  --focus-bg: 35 38 46; /* focus ring inner gap = paper */
+  --frost-bg: 35 38 46; /* topbar frost base */
+  --frost-opacity: 0.72;
 
+  /* ── Neumorphic shadow system ──────────────────────────────────────────
+     Soft-UI = a paired LIGHT shadow (top-left) + DARK shadow (bottom-right)
+     in the surface hue. --nm-light/--nm-dark are the two colors; the named
+     shadow tokens compose them at increasing depths. Inset variants create
+     the "pressed into the surface" look for inputs/active states. Because the
+     app already maps shadow-card/elevated/pop through these vars, redefining
+     them re-skins every surface at once. A cool, brighter lit edge + a deep
+     shade sculpt the charcoal surfaces. */
+  --nm-light: rgba(255, 255, 255, 0.07); /* lit (top-left) edge */
+  --nm-dark: rgba(0, 0, 0, 0.55); /* shaded (bottom-right) edge */
+
+  --shadow-xs: 2px 2px 5px var(--nm-dark), -2px -2px 5px var(--nm-light);
+  --shadow-card: 7px 7px 16px var(--nm-dark), -7px -7px 16px var(--nm-light);
+  --shadow-elevated: 11px 11px 24px var(--nm-dark),
+    -10px -10px 22px var(--nm-light);
+  --shadow-pop: 18px 18px 38px var(--nm-dark), -14px -14px 32px var(--nm-light);
+  --shadow-inset: inset 4px 4px 9px var(--nm-dark),
+    inset -4px -4px 9px var(--nm-light);
+  --shadow-inset-soft: inset 3px 3px 6px var(--nm-dark),
+    inset -3px -3px 6px var(--nm-light);
+
+  /* Two-point ambient wash: a faint top-light + warm corner glow. */
   --paper-wash: radial-gradient(
-      at 0% 0%,
-      rgba(245, 104, 63, 0.1) 0px,
-      transparent 42%
+      at 50% -10%,
+      rgba(255, 255, 255, 0.04) 0px,
+      transparent 45%
     ),
-    radial-gradient(at 100% 0%, rgba(245, 104, 63, 0.05) 0px, transparent 38%);
-
-  --shadow-xs: 0 1px 2px 0 rgba(0, 0, 0, 0.4);
-  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.35), 0 1px 3px rgba(0, 0, 0, 0.3);
-  --shadow-elevated: 0 1px 2px rgba(0, 0, 0, 0.4),
-    0 10px 30px -10px rgba(0, 0, 0, 0.6);
-  --shadow-pop: 0 16px 40px -12px rgba(0, 0, 0, 0.7),
-    0 2px 8px rgba(0, 0, 0, 0.5);
+    radial-gradient(at 85% 0%, rgba(245, 104, 63, 0.06) 0px, transparent 45%);
 
   color-scheme: dark;
 }
 
 [data-theme="light"] {
-  /* ── Light palette ── warm off-white canvas, clean white cards, same coral
-     accent. Inks are dark greys; lines are soft warm hairlines. */
-  --c-paper: 247 247 249; /* #f7f7f9 */
-  --c-surface: 255 255 255; /* #ffffff */
-  --c-surface-2: 243 243 246; /* #f3f3f6 */
+  /* ── Neumorphic light palette ── a cool "clay" canvas (clearly off-white) so
+     the white-lift / slate-shade pair reads as real, pillowy extrusion. Surface
+     == paper; surface-2 is deeper for recessed wells. */
+  --c-paper: 221 226 235; /* #dde2eb — clay canvas */
+  --c-surface: 221 226 235; /* same as paper — monochromatic panels */
+  --c-surface-2: 209 215 226; /* #d1d7e2 — recessed wells/inputs */
 
-  --c-ink: 24 24 28; /* #18181c */
-  --c-ink-700: 56 56 63; /* #38383f */
-  --c-ink-500: 99 99 109; /* #63636d */
-  --c-ink-400: 132 132 142; /* #84848e */
-  --c-ink-300: 168 168 178; /* #a8a8b2 */
+  --c-ink: 33 39 53; /* #212735 */
+  --c-ink-700: 58 66 82; /* #3a4252 */
+  --c-ink-500: 96 105 122; /* #60697a */
+  --c-ink-400: 128 137 153; /* #808999 */
+  --c-ink-300: 162 170 184; /* #a2aab8 */
 
-  --c-line: 230 230 235; /* #e6e6eb */
-  --c-line-strong: 213 213 220; /* #d5d5dc */
+  /* Borders blend into the canvas (soft-UI); line-strong stays a faint divider. */
+  --c-line: 221 226 235; /* == surface (invisible border) */
+  --c-line-strong: 198 205 218; /* #c6cdda faint divider */
 
-  /* Accent base stays the same coral; soft/ink tints flip for light surfaces. */
-  --c-accent: 233 84 44; /* #e9542c — slightly deeper for contrast on white */
+  /* Accent base stays the same coral; soft/ink tints tuned for the clay canvas. */
+  --c-accent: 233 84 44; /* #e9542c */
   --c-accent-600: 211 71 35; /* #d34723 */
   --c-accent-500: 245 104 63; /* #f5683f */
   --c-accent-400: 255 129 89; /* #ff8159 */
-  --c-accent-soft: 254 237 230; /* #feede6 */
-  --c-accent-ink: 200 64 30; /* #c8401e */
+  --c-accent-soft: 250 226 216; /* #fae2d8 — warm tint on the cool canvas */
+  --c-accent-ink: 194 60 26; /* #c23c1a */
 
   --c-success: 5 150 105; /* #059669 */
   --c-success-soft: 220 245 233; /* #dcf5e9 */
@@ -116,34 +141,43 @@
   --c-info-soft: 224 234 254; /* #e0eafe */
   --c-info-ink: 29 78 216; /* #1d4ed8 */
 
-  /* Effect tokens — on light, overlays/textures are dark-on-light, sheens off. */
+  /* Effect tokens (light). Sheen/highlight off — soft-UI has no lit edges. */
   --hover: 17 17 24; /* hover overlay base = near-black */
   --hover-opacity: 0.04;
-  --highlight: 255 255 255; /* lit edge stays white but barely shows */
+  --highlight: 255 255 255;
   --sheen-strong: 0;
   --sheen: 0;
   --texture: 17 17 24;
-  --texture-opacity: 0.025;
-  --scrollbar: 17 17 24;
+  --texture-opacity: 0.02;
+  --scrollbar: 90 100 120;
   --selection: 17, 17, 24;
-  --focus-bg: 247 247 249;
-  --frost-bg: 255 255 255;
-  --frost-opacity: 0.72;
+  --focus-bg: 221 226 235;
+  --frost-bg: 221 226 235;
+  --frost-opacity: 0.7;
 
+  /* Neumorphic shadows — pure-white lift (top-left) + a deeper slate-blue shade
+     (bottom-right). Pure white + a saturated shade is what makes light soft-UI
+     read as a real pillowy extrusion instead of a flat grey box. */
+  --nm-light: rgba(255, 255, 255, 1); /* full-strength lit edge */
+  --nm-dark: rgba(141, 152, 176, 0.6); /* slate-blue shade */
+
+  --shadow-xs: 2px 2px 5px var(--nm-dark), -2px -2px 5px var(--nm-light);
+  --shadow-card: 7px 7px 16px var(--nm-dark), -7px -7px 16px var(--nm-light);
+  --shadow-elevated: 11px 11px 24px var(--nm-dark),
+    -10px -10px 22px var(--nm-light);
+  --shadow-pop: 18px 18px 38px var(--nm-dark), -14px -14px 32px var(--nm-light);
+  --shadow-inset: inset 4px 4px 9px var(--nm-dark),
+    inset -4px -4px 9px var(--nm-light);
+  --shadow-inset-soft: inset 3px 3px 6px var(--nm-dark),
+    inset -3px -3px 6px var(--nm-light);
+
+  /* Two-point ambient wash gives the flat clay canvas a faint top-light. */
   --paper-wash: radial-gradient(
-      at 0% 0%,
-      rgba(245, 104, 63, 0.08) 0px,
-      transparent 42%
+      at 50% -10%,
+      rgba(255, 255, 255, 0.5) 0px,
+      transparent 45%
     ),
-    radial-gradient(at 100% 0%, rgba(245, 104, 63, 0.04) 0px, transparent 38%);
-
-  --shadow-xs: 0 1px 2px 0 rgba(17, 24, 39, 0.06);
-  --shadow-card: 0 1px 2px rgba(17, 24, 39, 0.05),
-    0 1px 3px rgba(17, 24, 39, 0.07);
-  --shadow-elevated: 0 1px 2px rgba(17, 24, 39, 0.06),
-    0 12px 28px -12px rgba(17, 24, 39, 0.18);
-  --shadow-pop: 0 18px 40px -14px rgba(17, 24, 39, 0.22),
-    0 2px 8px rgba(17, 24, 39, 0.08);
+    radial-gradient(at 80% 110%, rgba(141, 152, 176, 0.12) 0px, transparent 50%);
 
   color-scheme: light;
 }
@@ -217,69 +251,24 @@ body {
 }
 
 @layer components {
-  /* ── Premium surfaces ──────────────────────────────────────────────────
-     Class names reused across the app. A "material" look: a base surface,
-     a 1px top inner-highlight (light catching the top edge), and a faint
-     vertical sheen — the trick that makes flat cards read as physical.
-     The sheen/highlight strengths re-theme (strong on dark, off on light). */
+  /* ── Neumorphic surfaces ───────────────────────────────────────────────
+     Soft-UI: panels share the canvas color and "extrude" from it via a paired
+     light/dark shadow (--shadow-card / --shadow-elevated). No borders, no
+     sheen, no lit edge — those would break the illusion. Class names are kept
+     (.glass etc.) so the whole app re-skins without touching components. */
 
   .glass {
-    position: relative;
-    @apply rounded-2xl border border-line bg-surface shadow-card;
-    background-image: linear-gradient(
-      180deg,
-      rgba(var(--highlight), var(--sheen)) 0%,
-      rgba(var(--highlight), 0) 38%
-    );
-  }
-  /* Inner top-edge highlight — the premium "lit edge". */
-  .glass::before {
-    content: "";
-    position: absolute;
-    inset: 0;
-    border-radius: inherit;
-    padding-top: 1px;
-    background: linear-gradient(
-      180deg,
-      rgba(var(--highlight), 0.14),
-      transparent 1px
-    );
-    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-    -webkit-mask-composite: xor;
-    mask-composite: exclude;
-    pointer-events: none;
+    @apply rounded-2xl bg-surface shadow-card;
   }
 
   .glass-strong {
-    position: relative;
-    @apply rounded-2xl border border-line bg-surface shadow-elevated;
-    background-image: linear-gradient(
-      180deg,
-      rgba(var(--highlight), var(--sheen-strong)) 0%,
-      rgba(var(--highlight), 0) 42%
-    );
-  }
-  .glass-strong::before {
-    content: "";
-    position: absolute;
-    inset: 0;
-    border-radius: inherit;
-    padding-top: 1px;
-    background: linear-gradient(
-      180deg,
-      rgba(var(--highlight), 0.18),
-      transparent 1px
-    );
-    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-    -webkit-mask-composite: xor;
-    mask-composite: exclude;
-    pointer-events: none;
+    @apply rounded-2xl bg-surface shadow-elevated;
   }
 
-  /* Interactive lift — spring-like via transform + shadow. */
+  /* Interactive lift — deepen the extrusion + rise slightly on hover. */
   .glass-hover {
-    @apply transition-[transform,box-shadow,border-color] duration-300 ease-out
-      hover:-translate-y-1 hover:border-line-strong hover:shadow-pop;
+    @apply transition-[transform,box-shadow] duration-300 ease-out
+      hover:-translate-y-1 hover:shadow-pop;
   }
 
   /* Headline treatment — solid accent run. */
@@ -287,7 +276,7 @@ body {
     @apply text-accent;
   }
 
-  /* Accent hairline frame for emphasized/featured cards. */
+  /* Featured emphasis — a soft accent ring (subtle in soft-UI). */
   .glow-ring {
     @apply ring-1 ring-accent/25;
   }
@@ -297,11 +286,14 @@ body {
     @apply text-[11px] font-semibold uppercase tracking-[0.16em] text-ink-400;
   }
 
-  /* Standard form input on dark. */
+  /* Form input — "pressed into" the surface (inset neumorphic shadow). */
   .input {
-    @apply w-full rounded-xl border border-line bg-surface-2 px-3.5 py-2.5 text-sm text-ink
-      placeholder-ink-300 outline-none transition
-      focus:border-accent focus:shadow-focus-ring;
+    @apply w-full rounded-xl bg-surface px-3.5 py-2.5 text-sm text-ink
+      placeholder-ink-300 outline-none transition;
+    box-shadow: var(--shadow-inset-soft);
+  }
+  .input:focus {
+    box-shadow: var(--shadow-inset-soft), 0 0 0 2px rgb(var(--c-accent) / 0.45);
   }
 
   /* Frosted bar — sticky chrome (topbar). */
@@ -322,6 +314,29 @@ body {
   /* A slightly stronger variant for prominent controls (icon buttons, menus). */
   .hover-surface-strong:hover {
     background-color: rgba(var(--hover), calc(var(--hover-opacity) + 0.02));
+  }
+
+  /* ── Neumorphic helpers ── explicit soft-UI affordances for components that
+     want them directly (icon buttons, pills, wells). */
+  .nm-raised {
+    @apply bg-surface;
+    box-shadow: var(--shadow-xs);
+  }
+  .nm-pressed {
+    @apply bg-surface;
+    box-shadow: var(--shadow-inset-soft);
+  }
+  /* A control that lifts on hover and depresses on click. */
+  .nm-button {
+    @apply bg-surface transition-[box-shadow,transform] duration-200;
+    box-shadow: var(--shadow-xs);
+  }
+  .nm-button:hover {
+    box-shadow: var(--shadow-card);
+  }
+  .nm-button:active {
+    box-shadow: var(--shadow-inset-soft);
+    @apply translate-y-0;
   }
 
   /* Animated shine sweep — overlay for primary CTAs / hero. */
@@ -356,13 +371,16 @@ body {
   }
 }
 
-/* Shimmer loading skeleton — theme-aware. */
+/* Shimmer loading skeleton — a recessed (inset) well that shimmers, matching
+   the neumorphic surface language. */
 .skeleton {
-  background: linear-gradient(
+  background-color: rgb(var(--c-surface-2));
+  box-shadow: var(--shadow-inset-soft);
+  background-image: linear-gradient(
     90deg,
-    rgba(var(--texture), calc(var(--texture-opacity) + 0.01)) 25%,
-    rgba(var(--texture), calc(var(--texture-opacity) + 0.06)) 37%,
-    rgba(var(--texture), calc(var(--texture-opacity) + 0.01)) 63%
+    rgba(var(--texture), calc(var(--texture-opacity) + 0.005)) 25%,
+    rgba(var(--texture), calc(var(--texture-opacity) + 0.05)) 37%,
+    rgba(var(--texture), calc(var(--texture-opacity) + 0.005)) 63%
   );
   background-size: 400% 100%;
   animation: skeleton-loading 1.4s ease infinite;
