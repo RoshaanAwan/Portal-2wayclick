@@ -62,7 +62,7 @@ export function TodayPanel({ firstName }: { firstName: string }) {
           <GreetIcon className="h-9 w-9" />
         </div>
         <p className="text-xs font-medium uppercase tracking-widest text-ink-400">
-          Today at Nexus
+          Today at 2WayClick
         </p>
         <h2 className="mt-1.5 text-lg font-bold text-ink">
           {label}, {firstName}

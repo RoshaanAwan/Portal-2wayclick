@@ -296,7 +296,7 @@ export function SettingsClient({ user }: { user: SettingsUser }) {
                     </Row>
                     <Row
                       title="Weekly digest"
-                      desc="A Monday summary of what happened across Nexus."
+                      desc="A Monday summary of what happened across 2WayClick."
                     >
                       <Toggle
                         on={prefs.weeklyDigest}

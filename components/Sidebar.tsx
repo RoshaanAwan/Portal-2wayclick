@@ -44,7 +44,7 @@ export function Sidebar() {
             <Hexagon className="relative h-[18px] w-[18px] text-white" strokeWidth={2.4} />
           </div>
           <span className="font-display text-[18px] font-semibold tracking-tight text-ink">
-            Nexus
+            2WayClick
           </span>
           <span className="ml-auto rounded-md border border-line bg-surface-2 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-ink-400">
             v3
@@ -94,7 +94,7 @@ export function Sidebar() {
           <div className="pointer-events-none absolute -right-6 -top-6 h-20 w-20 rounded-full bg-accent/15 blur-2xl" />
           <div className="relative flex items-center gap-1.5">
             <Sparkles className="h-3.5 w-3.5 text-accent" />
-            <p className="text-xs font-semibold text-ink-700">Nexus 3.0</p>
+            <p className="text-xs font-semibold text-ink-700">2WayClick 3.0</p>
           </div>
           <p className="relative mt-1 text-[11px] leading-relaxed text-ink-400">
             Shipping Friday — a faster, cleaner workspace.

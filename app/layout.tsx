@@ -18,7 +18,7 @@ const spaceGrotesk = Space_Grotesk({
 });
 
 export const metadata: Metadata = {
-  title: "Nexus — Company Portal",
+  title: "2WayClick — Company Portal",
   description: "Your immersive internal employee hub.",
 };
 

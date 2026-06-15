@@ -4,7 +4,7 @@ import { PageHeader } from "@/components/ui/PageHeader";
 import { DirectoryClient, type DirectoryPerson } from "./DirectoryClient";
 
 export const metadata = {
-  title: "Directory — Nexus",
+  title: "Directory — 2WayClick",
 };
 
 export default async function DirectoryPage() {
@@ -33,7 +33,7 @@ export default async function DirectoryPage() {
     <div className="mx-auto max-w-7xl">
       <PageHeader
         title="People Directory"
-        subtitle={`${people.length} people across the Nexus team`}
+        subtitle={`${people.length} people across the 2WayClick team`}
         icon={Users}
       />
       <DirectoryClient people={people} />

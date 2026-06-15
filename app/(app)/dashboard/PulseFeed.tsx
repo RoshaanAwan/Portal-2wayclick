@@ -40,7 +40,7 @@ export function PulseFeed({ items }: { items: FeedItem[] }) {
           </div>
           <div>
             <h2 className="font-display text-[15px] font-semibold tracking-tight text-ink">Pulse</h2>
-            <p className="text-[11px] text-ink-400">What&apos;s happening across Nexus</p>
+            <p className="text-[11px] text-ink-400">What&apos;s happening across 2WayClick</p>
           </div>
         </div>
         <span className="flex items-center gap-1.5 text-[11px] font-medium text-ink-400">

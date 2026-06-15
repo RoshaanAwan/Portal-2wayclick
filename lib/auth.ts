@@ -4,7 +4,7 @@ import bcrypt from "bcryptjs";
 import { db } from "./db";
 import { randomBytes } from "crypto";
 
-const SESSION_COOKIE = "nexus_session";
+const SESSION_COOKIE = "twayclick_session";
 const SESSION_DAYS = 7;
 
 export async function hashPassword(password: string): Promise<string> {

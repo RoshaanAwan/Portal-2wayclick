@@ -1,4 +1,4 @@
-// Nexus Portal — data model
+// 2WayClick Portal — data model
 // PostgreSQL in every environment. Locally, point DATABASE_URL at a local
 // Postgres or a free Neon branch; in production, at your Neon database.
 

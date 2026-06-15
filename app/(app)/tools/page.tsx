@@ -8,7 +8,7 @@ import { FocusTimer } from "./FocusTimer";
 import { TodayPanel } from "./TodayPanel";
 
 export const metadata = {
-  title: "Tools · Nexus",
+  title: "Tools · 2WayClick",
 };
 
 export default async function ToolsPage() {

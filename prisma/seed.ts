@@ -16,7 +16,7 @@ function daysFromNow(n: number) {
 }
 
 async function main() {
-  console.log("🌱 Seeding Nexus portal...");
+  console.log("🌱 Seeding 2WayClick portal...");
 
   // Wipe (order matters for FKs)
   await db.projectMember.deleteMany();
@@ -56,7 +56,7 @@ async function main() {
   const created: Record<string, string> = {};
   let i = 0;
   for (const p of people) {
-    const email = p.name.toLowerCase().replace(" ", ".") + "@nexus.io";
+    const email = p.name.toLowerCase().replace(" ", ".") + "@2wayclick.com";
     const u = await db.user.create({
       data: {
         email,
@@ -68,7 +68,7 @@ async function main() {
         location: p.location,
         avatarUrl: `https://i.pravatar.cc/200?img=${p.avatar}`,
         phone: `+1 (555) ${100 + i}-${1000 + i}`,
-        bio: `${p.title} at Nexus. Passionate about building great products and a great team.`,
+        bio: `${p.title} at 2WayClick. Passionate about building great products and a great team.`,
         startDate: daysAgo(400 - i * 25),
       },
     });
@@ -91,7 +91,7 @@ async function main() {
 
   // Announcements
   const announcements = [
-    { title: "🚀 Nexus 3.0 ships next Friday", body: "After six months of work, our biggest release yet goes live next Friday. The new collaboration engine, real-time sync, and redesigned dashboard are all included. Huge thanks to Engineering and Design for the relentless push. Launch party in the SF office at 5pm — remote folks, we'll have a stream.", category: "Product", pinned: true, coverColor: "accent", author: marcus, days: 1 },
+    { title: "🚀 2WayClick 3.0 ships next Friday", body: "After six months of work, our biggest release yet goes live next Friday. The new collaboration engine, real-time sync, and redesigned dashboard are all included. Huge thanks to Engineering and Design for the relentless push. Launch party in the SF office at 5pm — remote folks, we'll have a stream.", category: "Product", pinned: true, coverColor: "accent", author: marcus, days: 1 },
     { title: "Welcome our new teammates 👋", body: "Please give a warm welcome to the four engineers and two designers joining us this month. Their intros are posted in the directory — drop by and say hi. We're now 120 people strong across 8 countries.", category: "People", pinned: true, coverColor: "emerald", author: priya, days: 2 },
     { title: "Updated remote work policy", body: "Effective this quarter, all employees may work remotely up to 3 days per week, with core collaboration hours from 10am–2pm in your local time. Full policy doc is in the Documents section under HR.", category: "Policy", pinned: false, coverColor: "cyan", author: priya, days: 4 },
     { title: "Q3 all-hands recap & deck", body: "Thanks to everyone who joined Tuesday's all-hands. We hit 142% of our revenue target and shipped 31 features. The recording and deck are now available. Key theme for Q4: depth over breadth.", category: "General", pinned: false, coverColor: "pink", author: ava, days: 6 },
@@ -139,7 +139,7 @@ async function main() {
 
   // Documents
   const docs = [
-    { title: "Employee Handbook 2026", description: "Everything you need to know about working at Nexus.", category: "HR", fileType: "pdf", sizeKb: 2400, uploader: priya },
+    { title: "Employee Handbook 2026", description: "Everything you need to know about working at 2WayClick.", category: "HR", fileType: "pdf", sizeKb: 2400, uploader: priya },
     { title: "Remote Work Policy", description: "Updated hybrid work guidelines and core hours.", category: "HR", fileType: "doc", sizeKb: 180, uploader: priya },
     { title: "Engineering Onboarding Guide", description: "Dev environment setup, codebase tour, and norms.", category: "Engineering", fileType: "doc", sizeKb: 540, uploader: marcus },
     { title: "Architecture Decision Records", description: "ADRs for the platform and services.", category: "Engineering", fileType: "pdf", sizeKb: 1200, uploader: marcus },
@@ -176,14 +176,14 @@ async function main() {
 
   // Activity feed
   const acts = [
-    { user: marcus, verb: "posted", target: "Nexus 3.0 ships next Friday", days: 1 },
+    { user: marcus, verb: "posted", target: "2WayClick 3.0 ships next Friday", days: 1 },
     { user: priya, verb: "posted", target: "Welcome our new teammates", days: 2 },
     { user: created["Yuki Tanaka"], verb: "requested", target: "WFH day", days: 2 },
     { user: marcus, verb: "approved", target: "Yuki's WFH request", days: 1 },
     { user: created["Grace Okoro"], verb: "uploaded", target: "Q3 Financial Report", days: 3 },
     { user: sofia, verb: "uploaded", target: "Brand Guidelines v2", days: 4 },
     { user: created["Nadia Volkov"], verb: "joined", target: "the Design team", days: 5 },
-    { user: created["Diego Santos"], verb: "commented", target: "Nexus 3.0 announcement", days: 1 },
+    { user: created["Diego Santos"], verb: "commented", target: "2WayClick 3.0 announcement", days: 1 },
   ];
   for (const ac of acts) {
     await db.activity.create({
@@ -193,7 +193,7 @@ async function main() {
 
   // ── Task board (Trello-style) ────────────────────────────────────────────
   const board = await db.board.create({
-    data: { name: "Nexus 3.0 Launch", createdAt: daysAgo(20) },
+    data: { name: "2WayClick 3.0 Launch", createdAt: daysAgo(20) },
   });
 
   const listDefs = ["Backlog", "To Do", "In Progress", "Review", "Done"];
@@ -353,9 +353,9 @@ async function main() {
 
   console.log(`✅ Seeded ${people.length} users, ${announcements.length} announcements, ${docs.length} docs, ${leave.length} leave requests, ${taskCount} tasks (${assigneeCount} assignments, ${commentCount} comments), ${projectCount} projects.`);
   console.log("\n🔑 Login with any of:");
-  console.log("   ava.chen@nexus.io       (Admin / CEO)");
-  console.log("   marcus.reyes@nexus.io   (Manager / VP Eng)");
-  console.log("   diego.santos@nexus.io   (Employee)");
+  console.log("   ava.chen@2wayclick.com       (Admin / CEO)");
+  console.log("   marcus.reyes@2wayclick.com   (Manager / VP Eng)");
+  console.log("   diego.santos@2wayclick.com   (Employee)");
   console.log("   Password for all: password123\n");
 }
 

@@ -1,4 +1,4 @@
-# Nexus — Immersive Company Portal
+# 2WayClick — Immersive Company Portal
 
 A fully operational **internal employee hub** with an immersive glassmorphic UI.
 Real authentication, a real database, a real API — all running locally with **zero external keys**.
@@ -46,11 +46,11 @@ npm run build && npm start
 
 All accounts use password **`password123`**:
 
-| Email                   | Role            |
-| ----------------------- | --------------- |
-| `ava.chen@nexus.io`     | Admin / CEO     |
-| `marcus.reyes@nexus.io` | Manager / VP Eng|
-| `diego.santos@nexus.io` | Employee        |
+| Email                        | Role            |
+| ---------------------------- | --------------- |
+| `ava.chen@2wayclick.com`     | Admin / CEO     |
+| `marcus.reyes@2wayclick.com` | Manager / VP Eng|
+| `diego.santos@2wayclick.com` | Employee        |
 
 (Or click a quick-login chip on the sign-in screen.)
 

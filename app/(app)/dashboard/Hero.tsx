@@ -113,7 +113,7 @@ export function Hero({
               3.0
             </div>
             <div>
-              <p className="text-xs font-semibold text-ink-700">Nexus 3.0</p>
+              <p className="text-xs font-semibold text-ink-700">2WayClick 3.0</p>
               <p className="text-[11px] text-ink-400">
                 Ships Friday — see what&apos;s new
               </p>

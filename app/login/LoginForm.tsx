@@ -7,14 +7,14 @@ import { Hexagon, Mail, Lock, ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 
 const DEMO_ACCOUNTS = [
-  { label: "CEO / Admin", email: "ava.chen@nexus.io" },
-  { label: "VP Eng / Manager", email: "marcus.reyes@nexus.io" },
-  { label: "Engineer", email: "diego.santos@nexus.io" },
+  { label: "CEO / Admin", email: "ava.chen@2wayclick.com" },
+  { label: "VP Eng / Manager", email: "marcus.reyes@2wayclick.com" },
+  { label: "Engineer", email: "diego.santos@2wayclick.com" },
 ];
 
 export function LoginForm() {
   const router = useRouter();
-  const [email, setEmail] = useState("ava.chen@nexus.io");
+  const [email, setEmail] = useState("ava.chen@2wayclick.com");
   const [password, setPassword] = useState("password123");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -56,7 +56,7 @@ export function LoginForm() {
           <Hexagon className="relative h-8 w-8 text-white" strokeWidth={2.4} />
         </motion.div>
         <h1 className="font-display text-[2rem] font-semibold tracking-tight text-ink">
-          Welcome to Nexus
+          Welcome to 2WayClick
         </h1>
         <p className="mt-1.5 text-sm text-ink-500">
           Sign in to your company workspace
@@ -77,7 +77,7 @@ export function LoginForm() {
                 onChange={(e) => setEmail(e.target.value)}
                 required
                 className="input pl-10"
-                placeholder="you@nexus.io"
+                placeholder="you@2wayclick.com"
               />
             </div>
           </div>
@@ -138,7 +138,7 @@ export function LoginForm() {
       </div>
 
       <p className="mt-6 text-center text-xs text-ink-400">
-        Nexus — your company&apos;s internal hub
+        2WayClick — your company&apos;s internal hub
       </p>
     </motion.div>
   );
