@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { motion } from "framer-motion";
@@ -15,6 +15,8 @@ import {
   ExternalLink,
   Moon,
   Sun,
+  Camera,
+  Loader2,
 } from "lucide-react";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { GlassCard } from "@/components/ui/GlassCard";
@@ -36,6 +38,9 @@ interface SettingsUser {
   title: string;
   department: string;
   avatarUrl: string | null;
+  bio: string | null;
+  phone: string | null;
+  location: string | null;
 }
 
 const SECTIONS = [
@@ -118,6 +123,85 @@ export function SettingsClient({ user }: { user: SettingsUser }) {
     reducedMotion: false,
   });
 
+  // ── Profile editing ───────────────────────────────────────────────────────
+  const fileInput = useRef<HTMLInputElement>(null);
+  const [form, setForm] = useState({
+    name: user.name,
+    bio: user.bio ?? "",
+    phone: user.phone ?? "",
+    location: user.location ?? "",
+  });
+  // The current (possibly just-uploaded) avatar URL we'd save. null = cleared.
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(user.avatarUrl);
+  const [uploading, setUploading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [profileError, setProfileError] = useState("");
+  const [saved, setSaved] = useState(false);
+
+  const dirty =
+    form.name !== user.name ||
+    form.bio !== (user.bio ?? "") ||
+    form.phone !== (user.phone ?? "") ||
+    form.location !== (user.location ?? "") ||
+    avatarUrl !== user.avatarUrl;
+
+  function setField(key: keyof typeof form, value: string) {
+    setForm((f) => ({ ...f, [key]: value }));
+    setSaved(false);
+    setProfileError("");
+  }
+
+  async function onPickAvatar(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // allow re-picking the same file
+    if (!file) return;
+
+    setUploading(true);
+    setProfileError("");
+    setSaved(false);
+    try {
+      const body = new FormData();
+      body.append("file", file);
+      const res = await fetch("/api/user/avatar/upload", { method: "POST", body });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setProfileError(data.error || "Upload failed");
+      } else {
+        setAvatarUrl(data.url);
+      }
+    } catch {
+      setProfileError("Upload failed");
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  async function saveProfile(e: React.FormEvent) {
+    e.preventDefault();
+    setSaving(true);
+    setProfileError("");
+    setSaved(false);
+    try {
+      const res = await fetch("/api/user/profile/update", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...form, avatarUrl: avatarUrl ?? "" }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setProfileError(data.error || "Could not save changes");
+      } else {
+        setSaved(true);
+        // Re-fetch server data so the Topbar avatar/name update everywhere.
+        router.refresh();
+      }
+    } catch {
+      setProfileError("Could not save changes");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function logout() {
     await fetch("/api/auth/logout", { method: "POST" });
     router.push("/login");
@@ -165,48 +249,140 @@ export function SettingsClient({ user }: { user: SettingsUser }) {
         {/* Section content */}
         <div className="min-w-0">
           {active === "profile" && (
-            <Reveal className="space-y-5">
-              <RevealItem>
-                <GlassCard hover={false} spotlight>
-                  <div className="flex flex-col items-start gap-5 sm:flex-row sm:items-center">
-                    <Avatar name={user.name} src={user.avatarUrl} size="xl" ring />
-                    <div className="min-w-0 flex-1">
-                      <h2 className="font-display text-xl font-semibold tracking-tight text-ink">
-                        {user.name}
-                      </h2>
-                      <p className="mt-0.5 text-sm text-ink-500">
-                        {user.title} · {user.department}
-                      </p>
-                      <p className="mt-0.5 text-xs text-ink-400">{user.email}</p>
+            <form onSubmit={saveProfile}>
+              <Reveal className="space-y-5">
+                <RevealItem>
+                  <GlassCard hover={false}>
+                    <div className="flex flex-col items-start gap-5 sm:flex-row sm:items-center">
+                      {/* Avatar with upload affordance */}
+                      <div className="relative shrink-0">
+                        <Avatar
+                          name={form.name || user.name}
+                          src={avatarUrl}
+                          size="xl"
+                          ring
+                        />
+                        <button
+                          type="button"
+                          onClick={() => fileInput.current?.click()}
+                          disabled={uploading}
+                          aria-label="Change profile photo"
+                          className="absolute -bottom-1 -right-1 grid h-8 w-8 place-items-center rounded-full bg-accent-grad text-white shadow-accent-glow transition hover:brightness-105 active:scale-95 disabled:opacity-60"
+                        >
+                          {uploading ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <Camera className="h-4 w-4" />
+                          )}
+                        </button>
+                        <input
+                          ref={fileInput}
+                          type="file"
+                          accept="image/png,image/jpeg,image/webp,image/gif"
+                          className="hidden"
+                          onChange={onPickAvatar}
+                        />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <h2 className="font-display text-xl font-semibold tracking-tight text-ink">
+                          {form.name || user.name}
+                        </h2>
+                        <p className="mt-0.5 text-sm text-ink-500">
+                          {user.title} · {user.department}
+                        </p>
+                        <p className="mt-0.5 text-xs text-ink-400">{user.email}</p>
+                        {avatarUrl && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setAvatarUrl(null);
+                              setSaved(false);
+                            }}
+                            className="mt-2 text-xs font-medium text-ink-400 underline-offset-2 hover:text-danger-ink hover:underline"
+                          >
+                            Remove photo
+                          </button>
+                        )}
+                      </div>
+                      <Link href={`/directory/${user.id}`}>
+                        <Button type="button" variant="glass" size="sm">
+                          View public profile
+                          <ExternalLink className="h-3.5 w-3.5" />
+                        </Button>
+                      </Link>
                     </div>
-                    <Link href={`/directory/${user.id}`}>
-                      <Button variant="glass" size="sm">
-                        View public profile
-                        <ExternalLink className="h-3.5 w-3.5" />
-                      </Button>
-                    </Link>
-                  </div>
-                </GlassCard>
-              </RevealItem>
+                  </GlassCard>
+                </RevealItem>
 
-              <RevealItem>
-                <GlassCard hover={false}>
-                  <h3 className="font-display text-[15px] font-semibold tracking-tight text-ink">
-                    Profile details
-                  </h3>
-                  <div className="mt-4 grid gap-4 sm:grid-cols-2">
-                    <Field label="Full name" value={user.name} />
-                    <Field label="Email" value={user.email} />
-                    <Field label="Job title" value={user.title} />
-                    <Field label="Department" value={user.department} />
+                <RevealItem>
+                  <GlassCard hover={false}>
+                    <h3 className="font-display text-[15px] font-semibold tracking-tight text-ink">
+                      Profile details
+                    </h3>
+                    <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                      <EditField
+                        label="Full name"
+                        value={form.name}
+                        onChange={(v) => setField("name", v)}
+                        placeholder="Your name"
+                        required
+                      />
+                      <Field label="Email" value={user.email} />
+                      <EditField
+                        label="Phone"
+                        value={form.phone}
+                        onChange={(v) => setField("phone", v)}
+                        placeholder="+1 555 000 0000"
+                      />
+                      <EditField
+                        label="Location"
+                        value={form.location}
+                        onChange={(v) => setField("location", v)}
+                        placeholder="City, Country"
+                      />
+                      <div className="sm:col-span-2">
+                        <label className="mb-1.5 block text-xs font-medium text-ink-500">
+                          Bio
+                        </label>
+                        <textarea
+                          value={form.bio}
+                          onChange={(e) => setField("bio", e.target.value)}
+                          rows={3}
+                          maxLength={600}
+                          placeholder="A short line about what you do."
+                          className="input min-h-[88px] resize-y py-2.5"
+                        />
+                      </div>
+                    </div>
+                    <p className="mt-4 text-xs text-ink-400">
+                      Job title, department, and role are managed by your HR
+                      admin. Contact People Ops to request a change.
+                    </p>
+                  </GlassCard>
+                </RevealItem>
+
+                <RevealItem>
+                  <div className="flex items-center justify-end gap-3">
+                    {profileError && (
+                      <span className="text-sm text-danger-ink">{profileError}</span>
+                    )}
+                    {saved && !dirty && (
+                      <span className="flex items-center gap-1.5 text-sm text-success-ink">
+                        <Check className="h-4 w-4" />
+                        Saved
+                      </span>
+                    )}
+                    <Button
+                      type="submit"
+                      loading={saving}
+                      disabled={!dirty || uploading || !form.name.trim()}
+                    >
+                      Save changes
+                    </Button>
                   </div>
-                  <p className="mt-4 text-xs text-ink-400">
-                    Profile details are managed by your HR admin. Contact People
-                    Ops to request a change.
-                  </p>
-                </GlassCard>
-              </RevealItem>
-            </Reveal>
+                </RevealItem>
+              </Reveal>
+            </form>
           )}
 
           {active === "appearance" && (
@@ -419,6 +595,36 @@ function Field({ label, value }: { label: string; value: string }) {
       <div className="rounded-xl border border-line bg-surface-2 px-3.5 py-2.5 text-sm text-ink-700">
         {value}
       </div>
+    </div>
+  );
+}
+
+function EditField({
+  label,
+  value,
+  onChange,
+  placeholder,
+  required,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+  required?: boolean;
+}) {
+  return (
+    <div>
+      <label className="mb-1.5 block text-xs font-medium text-ink-500">
+        {label}
+      </label>
+      <input
+        type="text"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        required={required}
+        className="input"
+      />
     </div>
   );
 }

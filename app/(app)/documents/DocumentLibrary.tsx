@@ -305,13 +305,11 @@ function FileCard({ doc, index }: { doc: DocItem; index: number }) {
   return (
     <GlassCard
       layout
-      spotlight
       hover={false}
       initial={{ opacity: 0, y: 14 }}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, scale: 0.95 }}
       transition={{ duration: 0.35, delay: Math.min(index * 0.04, 0.3) }}
-      whileHover={{ y: -5 }}
       className="flex flex-col"
     >
       <div className="flex items-start gap-3">

@@ -40,20 +40,19 @@ export function LoginForm() {
       className="w-full max-w-md"
     >
       <div className="mb-8">
-        {/* Brand mark — centered on mobile (no hero), left-aligned on desktop. */}
+        {/* Brand mark — always centered above the form. */}
         <motion.div
           initial={{ scale: 0.8, opacity: 0 }}
           animate={{ scale: 1, opacity: 1 }}
           transition={{ delay: 0.15, type: "spring", stiffness: 220 }}
-          className="relative mx-auto mb-5 grid h-14 w-14 place-items-center rounded-2xl bg-accent-grad shadow-accent-glow lg:hidden"
+          className="relative mx-auto mb-5 grid h-14 w-14 place-items-center rounded-2xl bg-accent-grad"
         >
-          <span className="absolute -inset-3 animate-breathe rounded-full bg-accent/40 blur-xl" />
           <Hexagon className="relative h-7 w-7 text-white" strokeWidth={2.4} />
         </motion.div>
-        <h1 className="text-center font-display text-[1.85rem] font-semibold tracking-tight text-ink lg:text-left">
+        <h1 className="text-center font-display text-[1.85rem] font-semibold tracking-tight text-ink">
           Welcome back
         </h1>
-        <p className="mt-1.5 text-center text-sm text-ink-500 lg:text-left">
+        <p className="mt-1.5 text-center text-sm text-ink-500">
           Sign in to your 2WayClick workspace
         </p>
       </div>

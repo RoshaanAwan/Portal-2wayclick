@@ -86,12 +86,16 @@ const config: Config = {
         "accent-grad": "linear-gradient(135deg, #ff8159 0%, #f5683f 55%, #e8542c 100%)",
       },
       boxShadow: {
-        // Shadows re-tune per theme (deep/diffuse on dark, soft/lifted on light).
+        // Flat design: depth tokens resolve to `none` via the CSS vars; only
+        // overlays (shadow-pop) keep a single soft drop. Names are retained so
+        // existing usages flatten without per-file edits.
         xs: "var(--shadow-xs)",
         card: "var(--shadow-card)",
         elevated: "var(--shadow-elevated)",
         pop: "var(--shadow-pop)",
-        "accent-glow": "0 8px 22px -6px rgba(245,104,63,0.5)",
+        // Accent glow removed — kept as a no-op so `shadow-accent-glow` usages
+        // render flat instead of breaking.
+        "accent-glow": "none",
         "focus-ring": "0 0 0 3px rgba(245,104,63,0.25)",
       },
       keyframes: {

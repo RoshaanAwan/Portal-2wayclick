@@ -75,7 +75,7 @@ export function TaskCard({
         onDragOver={onDragOverCard}
         onDrop={onDropCard}
         className={cn(
-          "group relative cursor-pointer overflow-hidden rounded-xl border bg-surface pl-3.5 pr-3 py-2.5 shadow-xs outline-none transition-all hover:shadow-pop focus-visible:shadow-focus-ring",
+          "group relative cursor-pointer overflow-hidden rounded-xl border bg-surface pl-3.5 pr-3 py-2.5 shadow-xs outline-none transition-all focus-visible:shadow-focus-ring",
           // Cards assigned to me get a quiet accent ring so "mine" pops.
           mine
             ? "border-accent/35 ring-1 ring-inset ring-accent/15"

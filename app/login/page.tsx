@@ -1,21 +1,18 @@
 import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/auth";
 import { LoginForm } from "./LoginForm";
-import { LoginHero } from "./LoginHero";
 
 export default async function LoginPage() {
   const user = await getCurrentUser();
   if (user) redirect("/dashboard");
 
   return (
-    <main className="relative min-h-screen lg:grid lg:grid-cols-2">
-      {/* Left — branded hero (hidden on small screens). */}
-      <LoginHero />
+    <main className="relative flex min-h-screen items-center justify-center overflow-hidden px-5 py-10 sm:px-8">
+      {/* Clean canvas base — flat, minimal. */}
+      <div className="pointer-events-none absolute inset-0 -z-20 bg-paper" />
 
-      {/* Right — the sign-in form, vertically centered. */}
-      <div className="flex min-h-screen items-center justify-center px-5 py-10 sm:px-8 lg:min-h-0">
-        <LoginForm />
-      </div>
+      {/* The sign-in form, centered. */}
+      <LoginForm />
     </main>
   );
 }

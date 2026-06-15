@@ -5,7 +5,6 @@ import { motion } from "framer-motion";
 import { Sun, Sunrise, Moon, ArrowUpRight } from "lucide-react";
 import Link from "next/link";
 import { Avatar } from "@/components/ui/Avatar";
-import { Spotlight } from "@/components/ui/Spotlight";
 import { rise } from "@/lib/motion";
 
 function greetingFor(hour: number): { label: string; Icon: typeof Sun } {
@@ -55,11 +54,6 @@ export function Hero({
       {...rise()}
       className="glass-strong group relative overflow-hidden p-6 sm:p-8"
     >
-      <Spotlight size={420} />
-      {/* Ambient brand glow + faint grid texture */}
-      <div className="pointer-events-none absolute -right-20 -top-24 h-72 w-72 animate-breathe rounded-full bg-accent/[0.12] blur-3xl" />
-      <div className="pointer-events-none absolute inset-0 bg-grid opacity-[0.35] [mask-image:radial-gradient(circle_at_top_right,black,transparent_60%)]" />
-
       <div className="relative z-[1] flex flex-col gap-6 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-5">
           <motion.div

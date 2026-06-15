@@ -14,13 +14,12 @@
   --font-sans: "Inter", system-ui, sans-serif;
   --font-display: "Space Grotesk", "Inter", system-ui, sans-serif;
 
-  /* ── Neumorphic dark palette ── a single mid-charcoal tone for canvas AND
-     surfaces (soft-UI needs panels to share the background color so the dual
-     light/dark shadows read as extrusion). Lifted from near-black so the
-     highlight/shadow pair is actually visible. */
-  --c-paper: 35 38 46; /* #23262e — the one canvas tone */
-  --c-surface: 35 38 46; /* same as paper — panels are monochromatic */
-  --c-surface-2: 31 34 41; /* #1f2229 — slightly recessed wells/inputs */
+  /* ── Flat dark palette ── a deep canvas with panels lifted one step above it,
+     separated by a thin hairline border (no shadows). Minimalist: surface reads
+     against paper by tone + border, not extrusion. */
+  --c-paper: 24 26 31; /* #181a1f — canvas (deepest) */
+  --c-surface: 32 35 42; /* #20232a — cards / panels (one step up) */
+  --c-surface-2: 38 41 49; /* #262931 — inset rows / wells / inputs */
 
   --c-ink: 233 236 243; /* #e9ecf3 */
   --c-ink-700: 200 205 215; /* #c8cdd7 */
@@ -28,12 +27,10 @@
   --c-ink-400: 116 122 134; /* #747a86 */
   --c-ink-300: 90 96 108; /* #5a606c */
 
-  /* Soft-UI has no borders. Make `border-line` blend into the surface so the
-     ~53 existing `border border-line` elements lose their visible edge without
-     per-file edits; recessed wells read via their bg-surface-2 tone + inset
-     shadows instead. `line-strong` stays faintly visible for true dividers. */
-  --c-line: 35 38 46; /* == surface (invisible border) */
-  --c-line-strong: 48 52 61; /* faint divider when explicitly wanted */
+  /* Flat design: borders do the work shadows used to. A visible hairline
+     separates surfaces from the canvas; line-strong is for emphasized edges. */
+  --c-line: 48 52 61; /* #30343d — visible hairline border */
+  --c-line-strong: 62 67 78; /* #3e434e — emphasized divider */
 
   --c-accent: 245 104 63; /* #f5683f */
   --c-accent-600: 232 84 44; /* #e8542c */
@@ -70,45 +67,32 @@
   --frost-bg: 35 38 46; /* topbar frost base */
   --frost-opacity: 0.72;
 
-  /* ── Neumorphic shadow system ──────────────────────────────────────────
-     Soft-UI = a paired LIGHT shadow (top-left) + DARK shadow (bottom-right)
-     in the surface hue. --nm-light/--nm-dark are the two colors; the named
-     shadow tokens compose them at increasing depths. Inset variants create
-     the "pressed into the surface" look for inputs/active states. Because the
-     app already maps shadow-card/elevated/pop through these vars, redefining
-     them re-skins every surface at once. A cool, brighter lit edge + a deep
-     shade sculpt the charcoal surfaces. */
-  --nm-light: rgba(255, 255, 255, 0.07); /* lit (top-left) edge */
-  --nm-dark: rgba(0, 0, 0, 0.55); /* shaded (bottom-right) edge */
+  /* ── Flat shadow system ────────────────────────────────────────────────
+     Neumorphism removed. Every surface separates via tone + border, not
+     extrusion, so the depth tokens collapse to `none`. The names are kept
+     (shadow-card/elevated/pop/xs/inset) so the whole app — which references
+     them through Tailwind and the .glass/.input classes — flattens at once
+     without per-file edits. The deepest token keeps a single, barely-there
+     drop for true overlays (dropdowns/popovers) so they read above content. */
+  --shadow-xs: none;
+  --shadow-card: none;
+  --shadow-elevated: none;
+  --shadow-pop: 0 12px 32px -12px rgba(0, 0, 0, 0.6);
+  --shadow-inset: none;
+  --shadow-inset-soft: none;
 
-  --shadow-xs: 2px 2px 5px var(--nm-dark), -2px -2px 5px var(--nm-light);
-  --shadow-card: 7px 7px 16px var(--nm-dark), -7px -7px 16px var(--nm-light);
-  --shadow-elevated: 11px 11px 24px var(--nm-dark),
-    -10px -10px 22px var(--nm-light);
-  --shadow-pop: 18px 18px 38px var(--nm-dark), -14px -14px 32px var(--nm-light);
-  --shadow-inset: inset 4px 4px 9px var(--nm-dark),
-    inset -4px -4px 9px var(--nm-light);
-  --shadow-inset-soft: inset 3px 3px 6px var(--nm-dark),
-    inset -3px -3px 6px var(--nm-light);
-
-  /* Two-point ambient wash: a faint top-light + warm corner glow. */
-  --paper-wash: radial-gradient(
-      at 50% -10%,
-      rgba(255, 255, 255, 0.04) 0px,
-      transparent 45%
-    ),
-    radial-gradient(at 85% 0%, rgba(245, 104, 63, 0.06) 0px, transparent 45%);
+  /* No ambient wash in the flat design — the canvas is a single solid tone. */
+  --paper-wash: none;
 
   color-scheme: dark;
 }
 
 [data-theme="light"] {
-  /* ── Neumorphic light palette ── a cool "clay" canvas (clearly off-white) so
-     the white-lift / slate-shade pair reads as real, pillowy extrusion. Surface
-     == paper; surface-2 is deeper for recessed wells. */
-  --c-paper: 221 226 235; /* #dde2eb — clay canvas */
-  --c-surface: 221 226 235; /* same as paper — monochromatic panels */
-  --c-surface-2: 209 215 226; /* #d1d7e2 — recessed wells/inputs */
+  /* ── Flat light palette ── a soft off-white canvas with pure-white cards
+     lifted by a thin grey border (no shadows). Clean and minimal. */
+  --c-paper: 244 245 247; /* #f4f5f7 — soft off-white canvas */
+  --c-surface: 255 255 255; /* #ffffff — white cards / panels */
+  --c-surface-2: 244 245 247; /* #f4f5f7 — inset rows / wells / inputs */
 
   --c-ink: 33 39 53; /* #212735 */
   --c-ink-700: 58 66 82; /* #3a4252 */
@@ -116,9 +100,9 @@
   --c-ink-400: 128 137 153; /* #808999 */
   --c-ink-300: 162 170 184; /* #a2aab8 */
 
-  /* Borders blend into the canvas (soft-UI); line-strong stays a faint divider. */
-  --c-line: 221 226 235; /* == surface (invisible border) */
-  --c-line-strong: 198 205 218; /* #c6cdda faint divider */
+  /* Visible hairline borders separate white cards from the off-white canvas. */
+  --c-line: 226 229 234; /* #e2e5ea — hairline border */
+  --c-line-strong: 209 214 222; /* #d1d6de — emphasized divider */
 
   /* Accent base stays the same coral; soft/ink tints tuned for the clay canvas. */
   --c-accent: 233 84 44; /* #e9542c */
@@ -155,29 +139,16 @@
   --frost-bg: 221 226 235;
   --frost-opacity: 0.7;
 
-  /* Neumorphic shadows — pure-white lift (top-left) + a deeper slate-blue shade
-     (bottom-right). Pure white + a saturated shade is what makes light soft-UI
-     read as a real pillowy extrusion instead of a flat grey box. */
-  --nm-light: rgba(255, 255, 255, 1); /* full-strength lit edge */
-  --nm-dark: rgba(141, 152, 176, 0.6); /* slate-blue shade */
+  /* Flat: surfaces separate by border, not shadow. Overlays keep one soft drop
+     so menus/popovers read above the page. */
+  --shadow-xs: none;
+  --shadow-card: none;
+  --shadow-elevated: none;
+  --shadow-pop: 0 12px 32px -12px rgba(17, 24, 39, 0.18);
+  --shadow-inset: none;
+  --shadow-inset-soft: none;
 
-  --shadow-xs: 2px 2px 5px var(--nm-dark), -2px -2px 5px var(--nm-light);
-  --shadow-card: 7px 7px 16px var(--nm-dark), -7px -7px 16px var(--nm-light);
-  --shadow-elevated: 11px 11px 24px var(--nm-dark),
-    -10px -10px 22px var(--nm-light);
-  --shadow-pop: 18px 18px 38px var(--nm-dark), -14px -14px 32px var(--nm-light);
-  --shadow-inset: inset 4px 4px 9px var(--nm-dark),
-    inset -4px -4px 9px var(--nm-light);
-  --shadow-inset-soft: inset 3px 3px 6px var(--nm-dark),
-    inset -3px -3px 6px var(--nm-light);
-
-  /* Two-point ambient wash gives the flat clay canvas a faint top-light. */
-  --paper-wash: radial-gradient(
-      at 50% -10%,
-      rgba(255, 255, 255, 0.5) 0px,
-      transparent 45%
-    ),
-    radial-gradient(at 80% 110%, rgba(141, 152, 176, 0.12) 0px, transparent 50%);
+  --paper-wash: none;
 
   color-scheme: light;
 }
@@ -251,24 +222,23 @@ body {
 }
 
 @layer components {
-  /* ── Neumorphic surfaces ───────────────────────────────────────────────
-     Soft-UI: panels share the canvas color and "extrude" from it via a paired
-     light/dark shadow (--shadow-card / --shadow-elevated). No borders, no
-     sheen, no lit edge — those would break the illusion. Class names are kept
-     (.glass etc.) so the whole app re-skins without touching components. */
+  /* ── Flat surfaces ─────────────────────────────────────────────────────
+     Minimalist: a panel is a flat fill with a thin hairline border and no
+     shadow. Class names are kept (.glass etc.) so the whole app re-skins
+     without touching components. */
 
   .glass {
-    @apply rounded-2xl bg-surface shadow-card;
+    @apply rounded-2xl border border-line bg-surface;
   }
 
   .glass-strong {
-    @apply rounded-2xl bg-surface shadow-elevated;
+    @apply rounded-2xl border border-line bg-surface;
   }
 
-  /* Interactive lift — deepen the extrusion + rise slightly on hover. */
+  /* Interactive surface — flat, just a border-color shift on hover (no lift,
+     no shadow). */
   .glass-hover {
-    @apply transition-[transform,box-shadow] duration-300 ease-out
-      hover:-translate-y-1 hover:shadow-pop;
+    @apply transition-colors duration-200 hover:border-line-strong;
   }
 
   /* Headline treatment — solid accent run. */
@@ -276,9 +246,9 @@ body {
     @apply text-accent;
   }
 
-  /* Featured emphasis — a soft accent ring (subtle in soft-UI). */
+  /* Featured emphasis — a subtle accent border. */
   .glow-ring {
-    @apply ring-1 ring-accent/25;
+    @apply border-accent/40;
   }
 
   /* Section eyebrow / label. */
@@ -286,14 +256,15 @@ body {
     @apply text-[11px] font-semibold uppercase tracking-[0.16em] text-ink-400;
   }
 
-  /* Form input — "pressed into" the surface (inset neumorphic shadow). */
+  /* Form input — flat field with a hairline border; accent ring on focus. */
   .input {
-    @apply w-full rounded-xl bg-surface px-3.5 py-2.5 text-sm text-ink
-      placeholder-ink-300 outline-none transition;
-    box-shadow: var(--shadow-inset-soft);
+    @apply w-full rounded-xl border border-line bg-surface-2 px-3.5 py-2.5
+      text-sm text-ink placeholder-ink-300 outline-none
+      transition-[border-color,box-shadow];
   }
   .input:focus {
-    box-shadow: var(--shadow-inset-soft), 0 0 0 2px rgb(var(--c-accent) / 0.45);
+    @apply border-accent;
+    box-shadow: 0 0 0 2px rgb(var(--c-accent) / 0.25);
   }
 
   /* Frosted bar — sticky chrome (topbar). */
@@ -316,50 +287,24 @@ body {
     background-color: rgba(var(--hover), calc(var(--hover-opacity) + 0.02));
   }
 
-  /* ── Neumorphic helpers ── explicit soft-UI affordances for components that
-     want them directly (icon buttons, pills, wells). */
+  /* ── Flat control helpers ── bordered surfaces used directly by components
+     (icon buttons, pills, wells). No extrusion; a border + hover tint. */
   .nm-raised {
-    @apply bg-surface;
-    box-shadow: var(--shadow-xs);
+    @apply border border-line bg-surface;
   }
   .nm-pressed {
-    @apply bg-surface;
-    box-shadow: var(--shadow-inset-soft);
+    @apply border border-line bg-surface-2;
   }
-  /* A control that lifts on hover and depresses on click. */
+  /* A flat bordered control; subtle surface tint on hover, no lift. */
   .nm-button {
-    @apply bg-surface transition-[box-shadow,transform] duration-200;
-    box-shadow: var(--shadow-xs);
-  }
-  .nm-button:hover {
-    box-shadow: var(--shadow-card);
-  }
-  .nm-button:active {
-    box-shadow: var(--shadow-inset-soft);
-    @apply translate-y-0;
+    @apply border border-line bg-surface transition-colors duration-200
+      hover:border-line-strong hover:bg-surface-2;
   }
 
-  /* Animated shine sweep — overlay for primary CTAs / hero. */
+  /* `.shine` is retained as a no-op so existing usages don't break — the
+     animated sweep belonged to the soft-UI look and has been removed. */
   .shine {
     position: relative;
-    overflow: hidden;
-  }
-  .shine::after {
-    content: "";
-    position: absolute;
-    inset: 0;
-    transform: translateX(-130%) skewX(-18deg);
-    background: linear-gradient(
-      90deg,
-      transparent,
-      rgba(255, 255, 255, 0.28),
-      transparent
-    );
-    transition: transform 0.7s ease;
-    pointer-events: none;
-  }
-  .shine:hover::after {
-    transform: translateX(130%) skewX(-18deg);
   }
 
   /* KPI delta chips. */
@@ -371,11 +316,9 @@ body {
   }
 }
 
-/* Shimmer loading skeleton — a recessed (inset) well that shimmers, matching
-   the neumorphic surface language. */
+/* Shimmer loading skeleton — a flat well that shimmers. */
 .skeleton {
   background-color: rgb(var(--c-surface-2));
-  box-shadow: var(--shadow-inset-soft);
   background-image: linear-gradient(
     90deg,
     rgba(var(--texture), calc(var(--texture-opacity) + 0.005)) 25%,

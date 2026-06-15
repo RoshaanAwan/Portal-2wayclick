@@ -3,34 +3,35 @@
 import { motion, type HTMLMotionProps } from "framer-motion";
 import { cn } from "@/lib/utils";
 import { forwardRef } from "react";
-import { Spotlight } from "./Spotlight";
 
 interface GlassCardProps extends HTMLMotionProps<"div"> {
   glow?: boolean;
   strong?: boolean;
   hover?: boolean;
-  /** Pointer-tracking accent glow that follows the cursor. */
+  /**
+   * Deprecated. The cursor-tracking accent glow was part of the soft-UI look
+   * and has been removed in the flat design. Accepted but ignored so existing
+   * usages keep compiling.
+   */
   spotlight?: boolean;
 }
 
 export const GlassCard = forwardRef<HTMLDivElement, GlassCardProps>(
   (
-    { className, glow, strong, hover = true, spotlight, children, ...props },
+    { className, glow, strong, hover = true, spotlight: _spotlight, children, ...props },
     ref,
   ) => {
     return (
       <motion.div
         ref={ref}
         className={cn(
-          "relative overflow-hidden rounded-2xl p-5",
-          strong ? "glass-strong" : "glass",
+          "relative overflow-hidden rounded-2xl border border-line bg-surface p-5",
           hover && "glass-hover",
           glow && "glow-ring",
           className,
         )}
         {...props}
       >
-        {spotlight ? <Spotlight /> : null}
         {children as React.ReactNode}
       </motion.div>
     );

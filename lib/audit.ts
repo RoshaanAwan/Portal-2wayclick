@@ -14,6 +14,7 @@ export type AuditAction =
   | "user.create"
   | "user.role_change"
   | "user.delete"
+  | "user.profile_update"
   | "auth.login"
   | "auth.logout"
   | "project.create"

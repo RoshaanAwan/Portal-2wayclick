@@ -127,7 +127,6 @@ export function Sidebar({ role }: { role?: string | null }) {
 
         {/* Upgrade / changelog card */}
         <div className="relative mt-4 overflow-hidden rounded-xl border border-line bg-surface-2 p-3.5">
-          <div className="pointer-events-none absolute -right-6 -top-6 h-20 w-20 rounded-full bg-accent/15 blur-2xl" />
           <div className="relative flex items-center gap-1.5">
             <Sparkles className="h-3.5 w-3.5 text-accent" />
             <p className="text-xs font-semibold text-ink-700">2WayClick 3.0</p>

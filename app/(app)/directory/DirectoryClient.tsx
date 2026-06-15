@@ -221,14 +221,10 @@ function PersonCard({ person, index }: { person: DirectoryPerson; index: number 
         <GlassCard
           glow
           hover={false}
-          spotlight
           className="group flex h-full flex-col items-center p-6 text-center"
-          whileHover={{ y: -6, scale: 1.02 }}
-          transition={{ type: "spring", stiffness: 320, damping: 22 }}
         >
           <div className="relative">
             <Avatar name={person.name} src={person.avatarUrl} size="xl" ring />
-            <div className="pointer-events-none absolute -inset-2 rounded-full bg-accent/15 opacity-0 blur-xl transition-opacity duration-300 group-hover:opacity-100" />
           </div>
 
           <h3 className="font-display mt-4 text-[17px] font-semibold tracking-tight text-ink">

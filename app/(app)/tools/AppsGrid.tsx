@@ -143,28 +143,14 @@ export function AppsGrid() {
               initial={{ opacity: 0, y: 14 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.4, delay: i * 0.05, ease: "easeOut" }}
-              whileHover={{ y: -4 }}
               className="group block"
             >
               <GlassCard
                 hover
-                className="relative flex h-full items-center gap-3.5 overflow-hidden p-4 transition-shadow duration-300"
-                style={
-                  {
-                    ["--app-glow" as string]: app.glow,
-                  } as React.CSSProperties
-                }
+                className="relative flex h-full items-center gap-3.5 overflow-hidden p-4"
               >
-                {/* Hover glow wash */}
                 <div
-                  className="pointer-events-none absolute -inset-px rounded-2xl opacity-0 transition-opacity duration-300 group-hover:opacity-100"
-                  style={{
-                    boxShadow: `0 8px 24px -10px var(--app-glow)`,
-                  }}
-                />
-
-                <div
-                  className={`grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-gradient-to-br ${app.from} ${app.to} shadow-lg transition-transform duration-300 group-hover:scale-105`}
+                  className={`grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-gradient-to-br ${app.from} ${app.to}`}
                 >
                   <Icon className="h-[22px] w-[22px] text-white" />
                 </div>

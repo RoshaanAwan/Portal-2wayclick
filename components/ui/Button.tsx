@@ -13,17 +13,15 @@ interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
 }
 
 const variants: Record<Variant, string> = {
-  // Primary — confident warm gradient that reads as a raised soft-UI key. Lifts
-  // slightly and brightens on hover; depresses on press.
-  primary:
-    "shine bg-accent-grad text-white shadow-accent-glow hover:-translate-y-0.5 hover:brightness-[1.05] active:translate-y-0 active:brightness-95",
-  // Glass → neumorphic "secondary": a raised surface chip that presses in on click.
+  // Primary — flat warm gradient fill; just brightens on hover (no lift, glow,
+  // or shine).
+  primary: "bg-accent-grad text-white hover:brightness-[1.05] active:brightness-95",
+  // Glass → flat bordered "secondary": a surface chip with a hover tint.
   glass: "nm-button text-ink-700 hover:text-ink",
   // Ghost — quiet, text-only.
   ghost: "hover-surface text-ink-500 hover:text-ink",
-  // Danger.
-  danger:
-    "bg-danger text-white shadow-accent-glow hover:brightness-[1.06] active:brightness-95",
+  // Danger — flat solid fill.
+  danger: "bg-danger text-white hover:brightness-[1.06] active:brightness-95",
 };
 
 const sizes: Record<Size, string> = {
@@ -39,7 +37,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
         ref={ref}
         disabled={disabled || loading}
         className={cn(
-          "relative inline-flex items-center justify-center gap-2 rounded-xl font-medium outline-none transition-[transform,box-shadow,background-color,filter] duration-200 disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.97]",
+          "relative inline-flex items-center justify-center gap-2 rounded-xl font-medium outline-none transition-[background-color,border-color,color,filter] duration-200 disabled:opacity-50 disabled:cursor-not-allowed",
           variants[variant],
           sizes[size],
           className,

@@ -93,7 +93,7 @@ export function StatTiles({
         return (
           <RevealItem variant="pop" key={tile.label}>
             <Link href={tile.href} className="group block h-full">
-              <GlassCard spotlight className="relative h-full">
+              <GlassCard className="relative h-full">
                 {/* soft hue glow that brightens on hover */}
                 <div
                   className={`pointer-events-none absolute -right-8 -top-10 h-28 w-28 rounded-full blur-3xl transition-opacity duration-300 ${s.glow} opacity-40 group-hover:opacity-80`}

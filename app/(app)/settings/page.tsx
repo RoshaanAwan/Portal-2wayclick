@@ -15,6 +15,9 @@ export default async function SettingsPage() {
         title: user.title,
         department: user.department,
         avatarUrl: user.avatarUrl,
+        bio: user.bio,
+        phone: user.phone,
+        location: user.location,
       }}
     />
   );

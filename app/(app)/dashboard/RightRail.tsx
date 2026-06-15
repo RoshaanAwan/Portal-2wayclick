@@ -99,7 +99,7 @@ export function RightRail({
                 transition={{ delay: 0.3 + i * 0.08, duration: 0.35 }}
               >
                 <Link href="/announcements" className="group block">
-                  <div className="relative overflow-hidden rounded-xl border border-line bg-surface-2 p-3 transition-all duration-200 hover:border-line-strong hover:bg-surface hover:shadow-xs">
+                  <div className="relative overflow-hidden rounded-xl border border-line bg-surface-2 p-3 transition-all duration-200 hover:border-line-strong hover:bg-surface">
                     <div
                       className={`pointer-events-none absolute inset-y-0 left-0 w-[3px] ${
                         coverToRule[p.coverColor] ?? coverToRule.accent
