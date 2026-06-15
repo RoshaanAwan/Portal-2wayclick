@@ -15,9 +15,30 @@ import { recordActivity } from "./activityFeed";
 
 export type AttendanceStatus = "PRESENT" | "CHECKED_OUT";
 
-/** Calendar day for `at`, normalized to local midnight — the row's `day` key. */
+// The business timezone for attendance. A "day" is a calendar day in Pakistan
+// (UTC+5), not in the server's timezone (Vercel runs in UTC). This keeps the
+// day boundary correct for the team regardless of where the server runs — e.g.
+// a 1 AM PKT check-in belongs to that PKT date, not the prior UTC date.
+export const ATTENDANCE_TZ = "Asia/Karachi";
+
+/**
+ * The row's `day` key for an instant, as the calendar date in ATTENDANCE_TZ.
+ *
+ * We compute the Y/M/D as seen in Pakistan, then anchor it to UTC midnight of
+ * that date. Storing it at UTC midnight (rather than PKT midnight) makes the
+ * value stable and unambiguous: the same PKT date always maps to the same
+ * stored instant, so the unique [userId, day] constraint groups events by PKT
+ * day no matter the server timezone. Read it back with the same TZ for display.
+ */
 export function dayKey(at: Date): Date {
-  return new Date(at.getFullYear(), at.getMonth(), at.getDate());
+  // en-CA formats as YYYY-MM-DD, which we can append a UTC time to directly.
+  const ymd = new Intl.DateTimeFormat("en-CA", {
+    timeZone: ATTENDANCE_TZ,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(at);
+  return new Date(`${ymd}T00:00:00.000Z`);
 }
 
 /** Minimal actor identity the recorder needs (matches SafeUser's shape). */

@@ -4,7 +4,7 @@ import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { can } from "@/lib/permissions";
-import { dayKey } from "@/lib/attendance";
+import { dayKey, ATTENDANCE_TZ } from "@/lib/attendance";
 
 export const metadata = { title: "Attendance — 2WayClick" };
 
@@ -12,10 +12,17 @@ export const metadata = { title: "Attendance — 2WayClick" };
 // /api/attendance/slack. This page just reads the resulting rows:
 //   • Manager tier → today's roster for the whole company (who's in / out / away).
 //   • Everyone else → their own recent days.
+//
+// All times/dates render in ATTENDANCE_TZ (Pakistan) so the page reads the same
+// regardless of where the server runs (Vercel is UTC).
 
 function fmtTime(d: Date | null): string {
   if (!d) return "—";
-  return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  return d.toLocaleTimeString([], {
+    hour: "numeric",
+    minute: "2-digit",
+    timeZone: ATTENDANCE_TZ,
+  });
 }
 
 function StatusPill({ status }: { status: "PRESENT" | "CHECKED_OUT" | "AWAY" }) {
@@ -134,10 +141,13 @@ export default async function AttendancePage() {
               {mine.map((a) => (
                 <tr key={a.id} className="hover:bg-white/5">
                   <td className="px-4 py-3 text-neutral-200">
+                    {/* `day` is UTC midnight of the PKT calendar date, so
+                        format it in UTC to read back the intended date. */}
                     {a.day.toLocaleDateString([], {
                       weekday: "short",
                       month: "short",
                       day: "numeric",
+                      timeZone: "UTC",
                     })}
                   </td>
                   <td className="px-4 py-3">

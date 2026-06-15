@@ -124,3 +124,12 @@ app.start().then(() => console.log("attendance bot up"));
   out / not in); everyone else sees their own last 14 days.
 - Each event also drops an entry on the dashboard's Live Activity Wall
   ("checked in" / "checked out").
+
+## Timezone
+
+A "day" is a calendar day in **Pakistan Standard Time** (`Asia/Karachi`, UTC+5),
+not the server's timezone — see `ATTENDANCE_TZ` in `lib/attendance.ts`. This is
+independent of where the bot or portal run (Vercel is UTC). The bot should send
+the event instant (`event.ts`); the portal buckets it into the correct PKT day,
+so e.g. a 1 AM PKT check-in and a 9 AM PKT check-out land on the same row. To
+change the business timezone later, edit `ATTENDANCE_TZ` (one constant).
