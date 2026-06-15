@@ -6,16 +6,10 @@ import { motion } from "framer-motion";
 import { Hexagon, Mail, Lock, ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 
-const DEMO_ACCOUNTS = [
-  { label: "CEO / Admin", email: "ava.chen@2wayclick.com" },
-  { label: "VP Eng / Manager", email: "marcus.reyes@2wayclick.com" },
-  { label: "Engineer", email: "diego.santos@2wayclick.com" },
-];
-
 export function LoginForm() {
   const router = useRouter();
-  const [email, setEmail] = useState("ava.chen@2wayclick.com");
-  const [password, setPassword] = useState("password123");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -45,21 +39,22 @@ export function LoginForm() {
       transition={{ duration: 0.45, ease: "easeOut" }}
       className="w-full max-w-md"
     >
-      <div className="mb-8 text-center">
+      <div className="mb-8">
+        {/* Brand mark — centered on mobile (no hero), left-aligned on desktop. */}
         <motion.div
           initial={{ scale: 0.8, opacity: 0 }}
           animate={{ scale: 1, opacity: 1 }}
           transition={{ delay: 0.15, type: "spring", stiffness: 220 }}
-          className="relative mx-auto mb-5 grid h-16 w-16 place-items-center rounded-2xl bg-accent-grad shadow-accent-glow"
+          className="relative mx-auto mb-5 grid h-14 w-14 place-items-center rounded-2xl bg-accent-grad shadow-accent-glow lg:hidden"
         >
           <span className="absolute -inset-3 animate-breathe rounded-full bg-accent/40 blur-xl" />
-          <Hexagon className="relative h-8 w-8 text-white" strokeWidth={2.4} />
+          <Hexagon className="relative h-7 w-7 text-white" strokeWidth={2.4} />
         </motion.div>
-        <h1 className="font-display text-[2rem] font-semibold tracking-tight text-ink">
-          Welcome to 2WayClick
+        <h1 className="text-center font-display text-[1.85rem] font-semibold tracking-tight text-ink lg:text-left">
+          Welcome back
         </h1>
-        <p className="mt-1.5 text-sm text-ink-500">
-          Sign in to your company workspace
+        <p className="mt-1.5 text-center text-sm text-ink-500 lg:text-left">
+          Sign in to your 2WayClick workspace
         </p>
       </div>
 
@@ -114,31 +109,10 @@ export function LoginForm() {
             {!loading && <ArrowRight className="h-4 w-4" />}
           </Button>
         </form>
-
-        <div className="mt-6 border-t border-line pt-5">
-          <p className="mb-2.5 text-center text-xs text-ink-400">
-            Quick demo login
-          </p>
-          <div className="grid grid-cols-3 gap-2">
-            {DEMO_ACCOUNTS.map((a) => (
-              <button
-                key={a.email}
-                type="button"
-                onClick={() => {
-                  setEmail(a.email);
-                  setPassword("password123");
-                }}
-                className="rounded-lg border border-line bg-surface-2 px-2 py-2 text-[11px] font-medium text-ink-500 transition hover:border-accent/30 hover:bg-accent-soft hover:text-accent-ink"
-              >
-                {a.label}
-              </button>
-            ))}
-          </div>
-        </div>
       </div>
 
       <p className="mt-6 text-center text-xs text-ink-400">
-        2WayClick — your company&apos;s internal hub
+        Trouble signing in? Contact your administrator.
       </p>
     </motion.div>
   );
