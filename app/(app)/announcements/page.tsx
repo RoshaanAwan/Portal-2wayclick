@@ -2,6 +2,7 @@ import { Megaphone } from "lucide-react";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { getCurrentUser } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { can } from "@/lib/permissions";
 import { AnnouncementsClient, type AnnouncementDTO } from "./AnnouncementsClient";
 
 export default async function AnnouncementsPage() {
@@ -62,7 +63,7 @@ export default async function AnnouncementsPage() {
     })),
   }));
 
-  const canPost = user?.role === "ADMIN" || user?.role === "MANAGER";
+  const canPost = can.postAnnouncements(user?.role);
 
   return (
     <div className="mx-auto max-w-3xl">

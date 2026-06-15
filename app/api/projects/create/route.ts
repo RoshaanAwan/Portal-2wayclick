@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { audit } from "@/lib/audit";
+import { can } from "@/lib/permissions";
 import { z } from "zod";
 
 const schema = z.object({
@@ -16,7 +18,7 @@ const DEFAULT_LISTS = ["Backlog", "To Do", "In Progress", "Review", "Done"];
 export async function POST(req: Request) {
   try {
     const actor = await requireUser();
-    if (actor.role !== "ADMIN") {
+    if (!can.manageProjects(actor.role)) {
       return NextResponse.json({ error: "Admins only" }, { status: 403 });
     }
 
@@ -53,6 +55,15 @@ export async function POST(req: Request) {
         verb: "created",
         target: `the “${name}” project`,
       },
+    });
+
+    await audit({
+      actor,
+      action: "project.create",
+      entity: "Project",
+      entityId: project.id,
+      summary: `${actor.name} created project “${name}”`,
+      detail: { name, memberCount: allMemberIds.length },
     });
 
     return NextResponse.json({ ok: true, id: project.id });

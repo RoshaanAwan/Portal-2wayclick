@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { can } from "@/lib/permissions";
 import { z } from "zod";
 
 const schema = z.object({
@@ -22,7 +23,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Board not found" }, { status: 404 });
     }
 
-    if (user.role !== "ADMIN") {
+    if (!can.manageProjects(user.role)) {
       const membership = await db.projectMember.findUnique({
         where: {
           projectId_userId: { projectId: board.project.id, userId: user.id },

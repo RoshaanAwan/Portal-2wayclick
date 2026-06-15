@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { audit } from "@/lib/audit";
+import { can } from "@/lib/permissions";
 
 const schema = z.object({
   id: z.string().min(1),
@@ -12,8 +14,8 @@ export async function POST(req: Request) {
   try {
     const user = await requireUser();
 
-    // Gate: only managers/admins may decide on requests.
-    if (user.role !== "ADMIN" && user.role !== "MANAGER") {
+    // Gate: only elevated staff (admin tier, HR, leads, PMs) may decide.
+    if (!can.decideLeave(user.role)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
@@ -49,6 +51,16 @@ export async function POST(req: Request) {
         target: `${request.owner.name}'s ${request.type} request`,
         meta: JSON.stringify({ requestId: request.id }),
       },
+    });
+
+    await audit({
+      actor: user,
+      action: "leave.decide",
+      entity: "LeaveRequest",
+      entityId: request.id,
+      targetUserId: request.ownerId,
+      summary: `${user.name} ${decision === "APPROVED" ? "approved" : "denied"} ${request.owner.name}'s ${request.type} request`,
+      detail: { decision, type: request.type },
     });
 
     return NextResponse.json({ ok: true });

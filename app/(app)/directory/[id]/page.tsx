@@ -14,7 +14,8 @@ import { db } from "@/lib/db";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { Avatar } from "@/components/ui/Avatar";
 import { Badge } from "@/components/ui/Badge";
-import { ROLES } from "@/lib/constants";
+import { ROLES, ROLE_LABELS } from "@/lib/constants";
+import { isAdminTier } from "@/lib/permissions";
 import { formatDate } from "@/lib/utils";
 
 const deptVariant: Record<
@@ -31,11 +32,6 @@ const deptVariant: Record<
   Sales: "accent",
 };
 
-const roleLabel: Record<string, string> = {
-  ADMIN: "Admin",
-  MANAGER: "Manager",
-  EMPLOYEE: "Employee",
-};
 
 function deptColor(dept: string) {
   return deptVariant[dept] ?? "neutral";
@@ -96,8 +92,8 @@ export default async function PersonDetailPage({
                   {user.name}
                 </h1>
                 {isKnownRole && (
-                  <Badge variant={user.role === "ADMIN" ? "accent" : "neutral"}>
-                    {roleLabel[user.role] ?? user.role}
+                  <Badge variant={isAdminTier(user.role) ? "accent" : "neutral"}>
+                    {ROLE_LABELS[user.role as keyof typeof ROLE_LABELS] ?? user.role}
                   </Badge>
                 )}
               </div>

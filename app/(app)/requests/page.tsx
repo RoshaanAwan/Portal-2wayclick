@@ -1,6 +1,7 @@
 import { CalendarCheck } from "lucide-react";
 import { getCurrentUser } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { can, isAdminTier } from "@/lib/permissions";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { RequestComposer } from "./RequestComposer";
 import { MyRequests } from "./MyRequests";
@@ -60,7 +61,7 @@ export default async function RequestsPage() {
   const user = await getCurrentUser();
   if (!user) return null;
 
-  const canReview = user.role === "ADMIN" || user.role === "MANAGER";
+  const canReview = can.decideLeave(user.role);
 
   const [mineRaw, approvalsRaw] = await Promise.all([
     db.leaveRequest.findMany({
@@ -76,9 +77,9 @@ export default async function RequestsPage() {
           where: {
             status: "PENDING",
             ownerId: { not: user.id },
-            // Admins see every pending request; managers see ones routed to
-            // them OR any of their direct reports' requests.
-            ...(user.role === "ADMIN"
+            // Admin tier sees every pending request; other reviewers (HR /
+            // leads / PMs) see ones routed to them OR their direct reports'.
+            ...(isAdminTier(user.role)
               ? {}
               : {
                   OR: [

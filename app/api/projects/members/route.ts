@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { can } from "@/lib/permissions";
 import { z } from "zod";
 
 const schema = z.object({
@@ -13,7 +14,7 @@ const schema = z.object({
 export async function POST(req: Request) {
   try {
     const actor = await requireUser();
-    if (actor.role !== "ADMIN") {
+    if (!can.manageProjectMembers(actor.role)) {
       return NextResponse.json({ error: "Admins only" }, { status: 403 });
     }
 

@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { ArrowLeft, KanbanSquare, Users } from "lucide-react";
 import { getCurrentUser } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { can } from "@/lib/permissions";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Avatar } from "@/components/ui/Avatar";
 import {
@@ -19,7 +20,7 @@ export default async function ProjectBoardPage({
 }) {
   const { id } = await params;
   const user = await getCurrentUser();
-  const isAdmin = user?.role === "ADMIN";
+  const isAdmin = can.manageProjects(user?.role);
 
   const project = await db.project.findUnique({
     where: { id },

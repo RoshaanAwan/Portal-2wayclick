@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { verifyPassword, createSession } from "@/lib/auth";
+import { audit } from "@/lib/audit";
 
 const schema = z.object({
   email: z.string().email(),
@@ -23,6 +24,15 @@ export async function POST(req: Request) {
     }
 
     await createSession(user.id);
+
+    await audit({
+      actor: { id: user.id, name: user.name, role: user.role },
+      action: "auth.login",
+      entity: "Session",
+      targetUserId: user.id,
+      summary: `${user.name} signed in`,
+    });
+
     return NextResponse.json({ ok: true });
   } catch (e) {
     return NextResponse.json({ error: "Something went wrong" }, { status: 500 });

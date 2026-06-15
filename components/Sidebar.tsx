@@ -15,9 +15,12 @@ import {
   Wrench,
   Hexagon,
   Sparkles,
+  ShieldCheck,
+  ScrollText,
 } from "lucide-react";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
+import { can } from "@/lib/permissions";
 
 const NAV = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -30,7 +33,7 @@ const NAV = [
   { href: "/tools", label: "Tools", icon: Wrench },
 ];
 
-export function Sidebar() {
+export function Sidebar({ role }: { role?: string | null }) {
   const pathname = usePathname();
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -59,6 +62,17 @@ export function Sidebar() {
     startTransition(() => router.push(href));
   }
 
+  // Admin section — shown only to those allowed. /admin/users for the admin
+  // tier; /admin/logs for Super Admin only.
+  const adminNav = [
+    ...(can.accessAdmin(role)
+      ? [{ href: "/admin/users", label: "Users", icon: ShieldCheck }]
+      : []),
+    ...(can.viewAuditLog(role)
+      ? [{ href: "/admin/logs", label: "Audit Log", icon: ScrollText }]
+      : []),
+  ];
+
   return (
     <aside className="fixed inset-y-0 left-0 z-30 hidden w-64 flex-col p-3 lg:flex">
       <div className="glass relative flex h-full flex-col overflow-hidden px-3 py-4">
@@ -82,39 +96,33 @@ export function Sidebar() {
         {/* Nav */}
         <nav className="flex-1 space-y-0.5">
           <p className="eyebrow mb-2 px-3">Workspace</p>
-          {NAV.map((item) => {
-            const active = isActive(item.href);
-            const Icon = item.icon;
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                onClick={(e) => go(e, item.href)}
-                aria-current={active ? "page" : undefined}
-                className={cn(
-                  "group relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors",
-                  active
-                    ? "text-white"
-                    : "hover-surface text-ink-500 hover:text-ink",
-                )}
-              >
-                {active && (
-                  <motion.div
-                    layoutId="nav-active"
-                    className="shine absolute inset-0 overflow-hidden rounded-xl bg-accent-grad shadow-accent-glow"
-                    transition={{ type: "spring", stiffness: 380, damping: 32 }}
-                  />
-                )}
-                <Icon
-                  className={cn(
-                    "relative z-10 h-[18px] w-[18px] transition-transform duration-200 group-hover:scale-110",
-                    active ? "text-white" : "text-ink-400 group-hover:text-ink-700",
-                  )}
+          {NAV.map((item) => (
+            <NavLink
+              key={item.href}
+              href={item.href}
+              label={item.label}
+              Icon={item.icon}
+              active={isActive(item.href)}
+              onGo={go}
+            />
+          ))}
+
+          {/* Admin — visible only to admin-tier / Super Admin. */}
+          {adminNav.length > 0 && (
+            <div className="pt-4">
+              <p className="eyebrow mb-2 px-3">Administration</p>
+              {adminNav.map((item) => (
+                <NavLink
+                  key={item.href}
+                  href={item.href}
+                  label={item.label}
+                  Icon={item.icon}
+                  active={isActive(item.href)}
+                  onGo={go}
                 />
-                <span className="relative z-10">{item.label}</span>
-              </Link>
-            );
-          })}
+              ))}
+            </div>
+          )}
         </nav>
 
         {/* Upgrade / changelog card */}
@@ -130,5 +138,47 @@ export function Sidebar() {
         </div>
       </div>
     </aside>
+  );
+}
+
+// A single sidebar entry — the sliding accent pill marks the active item.
+function NavLink({
+  href,
+  label,
+  Icon,
+  active,
+  onGo,
+}: {
+  href: string;
+  label: string;
+  Icon: React.ComponentType<{ className?: string; strokeWidth?: number }>;
+  active: boolean;
+  onGo: (e: React.MouseEvent, href: string) => void;
+}) {
+  return (
+    <Link
+      href={href}
+      onClick={(e) => onGo(e, href)}
+      aria-current={active ? "page" : undefined}
+      className={cn(
+        "group relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors",
+        active ? "text-white" : "hover-surface text-ink-500 hover:text-ink",
+      )}
+    >
+      {active && (
+        <motion.div
+          layoutId="nav-active"
+          className="shine absolute inset-0 overflow-hidden rounded-xl bg-accent-grad shadow-accent-glow"
+          transition={{ type: "spring", stiffness: 380, damping: 32 }}
+        />
+      )}
+      <Icon
+        className={cn(
+          "relative z-10 h-[18px] w-[18px] transition-transform duration-200 group-hover:scale-110",
+          active ? "text-white" : "text-ink-400 group-hover:text-ink-700",
+        )}
+      />
+      <span className="relative z-10">{label}</span>
+    </Link>
   );
 }
