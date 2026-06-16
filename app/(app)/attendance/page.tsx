@@ -26,10 +26,12 @@ function fmtTime(d: Date | null): string {
 }
 
 function StatusPill({ status }: { status: "PRESENT" | "CHECKED_OUT" | "AWAY" }) {
+  // Theme-aware semantic tokens (defined for light + dark in globals.css), so
+  // the pills stay legible in both modes.
   const map = {
-    PRESENT: { label: "Present", cls: "bg-emerald-500/15 text-emerald-400" },
-    CHECKED_OUT: { label: "Checked out", cls: "bg-neutral-500/15 text-neutral-300" },
-    AWAY: { label: "Not in", cls: "bg-amber-500/15 text-amber-400" },
+    PRESENT: { label: "Present", cls: "bg-success-soft text-success" },
+    CHECKED_OUT: { label: "Checked out", cls: "bg-surface-2 text-ink-500" },
+    AWAY: { label: "Not in", cls: "bg-warn-soft text-warn" },
   } as const;
   const { label, cls } = map[status];
   return (
@@ -75,9 +77,9 @@ export default async function AttendancePage() {
           subtitle={`Today — ${present} present, ${out} checked out, ${away} not in.`}
           icon={Clock}
         />
-        <div className="overflow-hidden rounded-xl border border-white/10">
+        <div className="overflow-hidden rounded-xl border border-line">
           <table className="w-full text-sm">
-            <thead className="bg-white/5 text-left text-xs uppercase tracking-wide text-neutral-400">
+            <thead className="bg-surface-2 text-left text-xs uppercase tracking-wide text-ink-400">
               <tr>
                 <th className="px-4 py-3">Person</th>
                 <th className="px-4 py-3">Status</th>
@@ -85,20 +87,20 @@ export default async function AttendancePage() {
                 <th className="px-4 py-3">Check-out</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-white/5">
+            <tbody className="divide-y divide-line">
               {rows.map((r) => (
-                <tr key={r.user.id} className="hover:bg-white/5">
+                <tr key={r.user.id} className="hover:bg-surface-2">
                   <td className="px-4 py-3">
-                    <div className="font-medium text-neutral-100">{r.user.name}</div>
-                    <div className="text-xs text-neutral-400">
+                    <div className="font-medium text-ink">{r.user.name}</div>
+                    <div className="text-xs text-ink-400">
                       {r.user.title} · {r.user.department}
                     </div>
                   </td>
                   <td className="px-4 py-3">
                     <StatusPill status={r.status} />
                   </td>
-                  <td className="px-4 py-3 text-neutral-300">{fmtTime(r.checkInAt)}</td>
-                  <td className="px-4 py-3 text-neutral-300">{fmtTime(r.checkOutAt)}</td>
+                  <td className="px-4 py-3 text-ink-500">{fmtTime(r.checkInAt)}</td>
+                  <td className="px-4 py-3 text-ink-500">{fmtTime(r.checkOutAt)}</td>
                 </tr>
               ))}
             </tbody>
@@ -123,13 +125,13 @@ export default async function AttendancePage() {
         icon={Clock}
       />
       {mine.length === 0 ? (
-        <div className="rounded-xl border border-white/10 p-8 text-center text-sm text-neutral-400">
+        <div className="rounded-xl border border-line p-8 text-center text-sm text-ink-400">
           No attendance yet. Post “check in” in Slack to start your day.
         </div>
       ) : (
-        <div className="overflow-hidden rounded-xl border border-white/10">
+        <div className="overflow-hidden rounded-xl border border-line">
           <table className="w-full text-sm">
-            <thead className="bg-white/5 text-left text-xs uppercase tracking-wide text-neutral-400">
+            <thead className="bg-surface-2 text-left text-xs uppercase tracking-wide text-ink-400">
               <tr>
                 <th className="px-4 py-3">Day</th>
                 <th className="px-4 py-3">Status</th>
@@ -137,10 +139,10 @@ export default async function AttendancePage() {
                 <th className="px-4 py-3">Check-out</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-white/5">
+            <tbody className="divide-y divide-line">
               {mine.map((a) => (
-                <tr key={a.id} className="hover:bg-white/5">
-                  <td className="px-4 py-3 text-neutral-200">
+                <tr key={a.id} className="hover:bg-surface-2">
+                  <td className="px-4 py-3 text-ink">
                     {/* `day` is UTC midnight of the PKT calendar date, so
                         format it in UTC to read back the intended date. */}
                     {a.day.toLocaleDateString([], {
@@ -153,8 +155,8 @@ export default async function AttendancePage() {
                   <td className="px-4 py-3">
                     <StatusPill status={a.status as "PRESENT" | "CHECKED_OUT"} />
                   </td>
-                  <td className="px-4 py-3 text-neutral-300">{fmtTime(a.checkInAt)}</td>
-                  <td className="px-4 py-3 text-neutral-300">{fmtTime(a.checkOutAt)}</td>
+                  <td className="px-4 py-3 text-ink-500">{fmtTime(a.checkInAt)}</td>
+                  <td className="px-4 py-3 text-ink-500">{fmtTime(a.checkOutAt)}</td>
                 </tr>
               ))}
             </tbody>
