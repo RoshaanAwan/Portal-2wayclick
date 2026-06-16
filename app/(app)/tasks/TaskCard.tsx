@@ -1,7 +1,15 @@
 "use client";
 
+import { useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
-import { CalendarClock, GripVertical, MessageSquare } from "lucide-react";
+import {
+  CalendarClock,
+  GripVertical,
+  MessageSquare,
+  MoreHorizontal,
+  Pencil,
+  Trash2,
+} from "lucide-react";
 import { Avatar } from "@/components/ui/Avatar";
 import { cn, formatDate } from "@/lib/utils";
 import { type TaskPriority } from "@/lib/constants";
@@ -28,9 +36,12 @@ const STRIPE: Record<TaskPriority, string> = {
 export function TaskCard({
   task,
   currentUserId,
+  canManage,
   dragging,
   showDropHint,
   onOpen,
+  onEdit,
+  onDelete,
   onDragStart,
   onDragEnd,
   onDragOverCard,
@@ -38,9 +49,12 @@ export function TaskCard({
 }: {
   task: TaskDTO;
   currentUserId: string | null;
+  canManage: boolean;
   dragging: boolean;
   showDropHint: boolean;
   onOpen: () => void;
+  onEdit: () => void;
+  onDelete: () => void;
   onDragStart: () => void;
   onDragEnd: () => void;
   onDragOverCard: (e: React.DragEvent) => void;
@@ -50,6 +64,27 @@ export function TaskCard({
   const due = dueState(task.dueDate);
   const mine = !!currentUserId && task.assignees.some((a) => a.id === currentUserId);
   const hasFooter = task.assignees.length > 0 || task.comments.length > 0;
+
+  // Card overflow menu (Edit / Delete). Closes on outside click or Escape.
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!menuOpen) return;
+    function onDocClick(e: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setMenuOpen(false);
+      }
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setMenuOpen(false);
+    }
+    document.addEventListener("mousedown", onDocClick);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDocClick);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [menuOpen]);
 
   return (
     <div className="relative">
@@ -89,16 +124,76 @@ export function TaskCard({
           aria-label={`${priority.toLowerCase()} priority`}
         />
 
-        {/* Drag handle — appears on hover, doesn't trigger open */}
-        <span
-          className="absolute right-1 top-1.5 cursor-grab text-ink-400/40 opacity-0 transition-opacity group-hover:opacity-100 active:cursor-grabbing"
-          aria-hidden
-        >
-          <GripVertical className="h-4 w-4" />
-        </span>
+        {/* Top-right controls — drag handle + overflow menu, shown on hover */}
+        <div className="absolute right-1 top-1.5 flex items-center gap-0.5">
+          <span
+            className="cursor-grab text-ink-400/40 opacity-0 transition-opacity group-hover:opacity-100 active:cursor-grabbing"
+            aria-hidden
+          >
+            <GripVertical className="h-4 w-4" />
+          </span>
+
+          {canManage && (
+            <div ref={menuRef} className="relative">
+              <button
+                type="button"
+                aria-label="Card actions"
+                aria-haspopup="menu"
+                aria-expanded={menuOpen}
+                draggable={false}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setMenuOpen((v) => !v);
+                }}
+                className={cn(
+                  "grid h-6 w-6 place-items-center rounded-md text-ink-400 transition-all hover:bg-surface-2 hover:text-ink",
+                  menuOpen
+                    ? "opacity-100"
+                    : "opacity-0 group-hover:opacity-100",
+                )}
+              >
+                <MoreHorizontal className="h-4 w-4" />
+              </button>
+
+              {menuOpen && (
+                <div
+                  role="menu"
+                  className="absolute right-0 top-7 z-20 w-32 overflow-hidden rounded-lg border border-line bg-surface py-1 shadow-lg"
+                >
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setMenuOpen(false);
+                      onEdit();
+                    }}
+                    className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs font-medium text-ink-700 hover:bg-surface-2"
+                  >
+                    <Pencil className="h-3.5 w-3.5" />
+                    Edit
+                  </button>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setMenuOpen(false);
+                      onDelete();
+                    }}
+                    className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs font-medium text-danger-ink hover:bg-danger-soft"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                    Delete
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
 
         {/* Title + quiet due pill */}
-        <div className="flex items-start gap-2 pr-4">
+        <div className="flex items-start gap-2 pr-9">
           <p className="flex-1 text-sm font-medium leading-snug text-ink">
             {task.title}
           </p>

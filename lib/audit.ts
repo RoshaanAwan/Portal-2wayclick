@@ -40,6 +40,8 @@ export type AuditAction =
   | "document.delete"
   | "document.upload"
   | "task.create"
+  | "task.update"
+  | "task.delete"
   | "task.assign"
   | "task.unassign"
   | "task.comment"
@@ -49,7 +51,9 @@ export type AuditAction =
   | "invoice.status_change"
   | "invoice.share_regenerate"
   | "invoice.share_revoke"
-  | "invoice.delete";
+  | "invoice.delete"
+  | "invoice.payment_started"
+  | "invoice.paid";
 
 interface AuditInput {
   actor: SafeUser | { id?: string | null; name: string; role: string };

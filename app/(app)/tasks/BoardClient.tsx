@@ -4,8 +4,11 @@ import { useCallback, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { KanbanSquare, User } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { type TaskPriority } from "@/lib/constants";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { TaskCard } from "./TaskCard";
+import { EditTaskForm } from "./EditTaskForm";
 import { AddTask } from "./AddTask";
 import { TaskModal } from "./TaskModal";
 
@@ -51,10 +54,12 @@ export function BoardClient({
   lists: initialLists,
   members,
   currentUserId,
+  isManager,
 }: {
   lists: ListDTO[];
   members: MemberDTO[];
   currentUserId: string | null;
+  isManager: boolean;
 }) {
   const router = useRouter();
   const [lists, setLists] = useState<ListDTO[]>(initialLists);
@@ -62,8 +67,23 @@ export function BoardClient({
   const [dropHint, setDropHint] = useState<string | null>(null);
   // Which card's detail modal is open.
   const [openTaskId, setOpenTaskId] = useState<string | null>(null);
+  // Which card is being edited inline (swaps the card for the edit form).
+  const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
+  // The card awaiting delete confirmation (drives the confirm dialog).
+  const [deleteTarget, setDeleteTarget] = useState<{
+    id: string;
+    title: string;
+  } | null>(null);
+  const [deleting, setDeleting] = useState(false);
   // "Only my cards" filter — cut the board down to what's assigned to me.
   const [onlyMine, setOnlyMine] = useState(false);
+
+  // A card may be edited/deleted by its creator or any manager-tier user.
+  const canManage = useCallback(
+    (t: TaskDTO) =>
+      isManager || (!!currentUserId && t.creator.id === currentUserId),
+    [isManager, currentUserId],
+  );
 
   // Re-sync local optimistic state when the server data changes. Keyed on the
   // full shape (lists, card order, assignees, comments) so any server update —
@@ -192,6 +212,75 @@ export function BoardClient({
     },
     [findTask, members, currentUserId, patchTask, router],
   );
+
+  // ── Edit (optimistic title/priority swap, reverted on failure) ─────────────
+  const updateTask = useCallback(
+    async (
+      taskId: string,
+      title: string,
+      priority: TaskPriority,
+    ): Promise<boolean> => {
+      const snapshot = findTask(taskId)?.task;
+      if (!snapshot) return false;
+
+      patchTask(taskId, (t) => ({ ...t, title, priority }));
+
+      try {
+        const res = await fetch("/api/tasks/update", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ taskId, title, priority }),
+        });
+        if (!res.ok) throw new Error("update failed");
+        router.refresh();
+        return true;
+      } catch {
+        patchTask(taskId, (t) => ({
+          ...t,
+          title: snapshot.title,
+          priority: snapshot.priority,
+        }));
+        return false;
+      }
+    },
+    [findTask, patchTask, router],
+  );
+
+  // ── Delete ─────────────────────────────────────────────────────────────────
+  // A delete request from a card or the modal opens an in-app confirm dialog
+  // (styled to match the board, replacing the OS window.confirm). `deleteTarget`
+  // holds the card awaiting confirmation; `deleting` drives the dialog spinner.
+  const confirmDelete = useCallback(async () => {
+    const target = deleteTarget;
+    if (!target || deleting) return;
+    setDeleting(true);
+
+    const snapshot = lists;
+    // Optimistically drop the card, then reconcile with the server.
+    setLists((prev) =>
+      prev.map((l) => ({
+        ...l,
+        tasks: l.tasks.filter((t) => t.id !== target.id),
+      })),
+    );
+
+    try {
+      const res = await fetch("/api/tasks/delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ taskId: target.id }),
+      });
+      if (!res.ok) throw new Error("delete failed");
+      if (openTaskId === target.id) setOpenTaskId(null);
+      if (editingTaskId === target.id) setEditingTaskId(null);
+      setDeleteTarget(null);
+      router.refresh();
+    } catch {
+      setLists(snapshot); // restore on failure
+    } finally {
+      setDeleting(false);
+    }
+  }, [deleteTarget, deleting, lists, openTaskId, editingTaskId, router]);
 
   // ── Drag & drop ────────────────────────────────────────────────────────────
   const drop = useCallback(
@@ -345,33 +434,47 @@ export function BoardClient({
               </div>
 
               <div className="flex flex-1 flex-col gap-2 px-0.5">
-                {visibleTasks.map((task) => (
-                  <TaskCard
-                    key={task.id}
-                    task={task}
-                    currentUserId={currentUserId}
-                    dragging={drag?.taskId === task.id}
-                    showDropHint={dropHint === `${list.id}:${task.id}`}
-                    onOpen={() => setOpenTaskId(task.id)}
-                    onDragStart={() =>
-                      setDrag({ taskId: task.id, fromListId: list.id })
-                    }
-                    onDragEnd={() => {
-                      setDrag(null);
-                      setDropHint(null);
-                    }}
-                    onDragOverCard={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      if (drag) setDropHint(`${list.id}:${task.id}`);
-                    }}
-                    onDropCard={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      void drop(list.id, task.id);
-                    }}
-                  />
-                ))}
+                {visibleTasks.map((task) =>
+                  editingTaskId === task.id ? (
+                    <EditTaskForm
+                      key={task.id}
+                      task={task}
+                      onSave={updateTask}
+                      onCancel={() => setEditingTaskId(null)}
+                    />
+                  ) : (
+                    <TaskCard
+                      key={task.id}
+                      task={task}
+                      currentUserId={currentUserId}
+                      canManage={canManage(task)}
+                      dragging={drag?.taskId === task.id}
+                      showDropHint={dropHint === `${list.id}:${task.id}`}
+                      onOpen={() => setOpenTaskId(task.id)}
+                      onEdit={() => setEditingTaskId(task.id)}
+                      onDelete={() =>
+                        setDeleteTarget({ id: task.id, title: task.title })
+                      }
+                      onDragStart={() =>
+                        setDrag({ taskId: task.id, fromListId: list.id })
+                      }
+                      onDragEnd={() => {
+                        setDrag(null);
+                        setDropHint(null);
+                      }}
+                      onDragOverCard={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        if (drag) setDropHint(`${list.id}:${task.id}`);
+                      }}
+                      onDropCard={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        void drop(list.id, task.id);
+                      }}
+                    />
+                  ),
+                )}
 
                 {onlyMine && visibleTasks.length === 0 && (
                   <p className="px-1.5 py-2 text-[11px] text-ink-400">
@@ -401,9 +504,31 @@ export function BoardClient({
         listName={openTaskList?.name ?? ""}
         members={members}
         currentUserId={currentUserId}
+        canManage={!!openTask && canManage(openTask)}
         onClose={() => setOpenTaskId(null)}
         onAssign={assign}
         onAddComment={addComment}
+        onEdit={(taskId) => {
+          setOpenTaskId(null);
+          setEditingTaskId(taskId);
+        }}
+        onDelete={(taskId) =>
+          openTask && setDeleteTarget({ id: taskId, title: openTask.title })
+        }
+      />
+
+      <ConfirmDialog
+        open={!!deleteTarget}
+        title="Delete card"
+        message={
+          <>
+            Delete <strong>“{deleteTarget?.title}”</strong>? This removes the card
+            and all its comments. This can’t be undone.
+          </>
+        }
+        loading={deleting}
+        onConfirm={confirmDelete}
+        onClose={() => !deleting && setDeleteTarget(null)}
       />
     </>
   );

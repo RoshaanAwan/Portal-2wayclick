@@ -489,6 +489,14 @@ model Invoice {
   // revoked/regenerated. @unique so the token is the lookup key.
   shareToken String? @unique
 
+  // Stripe payment linkage. stripeSessionId is the most recent Checkout Session
+  // opened for this invoice (used to resume an in-flight payment and to map a
+  // webhook event back to the invoice); stripePaymentIntentId is stamped once a
+  // payment succeeds, for reconciliation/refunds in the Stripe dashboard. Both
+  // null until the client starts/finishes paying.
+  stripeSessionId       String?
+  stripePaymentIntentId String?
+
   // Who raised it. Kept (denormalized name) even if the user is later removed.
   creatorId   String?
   creator     User?   @relation("InvoiceCreator", fields: [creatorId], references: [id], onDelete: SetNull)

@@ -6,7 +6,9 @@ import {
   AlignLeft,
   CalendarClock,
   MessageSquare,
+  Pencil,
   Send,
+  Trash2,
   Users,
   X,
 } from "lucide-react";
@@ -42,17 +44,23 @@ export function TaskModal({
   listName,
   members,
   currentUserId,
+  canManage,
   onClose,
   onAssign,
   onAddComment,
+  onEdit,
+  onDelete,
 }: {
   task: TaskDTO | null;
   listName: string;
   members: MemberDTO[];
   currentUserId: string | null;
+  canManage: boolean;
   onClose: () => void;
   onAssign: (taskId: string, member: MemberDTO, shouldAssign: boolean) => void;
   onAddComment: (taskId: string, body: string) => Promise<boolean>;
+  onEdit: (taskId: string) => void;
+  onDelete: (taskId: string) => void;
 }) {
   const [draft, setDraft] = useState("");
   const [posting, setPosting] = useState(false);
@@ -120,14 +128,36 @@ export function TaskModal({
                   {task.title}
                 </h2>
               </div>
-              <button
-                type="button"
-                onClick={onClose}
-                aria-label="Close"
-                className="hover-surface grid h-8 w-8 shrink-0 place-items-center rounded-lg text-ink-400 hover:text-ink"
-              >
-                <X className="h-4.5 w-4.5" />
-              </button>
+              <div className="flex shrink-0 items-center gap-1">
+                {canManage && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => onEdit(task.id)}
+                      aria-label="Edit card"
+                      className="hover-surface grid h-8 w-8 place-items-center rounded-lg text-ink-400 hover:text-ink"
+                    >
+                      <Pencil className="h-4 w-4" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onDelete(task.id)}
+                      aria-label="Delete card"
+                      className="hover-surface grid h-8 w-8 place-items-center rounded-lg text-ink-400 hover:text-danger-ink"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </>
+                )}
+                <button
+                  type="button"
+                  onClick={onClose}
+                  aria-label="Close"
+                  className="hover-surface grid h-8 w-8 place-items-center rounded-lg text-ink-400 hover:text-ink"
+                >
+                  <X className="h-4.5 w-4.5" />
+                </button>
+              </div>
             </div>
 
             <div className="max-h-[70vh] overflow-y-auto p-5">

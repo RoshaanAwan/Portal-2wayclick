@@ -15,7 +15,8 @@ export type NotificationType =
   | "leave.decided"
   | "task.assigned"
   | "task.comment"
-  | "announcement.created";
+  | "announcement.created"
+  | "invoice.paid";
 
 /**
  * In-process pub/sub for live (SSE) delivery. One emitter per server instance;

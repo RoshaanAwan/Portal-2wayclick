@@ -30,6 +30,13 @@ export default function AdminLogsLoading() {
             </div>
           ))}
         </div>
+
+        {/* Pagination footer */}
+        <div className="flex items-center justify-center gap-1.5" aria-hidden>
+          {Array.from({ length: 7 }).map((_, i) => (
+            <Skeleton key={i} className="h-9 w-9 rounded-lg" />
+          ))}
+        </div>
       </div>
     </div>
   );

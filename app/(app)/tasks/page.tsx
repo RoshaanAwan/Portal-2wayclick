@@ -2,6 +2,7 @@ import { KanbanSquare } from "lucide-react";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { getCurrentUser } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { isManagerTier } from "@/lib/permissions";
 import { BoardClient, type ListDTO, type MemberDTO } from "./BoardClient";
 
 export default async function TasksPage() {
@@ -110,6 +111,7 @@ export default async function TasksPage() {
         lists={lists}
         members={memberDTOs}
         currentUserId={user?.id ?? null}
+        isManager={isManagerTier(user?.role)}
       />
     </div>
   );

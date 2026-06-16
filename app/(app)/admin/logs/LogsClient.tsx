@@ -1,9 +1,12 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useState, useTransition } from "react";
+import { usePathname, useRouter } from "next/navigation";
 import {
   Search,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   UserPlus,
   UserCog,
   Image as ImageIcon,
@@ -25,7 +28,6 @@ import {
   Move,
   Activity as ActivityIcon,
 } from "lucide-react";
-import { Avatar } from "@/components/ui/Avatar";
 import { Badge } from "@/components/ui/Badge";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { ROLE_LABELS, ROLE_BADGE, type Role } from "@/lib/permissions";
@@ -83,6 +85,11 @@ const ACTION_META: Record<
   "task.move": { icon: Move, tone: "neutral", label: "Task moved" },
 };
 
+// Stable, alphabetized action list for the filter dropdown. With filtering now
+// done on the backend, the options can no longer be derived from the loaded
+// rows (a page may not contain every action), so we list the known actions.
+const ACTION_OPTIONS = Object.keys(ACTION_META).sort();
+
 function actionMeta(action: string) {
   return (
     ACTION_META[action] ?? {
@@ -93,29 +100,53 @@ function actionMeta(action: string) {
   );
 }
 
-export function LogsClient({ logs }: { logs: AuditRow[] }) {
-  const [query, setQuery] = useState("");
-  const [action, setAction] = useState<string>("ALL");
+export function LogsClient({
+  logs,
+  page,
+  pageCount,
+  total,
+  query,
+  action,
+}: {
+  logs: AuditRow[];
+  page: number;
+  pageCount: number;
+  total: number;
+  query: string;
+  action: string;
+}) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const [isPending, startTransition] = useTransition();
 
-  const actions = useMemo(
-    () => ["ALL", ...Array.from(new Set(logs.map((l) => l.action))).sort()],
-    [logs],
-  );
+  // Local mirror of the search box; pushed to the URL (debounced) so filtering
+  // happens on the server across the whole dataset, not just the current page.
+  const [search, setSearch] = useState(query);
+  useEffect(() => setSearch(query), [query]);
 
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    return logs.filter((l) => {
-      if (action !== "ALL" && l.action !== action) return false;
-      if (!q) return true;
-      return (
-        l.actorName.toLowerCase().includes(q) ||
-        (l.summary ?? "").toLowerCase().includes(q) ||
-        (l.targetName ?? "").toLowerCase().includes(q) ||
-        (l.ip ?? "").includes(q) ||
-        l.action.toLowerCase().includes(q)
-      );
+  // Build a URL for the given filter/page state and navigate. Changing a filter
+  // resets to page 1; an explicit page change keeps the current filters.
+  function navigate(next: { q?: string; action?: string; page?: number }) {
+    const params = new URLSearchParams();
+    const q = next.q ?? query;
+    const a = next.action ?? action;
+    const p = next.page ?? 1;
+    if (q) params.set("q", q);
+    if (a && a !== "ALL") params.set("action", a);
+    if (p > 1) params.set("page", String(p));
+    const qs = params.toString();
+    startTransition(() => {
+      router.push(qs ? `${pathname}?${qs}` : pathname);
     });
-  }, [logs, query, action]);
+  }
+
+  // Debounce search-box edits before hitting the server.
+  useEffect(() => {
+    if (search === query) return;
+    const t = setTimeout(() => navigate({ q: search, page: 1 }), 350);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [search]);
 
   return (
     <div className="space-y-5">
@@ -124,40 +155,146 @@ export function LogsClient({ logs }: { logs: AuditRow[] }) {
         <div className="relative max-w-sm flex-1">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-400" />
           <input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
             placeholder="Search actor, summary, IP…"
             className="input pl-9"
           />
         </div>
         <select
           value={action}
-          onChange={(e) => setAction(e.target.value)}
+          onChange={(e) => navigate({ action: e.target.value, page: 1 })}
           className="input max-w-[200px]"
         >
-          {actions.map((a) => (
+          <option value="ALL">All actions</option>
+          {ACTION_OPTIONS.map((a) => (
             <option key={a} value={a}>
-              {a === "ALL" ? "All actions" : actionMeta(a).label}
+              {actionMeta(a).label}
             </option>
           ))}
         </select>
       </div>
 
       <GlassCard hover={false} className="p-0">
-        {filtered.length === 0 ? (
+        {logs.length === 0 ? (
           <p className="px-5 py-12 text-center text-sm text-ink-400">
             No audit entries match your filter.
           </p>
         ) : (
-          <ul className="divide-y divide-line/60">
-            {filtered.map((l) => (
+          <ul
+            className={cn(
+              "divide-y divide-line/60 transition-opacity",
+              isPending && "pointer-events-none opacity-60",
+            )}
+          >
+            {logs.map((l) => (
               <LogItem key={l.id} log={l} />
             ))}
           </ul>
         )}
       </GlassCard>
+
+      {pageCount > 1 && (
+        <Pagination
+          page={page}
+          pageCount={pageCount}
+          disabled={isPending}
+          onPage={(p) => navigate({ page: p })}
+        />
+      )}
     </div>
   );
+}
+
+function Pagination({
+  page,
+  pageCount,
+  disabled,
+  onPage,
+}: {
+  page: number;
+  pageCount: number;
+  disabled: boolean;
+  onPage: (page: number) => void;
+}) {
+  const pages = pageRange(page, pageCount);
+  return (
+    <nav
+      className="flex items-center justify-center gap-1.5"
+      aria-label="Audit log pages"
+    >
+      <PageButton
+        disabled={disabled || page <= 1}
+        onClick={() => onPage(page - 1)}
+        aria-label="Previous page"
+      >
+        <ChevronLeft className="h-4 w-4" />
+      </PageButton>
+
+      {pages.map((p, i) =>
+        p === "…" ? (
+          <span
+            key={`gap-${i}`}
+            className="px-1.5 text-sm text-ink-400 select-none"
+          >
+            …
+          </span>
+        ) : (
+          <PageButton
+            key={p}
+            disabled={disabled}
+            active={p === page}
+            onClick={() => onPage(p)}
+            aria-label={`Page ${p}`}
+            aria-current={p === page ? "page" : undefined}
+          >
+            {p}
+          </PageButton>
+        ),
+      )}
+
+      <PageButton
+        disabled={disabled || page >= pageCount}
+        onClick={() => onPage(page + 1)}
+        aria-label="Next page"
+      >
+        <ChevronRight className="h-4 w-4" />
+      </PageButton>
+    </nav>
+  );
+}
+
+function PageButton({
+  active,
+  className,
+  ...props
+}: React.ButtonHTMLAttributes<HTMLButtonElement> & { active?: boolean }) {
+  return (
+    <button
+      type="button"
+      className={cn(
+        "grid h-9 min-w-9 place-items-center rounded-lg px-2.5 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40",
+        active
+          ? "bg-accent-grad text-white"
+          : "nm-button text-ink-700 hover:text-ink",
+        className,
+      )}
+      {...props}
+    />
+  );
+}
+
+// Compact page list with leading/trailing ellipses: 1 … 4 5 [6] 7 8 … 20.
+function pageRange(current: number, count: number): (number | "…")[] {
+  if (count <= 7) return Array.from({ length: count }, (_, i) => i + 1);
+  const out: (number | "…")[] = [1];
+  const start = Math.max(2, current - 1);
+  const end = Math.min(count - 1, current + 1);
+  if (start > 2) out.push("…");
+  for (let p = start; p <= end; p++) out.push(p);
+  if (end < count - 1) out.push("…");
+  out.push(count);
+  return out;
 }
 
 function LogItem({ log }: { log: AuditRow }) {
