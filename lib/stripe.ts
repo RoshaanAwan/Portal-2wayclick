@@ -1,6 +1,13 @@
 import "server-only";
 import Stripe from "stripe";
 
+// The apiVersion literal the installed SDK accepts. Derived from the Stripe
+// constructor's own config type so it tracks the SDK without us hard-coding the
+// SDK's latest-version string (which is all the SDK's types expose).
+type StripeApiVersion = NonNullable<
+  ConstructorParameters<typeof Stripe>[1]
+>["apiVersion"];
+
 // ── Stripe client ─────────────────────────────────────────────────────────────
 // A single lazily-created Stripe instance. We DON'T construct it at module load:
 // the key may be absent (Stripe is optional — the portal runs fine without it),
@@ -32,7 +39,10 @@ export function getStripe(): Stripe {
   if (!cached) {
     cached = new Stripe(key, {
       // Pin the API version so Stripe-side changes never silently alter behavior.
-      apiVersion: "2025-09-30.clover",
+      // The integration was written against the 2025-09-30 (clover) API; the
+      // installed SDK's types only name its own latest version, so we cast to
+      // keep the intended pin without bumping the live API version.
+      apiVersion: "2025-09-30.clover" as StripeApiVersion,
       appInfo: { name: "2WayClick Portal" },
     });
   }

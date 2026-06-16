@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { ArrowLeft, KanbanSquare, Users } from "lucide-react";
 import { getCurrentUser } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { can } from "@/lib/permissions";
+import { can, isManagerTier } from "@/lib/permissions";
 import { shareUrl } from "@/lib/share";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Avatar } from "@/components/ui/Avatar";
@@ -175,6 +175,7 @@ export default async function ProjectBoardPage({
         lists={lists}
         members={members}
         currentUserId={user?.id ?? null}
+        isManager={isManagerTier(user?.role)}
       />
 
       <AddList boardId={project.board.id} />
