@@ -370,3 +370,38 @@ body {
     scroll-behavior: auto !important;
   }
 }
+
+/* ── Print: invoice download ───────────────────────────────────────────────
+   "Download" an invoice = print to PDF from the browser. When printing, hide
+   everything except the element marked `.print-area` (the invoice document),
+   strip app chrome, and force a clean white page regardless of theme. The
+   document itself (InvoiceDocument) uses fixed light colors with
+   print-color-adjust so its tints survive the print pipeline. */
+@media print {
+  /* Hide app chrome and any control explicitly opted out of printing. */
+  .no-print {
+    display: none !important;
+  }
+
+  /* Collapse the page to just the invoice: hide the body, then re-show only
+     the print area and its ancestors as a plain top-of-page block. */
+  body * {
+    visibility: hidden;
+  }
+  .print-area,
+  .print-area * {
+    visibility: visible;
+  }
+  .print-area {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    margin: 0;
+    padding: 0;
+  }
+
+  @page {
+    margin: 16mm;
+  }
+}

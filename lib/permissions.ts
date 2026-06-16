@@ -86,6 +86,8 @@ export const can = {
   /** Edit or delete ANY document in the library. Admin tier. */
   manageDocuments: (role?: string | null) => isAdminTier(role),
   decideLeave: (role?: string | null) => isManagerTier(role),
+  /** Create, edit, send, and delete client invoices. Admin tier. */
+  manageInvoices: (role?: string | null) => isAdminTier(role),
   manageProjects: (role?: string | null) => isAdminTier(role),
   manageProjectMembers: (role?: string | null) => isAdminTier(role),
   /** Reach the /admin section (user management). */

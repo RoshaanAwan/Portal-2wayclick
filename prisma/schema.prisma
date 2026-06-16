@@ -59,6 +59,7 @@ model User {
   notifications      Notification[]     @relation("NotifRecipient")
   triggeredNotifs    Notification[]     @relation("NotifActor")
   attendance         Attendance[]
+  createdInvoices    Invoice[]          @relation("InvoiceCreator")
 
   // The org tree is walked by managerId (Team Pulse, org chart, audit scope).
   // Postgres does not auto-index FK columns, so this is needed for the
@@ -436,6 +437,89 @@ model Notification {
   // Newest-first lookups scoped to a recipient, and unread counts.
   @@index([userId, createdAt])
   @@index([userId, readAt])
+}
+
+// ── Invoices ──────────────────────────────────────────────────────────────────
+// A bill an Admin / Super Admin raises for a client and sends out. The client is
+// captured as free-text (name + email + address) — there is no Client identity
+// in the system; this mirrors ClientSubmission's denormalized client name.
+//
+// Money is stored as integer minor units (cents) in `currency`, never a float —
+// 1234 + "USD" means $12.34. Totals are derived from the line items at write
+// time and cached on the invoice (subtotalCents/taxCents/totalCents) so a
+// printed/shared invoice is a stable snapshot even if rounding logic later
+// changes. See lib/invoices.ts for the math, numbering, and formatting.
+model Invoice {
+  id     String @id @default(cuid())
+  // Human-facing sequential number, e.g. "INV-0007". Unique, assigned at
+  // creation by counting existing invoices (see lib/invoices.ts → nextNumber).
+  number String @unique
+
+  // Free-text client (no portal identity). Email/address are optional.
+  clientName    String
+  clientEmail   String?
+  clientAddress String?
+
+  // Optional human note shown on the invoice (terms, thank-you, etc.).
+  notes String?
+
+  // Status: DRAFT (not yet finalized) | SENT (issued to client) | PAID |
+  // CANCELLED. Drives the badge and which actions are offered.
+  status String @default("DRAFT")
+
+  // ISO 4217 currency code; all *Cents fields are in this currency's minor unit.
+  currency String @default("USD")
+
+  // Cached totals (minor units). Derived from items; recomputed on every edit.
+  subtotalCents Int @default(0)
+  // Tax as a basis-point rate (e.g. 825 = 8.25%) and the resulting amount.
+  taxRateBps Int @default(0)
+  taxCents   Int @default(0)
+  totalCents Int @default(0)
+
+  issueDate DateTime  @default(now())
+  dueDate   DateTime?
+  // Stamped when status first moves to SENT (for "sent X ago").
+  sentAt DateTime?
+  // Stamped when status moves to PAID.
+  paidAt DateTime?
+
+  // Public, login-less link a client opens to view the invoice at
+  // /invoices/shared/<token>. Opaque + unguessable; nullable so it can be
+  // revoked/regenerated. @unique so the token is the lookup key.
+  shareToken String? @unique
+
+  // Who raised it. Kept (denormalized name) even if the user is later removed.
+  creatorId   String?
+  creator     User?   @relation("InvoiceCreator", fields: [creatorId], references: [id], onDelete: SetNull)
+  creatorName String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  items InvoiceItem[]
+
+  // The list orders newest-first; status filters the dashboard counts.
+  @@index([createdAt])
+  @@index([status])
+}
+
+// A single billable line on an invoice. Amounts are integer minor units.
+model InvoiceItem {
+  id        String  @id @default(cuid())
+  invoiceId String
+  invoice   Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  description String
+  // Quantity is whole units (e.g. hours, licenses). Price is per-unit, in minor
+  // units. amountCents is qty * unitPriceCents, cached so the row is a snapshot.
+  quantity       Int @default(1)
+  unitPriceCents Int @default(0)
+  amountCents    Int @default(0)
+  // Display order of the line within the invoice (top → bottom).
+  position Int @default(0)
+
+  @@index([invoiceId, position])
 }
 
 // Many-to-many join: who is assigned to a card (Trello "members").

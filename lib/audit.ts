@@ -43,7 +43,13 @@ export type AuditAction =
   | "task.assign"
   | "task.unassign"
   | "task.comment"
-  | "task.move";
+  | "task.move"
+  | "invoice.create"
+  | "invoice.update"
+  | "invoice.status_change"
+  | "invoice.share_regenerate"
+  | "invoice.share_revoke"
+  | "invoice.delete";
 
 interface AuditInput {
   actor: SafeUser | { id?: string | null; name: string; role: string };

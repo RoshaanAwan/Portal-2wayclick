@@ -17,6 +17,7 @@ import {
   ScrollText,
   Activity,
   Clock,
+  Receipt,
 } from "lucide-react";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
@@ -79,6 +80,10 @@ export function Sidebar({ role }: { role?: string | null }) {
   const adminNav = [
     ...(can.accessAdmin(role)
       ? [{ href: "/admin/users", label: "Users", icon: ShieldCheck }]
+      : []),
+    // Invoices — admin tier (create/send client invoices).
+    ...(can.manageInvoices(role)
+      ? [{ href: "/invoices", label: "Invoices", icon: Receipt }]
       : []),
     ...(can.viewAuditLog(role)
       ? [{ href: "/admin/logs", label: "Audit Log", icon: ScrollText }]
