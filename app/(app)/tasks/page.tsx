@@ -7,7 +7,12 @@ import { BoardClient, type ListDTO, type MemberDTO } from "./BoardClient";
 export default async function TasksPage() {
   const user = await getCurrentUser();
 
-  // The seed creates a single board; load the most recent one.
+  // The seed creates a single board; load the oldest one.
+  // Comments are capped to the most recent MAX_COMMENTS per card (the thread
+  // view) so a busy board doesn't load an unbounded comment history up front;
+  // the card's count badge reads from `_count`, which stays exact.
+  const MAX_COMMENTS = 50;
+
   const board = await db.board.findFirst({
     orderBy: { createdAt: "asc" },
     include: {
@@ -26,7 +31,10 @@ export default async function TasksPage() {
                 },
               },
               comments: {
-                orderBy: { createdAt: "asc" },
+                // Newest-first so `take` keeps the most recent; reversed below
+                // for the oldest-first thread order the modal expects.
+                orderBy: { createdAt: "desc" },
+                take: MAX_COMMENTS,
                 include: {
                   author: { select: { id: true, name: true, avatarUrl: true } },
                 },
@@ -66,16 +74,21 @@ export default async function TasksPage() {
         avatarUrl: a.user.avatarUrl,
         title: a.user.title,
       })),
-      comments: t.comments.map((c) => ({
-        id: c.id,
-        body: c.body,
-        createdAt: c.createdAt.toISOString(),
-        author: {
-          id: c.author.id,
-          name: c.author.name,
-          avatarUrl: c.author.avatarUrl,
-        },
-      })),
+      // Fetched newest-first (so `take` keeps the latest); reverse for the
+      // oldest-first thread order the card/modal renders.
+      comments: t.comments
+        .slice()
+        .reverse()
+        .map((c) => ({
+          id: c.id,
+          body: c.body,
+          createdAt: c.createdAt.toISOString(),
+          author: {
+            id: c.author.id,
+            name: c.author.name,
+            avatarUrl: c.author.avatarUrl,
+          },
+        })),
     })),
   }));
 

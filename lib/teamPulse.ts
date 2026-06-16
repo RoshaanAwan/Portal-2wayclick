@@ -57,6 +57,46 @@ export const W_OVERDUE = 14;
 export const OVERLOAD_AT = 70; // load ≥ this ⇒ "overloaded"
 export const BUSY_AT = 35; // load ≥ this ⇒ "busy"
 
+// Boards use free-text list names, so "is this a done/closed column?" is a
+// keyword match. These keywords are the single source of truth, shared by:
+//   • the DB filter (openTaskAssignmentWhere) — so closed-list rows never ship,
+//   • the JS guard (isDoneList) — defense-in-depth for anything that slips past.
+// Exported so the org chart (lib/orgChart.ts) classifies lists identically.
+export const DONE_LIST_KEYWORDS = [
+  "done",
+  "complete",
+  "archiv",
+  "shipped",
+  "closed",
+] as const;
+
+/** True if a list name reads as a "done/closed" column. */
+export function isDoneList(name: string): boolean {
+  const lower = name.toLowerCase();
+  return DONE_LIST_KEYWORDS.some((k) => lower.includes(k));
+}
+
+/**
+ * Prisma `where` fragment selecting a person's OPEN task assignments — i.e. ones
+ * whose list name contains none of the done keywords. Pushes the filter into the
+ * DB so we don't fetch closed-list rows only to drop them in JS.
+ */
+export function openTaskAssignmentWhere(userIds: string[]) {
+  return {
+    userId: { in: userIds },
+    task: {
+      list: {
+        // NONE of the done keywords appear in the list name.
+        NOT: {
+          OR: DONE_LIST_KEYWORDS.map((k) => ({
+            name: { contains: k, mode: "insensitive" as const },
+          })),
+        },
+      },
+    },
+  };
+}
+
 /** All descendant user ids under `rootId` in the manager→reports tree (inclusive opt). */
 async function reportSubtreeIds(rootId: string): Promise<string[]> {
   // The tree is shallow in practice; walk it breadth-first with batched queries.
@@ -135,33 +175,37 @@ export async function buildTeamPulse(viewer: SafeUser): Promise<TeamPulse> {
     };
   }
 
-  // Currently-approved leave for these people (covers today).
-  const leaves = await db.leaveRequest.findMany({
-    where: {
-      ownerId: { in: ids },
-      status: "APPROVED",
-      startDate: { lte: now },
-      endDate: { gte: now },
-    },
-    select: { ownerId: true, endDate: true, type: true },
-  });
-  const leaveByUser = new Map(leaves.map((l) => [l.ownerId, l]));
-
-  // Open task assignments for these people. "Open" = not in a list named like
-  // Done/Complete/Archived (the boards use free-text list names).
-  const assignments = await db.taskAssignee.findMany({
-    where: { userId: { in: ids } },
-    select: {
-      userId: true,
-      task: {
-        select: {
-          priority: true,
-          dueDate: true,
-          list: { select: { name: true } },
+  // Currently-approved leave + open task assignments. Independent queries, so
+  // fire them together instead of one-then-the-other.
+  //   • leave: APPROVED and covering today.
+  //   • assignments: "open" = NOT in a list named like Done/Complete/Archived
+  //     (boards use free-text list names). Filtering done lists in the DB means
+  //     we never ship rows we'd only discard in JS.
+  const [leaves, assignments] = await Promise.all([
+    db.leaveRequest.findMany({
+      where: {
+        ownerId: { in: ids },
+        status: "APPROVED",
+        startDate: { lte: now },
+        endDate: { gte: now },
+      },
+      select: { ownerId: true, endDate: true, type: true },
+    }),
+    db.taskAssignee.findMany({
+      where: openTaskAssignmentWhere(ids),
+      select: {
+        userId: true,
+        task: {
+          select: {
+            priority: true,
+            dueDate: true,
+            list: { select: { name: true } },
+          },
         },
       },
-    },
-  });
+    }),
+  ]);
+  const leaveByUser = new Map(leaves.map((l) => [l.ownerId, l]));
 
   interface Acc {
     open: number;
@@ -172,10 +216,8 @@ export async function buildTeamPulse(viewer: SafeUser): Promise<TeamPulse> {
   const acc = new Map<string, Acc>();
   for (const id of ids) acc.set(id, { open: 0, overdue: 0, high: 0, load: 0 });
 
-  const isDoneList = (name: string) =>
-    /done|complete|archiv|shipped|closed/i.test(name);
-
   for (const a of assignments) {
+    // The DB already excludes done lists; this guards anything unexpected.
     if (isDoneList(a.task.list.name)) continue;
     const e = acc.get(a.userId)!;
     e.open += 1;

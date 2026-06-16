@@ -59,6 +59,11 @@ model User {
   notifications      Notification[]     @relation("NotifRecipient")
   triggeredNotifs    Notification[]     @relation("NotifActor")
   attendance         Attendance[]
+
+  // The org tree is walked by managerId (Team Pulse, org chart, audit scope).
+  // Postgres does not auto-index FK columns, so this is needed for the
+  // `WHERE managerId IN (...)` subtree walks to use an index instead of a scan.
+  @@index([managerId])
 }
 
 model Session {
@@ -68,6 +73,9 @@ model Session {
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   expiresAt DateTime
   createdAt DateTime @default(now())
+
+  // Session FK lookup (e.g. cascade deletes, listing a user's sessions).
+  @@index([userId])
 }
 
 model Announcement {
@@ -84,6 +92,10 @@ model Announcement {
   comments  Comment[]
   reactions Reaction[]
   reads     AnnouncementRead[]
+
+  // The feed orders by (pinned desc, createdAt desc); index the sort key.
+  @@index([authorId])
+  @@index([createdAt])
 }
 
 model AnnouncementRead {
@@ -94,7 +106,10 @@ model AnnouncementRead {
   user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
   readAt         DateTime     @default(now())
 
+  // Compound unique covers announcementId lookups; index userId for "what has
+  // this user read" and cascade deletes.
   @@unique([announcementId, userId])
+  @@index([userId])
 }
 
 model Comment {
@@ -105,6 +120,10 @@ model Comment {
   authorId       String
   author         User         @relation(fields: [authorId], references: [id])
   createdAt      DateTime     @default(now())
+
+  // Comments are loaded per-announcement, oldest-first.
+  @@index([announcementId, createdAt])
+  @@index([authorId])
 }
 
 model Reaction {
@@ -115,7 +134,9 @@ model Reaction {
   userId         String
   user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  // The compound unique already covers announcementId-prefixed lookups.
   @@unique([announcementId, userId, emoji])
+  @@index([userId])
 }
 
 model Document {
@@ -129,6 +150,10 @@ model Document {
   uploaderId  String
   uploader    User     @relation("DocUploader", fields: [uploaderId], references: [id])
   createdAt   DateTime @default(now())
+
+  // Library lists newest-first; uploader FK for join + "my uploads".
+  @@index([createdAt])
+  @@index([uploaderId])
 }
 
 model LeaveRequest {
@@ -145,6 +170,12 @@ model LeaveRequest {
   reviewer   User?     @relation("RequestReviewer", fields: [reviewerId], references: [id])
   createdAt  DateTime  @default(now())
   decidedAt  DateTime?
+
+  // Team Pulse / org chart ask "who is on APPROVED leave covering today" for a
+  // set of owners; the approvals queue filters PENDING. Index the hot paths.
+  @@index([ownerId])
+  @@index([status, startDate, endDate])
+  @@index([reviewerId])
 }
 
 // ── Attendance ───────────────────────────────────────────────────────────────
@@ -186,6 +217,10 @@ model Activity {
   target    String // human-readable target
   meta      String? // optional JSON string
   createdAt DateTime @default(now())
+
+  // Dashboard feed reads newest-first; userId for per-person activity joins.
+  @@index([createdAt])
+  @@index([userId])
 }
 
 // ── Audit log ────────────────────────────────────────────────────────────────
@@ -233,6 +268,9 @@ model Board {
   // A board may belong to a project (every project gets its own board). The
   // standalone /tasks board has no project.
   project Project?
+
+  // The /tasks page loads the oldest board first.
+  @@index([createdAt])
 }
 
 // ── Projects ────────────────────────────────────────────────────────────────
@@ -253,6 +291,8 @@ model Project {
   board   Board  @relation(fields: [boardId], references: [id], onDelete: Cascade)
 
   members ProjectMember[]
+
+  @@index([ownerId])
 }
 
 // Many-to-many join: which users belong to a project.
@@ -264,7 +304,9 @@ model ProjectMember {
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   addedAt   DateTime @default(now())
 
+  // Compound unique covers projectId lookups; index userId for "my projects".
   @@unique([projectId, userId])
+  @@index([userId])
 }
 
 model BoardList {
@@ -277,6 +319,9 @@ model BoardList {
   createdAt DateTime @default(now())
 
   tasks Task[]
+
+  // Lists are read per-board ordered left→right.
+  @@index([boardId, position])
 }
 
 model Task {
@@ -297,6 +342,10 @@ model Task {
 
   assignees TaskAssignee[]
   comments  TaskComment[]
+
+  // Cards are read per-list ordered by position; creator FK for joins.
+  @@index([listId, position])
+  @@index([creatorId])
 }
 
 model TaskComment {
@@ -307,6 +356,10 @@ model TaskComment {
   authorId  String
   author    User     @relation(fields: [authorId], references: [id])
   createdAt DateTime @default(now())
+
+  // Comments loaded per-task, oldest-first.
+  @@index([taskId, createdAt])
+  @@index([authorId])
 }
 
 // ── Notifications ─────────────────────────────────────────────────────────────
@@ -352,5 +405,8 @@ model TaskAssignee {
   user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   assignedAt DateTime @default(now())
 
+  // Compound unique covers taskId lookups. Team Pulse / org chart query
+  // `WHERE userId IN (...)` to score each person's load, so index userId alone.
   @@unique([taskId, userId])
+  @@index([userId])
 }

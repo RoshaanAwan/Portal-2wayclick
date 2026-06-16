@@ -2,11 +2,12 @@ import { getCurrentUser } from "@/lib/auth";
 import { isAdminTier } from "@/lib/permissions";
 import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
+import { DONE_LIST_KEYWORDS } from "@/lib/teamPulse";
 import { Hero } from "./Hero";
 import { StatTiles } from "./StatTiles";
 import { PulseFeed } from "./PulseFeed";
 import { RightRail } from "./RightRail";
-import { HeadcountChart } from "./HeadcountChart";
+import { HeadcountChartLazy } from "./HeadcountChartLazy";
 
 export default async function DashboardPage() {
   const user = await getCurrentUser();
@@ -37,13 +38,16 @@ export default async function DashboardPage() {
     db.activity.findMany({
       orderBy: { createdAt: "desc" },
       take: 8,
-      include: { user: true },
+      // Only the fields the feed renders — avoids shipping passwordHash & co.
+      include: {
+        user: { select: { name: true, avatarUrl: true, title: true } },
+      },
     }),
     db.announcement.findMany({
       where: { pinned: true },
       orderBy: { createdAt: "desc" },
       take: 2,
-      include: { author: true },
+      include: { author: { select: { name: true } } },
     }),
     db.user.findMany({
       where: { department: user.department, id: { not: user.id } },
@@ -67,13 +71,9 @@ export default async function DashboardPage() {
     db.task.count({
       where: {
         NOT: {
-          OR: [
-            { list: { name: { contains: "done", mode: "insensitive" } } },
-            { list: { name: { contains: "complete", mode: "insensitive" } } },
-            { list: { name: { contains: "archiv", mode: "insensitive" } } },
-            { list: { name: { contains: "shipped", mode: "insensitive" } } },
-            { list: { name: { contains: "closed", mode: "insensitive" } } },
-          ],
+          OR: DONE_LIST_KEYWORDS.map((k) => ({
+            list: { name: { contains: k, mode: "insensitive" as const } },
+          })),
         },
       },
     }),
@@ -143,7 +143,7 @@ export default async function DashboardPage() {
         {/* Main column */}
         <div className="space-y-6 lg:col-span-2">
           <PulseFeed items={feed} />
-          <HeadcountChart data={headcount} total={userCount} />
+          <HeadcountChartLazy data={headcount} total={userCount} />
         </div>
 
         {/* Right rail */}

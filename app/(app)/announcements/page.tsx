@@ -8,8 +8,17 @@ import { AnnouncementsClient, type AnnouncementDTO } from "./AnnouncementsClient
 export default async function AnnouncementsPage() {
   const user = await getCurrentUser();
 
+  // The feed shows the most recent announcements; cap the page so the query
+  // stays fast as the table grows (the count badges come from `_count`, which
+  // stays exact regardless of the take). Comments are capped to the most recent
+  // MAX_COMMENTS per card — enough for the thread view, without loading an
+  // unbounded history for every post on a single page load.
+  const PAGE_SIZE = 50;
+  const MAX_COMMENTS = 30;
+
   const announcements = await db.announcement.findMany({
     orderBy: [{ pinned: "desc" }, { createdAt: "desc" }],
+    take: PAGE_SIZE,
     include: {
       author: {
         select: { id: true, name: true, title: true, avatarUrl: true },
@@ -19,7 +28,10 @@ export default async function AnnouncementsPage() {
       },
       reads: { select: { userId: true } },
       comments: {
-        orderBy: { createdAt: "asc" },
+        // Newest-first in the DB so `take` keeps the most recent; reversed below
+        // for the oldest-first display order the card expects.
+        orderBy: { createdAt: "desc" },
+        take: MAX_COMMENTS,
         include: {
           author: { select: { id: true, name: true, avatarUrl: true } },
         },
@@ -51,16 +63,21 @@ export default async function AnnouncementsPage() {
     readCount: a.reads.length,
     commentCount: a._count.comments,
     reactionCount: a._count.reactions,
-    comments: a.comments.map((c) => ({
-      id: c.id,
-      body: c.body,
-      createdAt: c.createdAt.toISOString(),
-      author: {
-        id: c.author.id,
-        name: c.author.name,
-        avatarUrl: c.author.avatarUrl,
-      },
-    })),
+    // Fetched newest-first (so `take` keeps the latest); reverse for the
+    // oldest-first thread order the card renders.
+    comments: a.comments
+      .slice()
+      .reverse()
+      .map((c) => ({
+        id: c.id,
+        body: c.body,
+        createdAt: c.createdAt.toISOString(),
+        author: {
+          id: c.author.id,
+          name: c.author.name,
+          avatarUrl: c.author.avatarUrl,
+        },
+      })),
   }));
 
   const canPost = can.postAnnouncements(user?.role);

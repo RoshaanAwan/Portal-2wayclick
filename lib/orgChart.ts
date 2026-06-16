@@ -6,6 +6,8 @@ import {
   W_OVERDUE,
   OVERLOAD_AT,
   BUSY_AT,
+  isDoneList,
+  openTaskAssignmentWhere,
   type PulseStatus,
 } from "./teamPulse";
 
@@ -42,9 +44,6 @@ interface PersonRow {
   managerId: string | null;
 }
 
-const isDoneList = (name: string) =>
-  /done|complete|archiv|shipped|closed/i.test(name);
-
 function classify(onLeave: boolean, load: number): PulseStatus {
   if (onLeave) return "out";
   if (load >= OVERLOAD_AT) return "overloaded";
@@ -75,32 +74,35 @@ export async function buildOrgChart(): Promise<OrgNode[]> {
 
   const ids = people.map((p) => p.id);
 
-  // Approved leave covering today (→ "out").
-  const leaves = await db.leaveRequest.findMany({
-    where: {
-      ownerId: { in: ids },
-      status: "APPROVED",
-      startDate: { lte: now },
-      endDate: { gte: now },
-    },
-    select: { ownerId: true },
-  });
-  const onLeaveSet = new Set(leaves.map((l) => l.ownerId));
-
-  // Open task load, scored exactly like Team Pulse.
-  const assignments = await db.taskAssignee.findMany({
-    where: { userId: { in: ids } },
-    select: {
-      userId: true,
-      task: {
-        select: {
-          priority: true,
-          dueDate: true,
-          list: { select: { name: true } },
+  // Approved leave covering today (→ "out") and open task load. Independent
+  // queries — fire them together. Open assignments are filtered to non-done
+  // lists in the DB (same keyword list Team Pulse uses), so we don't fetch
+  // closed-list rows just to drop them.
+  const [leaves, assignments] = await Promise.all([
+    db.leaveRequest.findMany({
+      where: {
+        ownerId: { in: ids },
+        status: "APPROVED",
+        startDate: { lte: now },
+        endDate: { gte: now },
+      },
+      select: { ownerId: true },
+    }),
+    db.taskAssignee.findMany({
+      where: openTaskAssignmentWhere(ids),
+      select: {
+        userId: true,
+        task: {
+          select: {
+            priority: true,
+            dueDate: true,
+            list: { select: { name: true } },
+          },
         },
       },
-    },
-  });
+    }),
+  ]);
+  const onLeaveSet = new Set(leaves.map((l) => l.ownerId));
 
   const loadAcc = new Map<string, { load: number; open: number }>();
   for (const id of ids) loadAcc.set(id, { load: 0, open: 0 });

@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/auth";
 import { Sidebar } from "@/components/Sidebar";
 import { Topbar } from "@/components/Topbar";
-import { AssistantWidget } from "@/components/AssistantWidget";
+import { AssistantWidgetLazy } from "@/components/AssistantWidgetLazy";
 
 export default async function AppLayout({
   children,
@@ -21,8 +21,9 @@ export default async function AppLayout({
         <Topbar user={user} />
         <main className="px-4 py-6 lg:px-8">{children}</main>
       </div>
-      {/* Floating AI assistant (bottom-right) — answers from scoped portal data. */}
-      <AssistantWidget />
+      {/* Floating AI assistant (bottom-right) — answers from scoped portal data.
+          Lazy-loaded so its JS stays off every page's critical hydration path. */}
+      <AssistantWidgetLazy />
     </div>
   );
 }
