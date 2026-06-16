@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { audit } from "@/lib/audit";
 import { recordActivity } from "@/lib/activityFeed";
 import { can } from "@/lib/permissions";
+import { newShareToken, shareUrl } from "@/lib/share";
 import { z } from "zod";
 
 const schema = z.object({
@@ -28,10 +29,15 @@ export async function POST(req: Request) {
     // The creator is always a member; de-dup any explicit ids.
     const allMemberIds = Array.from(new Set([actor.id, ...memberIds]));
 
+    // Every project ships with a client share link from the start so the
+    // creator can hand it off immediately (revoke/regenerate later if needed).
+    const shareToken = newShareToken();
+
     const project = await db.project.create({
       data: {
         name,
         description: description || null,
+        shareToken,
         owner: { connect: { id: actor.id } },
         board: {
           create: {
@@ -61,7 +67,11 @@ export async function POST(req: Request) {
       detail: { name, memberCount: allMemberIds.length },
     });
 
-    return NextResponse.json({ ok: true, id: project.id });
+    return NextResponse.json({
+      ok: true,
+      id: project.id,
+      shareUrl: shareUrl(shareToken),
+    });
   } catch (e: any) {
     if (e?.message === "UNAUTHENTICATED")
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

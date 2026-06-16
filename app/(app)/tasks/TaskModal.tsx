@@ -22,6 +22,21 @@ import {
 import { AssigneePicker } from "./AssigneePicker";
 import type { MemberDTO, TaskDTO } from "./BoardClient";
 
+// Comments left by a client via the public share link are stored with an
+// attribution marker — "[client:Jane @ Acme] message". Recognise it here so the
+// team thread shows the client's name + a badge instead of the raw marker.
+function parseClientComment(
+  stored: string,
+): { clientName: string; body: string } | null {
+  if (!stored.startsWith("[client:")) return null;
+  const close = stored.indexOf("]");
+  if (close === -1) return null;
+  return {
+    clientName: stored.slice("[client:".length, close),
+    body: stored.slice(close + 1).trimStart(),
+  };
+}
+
 export function TaskModal({
   task,
   listName,
@@ -207,28 +222,36 @@ export function TaskModal({
                       No comments yet. Start the conversation below.
                     </p>
                   ) : (
-                    task.comments.map((c) => (
-                      <div key={c.id} className="flex gap-2.5">
-                        <Avatar
-                          name={c.author.name}
-                          src={c.author.avatarUrl}
-                          size="xs"
-                        />
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-baseline gap-2">
-                            <span className="text-xs font-semibold text-ink">
-                              {c.author.name}
-                            </span>
-                            <span className="text-[10px] text-ink-400">
-                              {timeAgo(c.createdAt)}
-                            </span>
+                    task.comments.map((c) => {
+                      const client = parseClientComment(c.body);
+                      return (
+                        <div key={c.id} className="flex gap-2.5">
+                          <Avatar
+                            name={client ? client.clientName : c.author.name}
+                            src={client ? null : c.author.avatarUrl}
+                            size="xs"
+                          />
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-baseline gap-2">
+                              <span className="text-xs font-semibold text-ink">
+                                {client ? client.clientName : c.author.name}
+                              </span>
+                              {client && (
+                                <Badge variant="amber" className="text-[9px]">
+                                  Client
+                                </Badge>
+                              )}
+                              <span className="text-[10px] text-ink-400">
+                                {timeAgo(c.createdAt)}
+                              </span>
+                            </div>
+                            <p className="mt-0.5 whitespace-pre-wrap break-words rounded-xl rounded-tl-sm border border-line bg-surface-2 px-3 py-2 text-sm leading-relaxed text-ink-700">
+                              {client ? client.body : c.body}
+                            </p>
                           </div>
-                          <p className="mt-0.5 whitespace-pre-wrap break-words rounded-xl rounded-tl-sm border border-line bg-surface-2 px-3 py-2 text-sm leading-relaxed text-ink-700">
-                            {c.body}
-                          </p>
                         </div>
-                      </div>
-                    ))
+                      );
+                    })
                   )}
                 </div>
 

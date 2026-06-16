@@ -47,7 +47,7 @@ export function Topbar({ user }: { user: SafeUser }) {
     <header className="sticky top-0 z-20 px-3 pt-3 lg:px-6">
       <div className="frost flex items-center gap-3 rounded-2xl border border-line px-3 py-2.5 shadow-card">
         {/* Command-bar search */}
-        <button className="group relative flex h-10 flex-1 max-w-md items-center gap-2.5 rounded-xl border border-line bg-surface-2/70 px-3 text-left transition hover:border-line-strong hover:bg-surface-2">
+        {/* <button className="group relative flex h-10 flex-1 max-w-md items-center gap-2.5 rounded-xl border border-line bg-surface-2/70 px-3 text-left transition hover:border-line-strong hover:bg-surface-2">
           <Search className="h-4 w-4 text-ink-400 transition group-hover:text-ink-500" />
           <span className="flex-1 text-sm text-ink-400">
             Search people, docs, posts…
@@ -55,7 +55,7 @@ export function Topbar({ user }: { user: SafeUser }) {
           <kbd className="hidden items-center gap-0.5 rounded-md border border-line bg-surface px-1.5 py-0.5 text-[10px] font-medium text-ink-400 sm:inline-flex">
             ⌘K
           </kbd>
-        </button>
+        </button> */}
 
         <div className="flex-1" />
 

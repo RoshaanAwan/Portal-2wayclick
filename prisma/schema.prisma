@@ -292,7 +292,46 @@ model Project {
 
   members ProjectMember[]
 
+  // Public client-share link. Anyone with this opaque token can open a
+  // read-only board at /shared/<token> and leave comments / submit requests
+  // — no portal login. Nullable so it can be revoked (set to null) and
+  // regenerated; @unique so the token is the lookup key. Set at creation.
+  shareToken String? @unique
+
+  // Comments & requests left by clients via the share link.
+  clientSubmissions ClientSubmission[]
+
   @@index([ownerId])
+}
+
+// ── Client submissions ────────────────────────────────────────────────────────
+// A comment or request left by an (unauthenticated) client through a project's
+// public share link. Has no User — the client self-identifies with a free-text
+// name, denormalized here. A REQUEST also spawns a Backlog card (taskId links
+// the two); a COMMENT is attached to an existing card (taskId = the card).
+model ClientSubmission {
+  id        String   @id @default(cuid())
+  projectId String
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  // COMMENT (on an existing card) | REQUEST (becomes a new Backlog card).
+  kind        String
+  // Client-supplied display name, e.g. "Jane @ Acme". Never a portal identity.
+  clientName  String
+  // For REQUEST: the request title. For COMMENT: null (body holds the text).
+  title       String?
+  body        String
+
+  // The card this submission relates to: the commented card, or the card a
+  // request spawned. SetNull (not Cascade) so deleting the card keeps the
+  // client's words in the trail.
+  taskId String?
+  task   Task?   @relation(fields: [taskId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+
+  @@index([projectId, createdAt])
+  @@index([taskId])
 }
 
 // Many-to-many join: which users belong to a project.
@@ -340,8 +379,11 @@ model Task {
   creator     User      @relation("TaskCreator", fields: [creatorId], references: [id])
   createdAt   DateTime  @default(now())
 
-  assignees TaskAssignee[]
-  comments  TaskComment[]
+  assignees         TaskAssignee[]
+  comments          TaskComment[]
+  // Client-share submissions tied to this card (the request that spawned it,
+  // or comments left on it via the public link).
+  clientSubmissions ClientSubmission[]
 
   // Cards are read per-list ordered by position; creator FK for joins.
   @@index([listId, position])

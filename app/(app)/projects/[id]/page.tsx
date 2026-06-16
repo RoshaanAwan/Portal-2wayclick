@@ -4,6 +4,7 @@ import { ArrowLeft, KanbanSquare, Users } from "lucide-react";
 import { getCurrentUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { can } from "@/lib/permissions";
+import { shareUrl } from "@/lib/share";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Avatar } from "@/components/ui/Avatar";
 import {
@@ -12,6 +13,7 @@ import {
   type MemberDTO,
 } from "../../tasks/BoardClient";
 import { AddList } from "./AddList";
+import { ShareLinkPanel } from "./ShareLinkPanel";
 
 export default async function ProjectBoardPage({
   params,
@@ -160,6 +162,14 @@ export default async function ProjectBoardPage({
           </div>
         }
       />
+
+      {/* Admins manage the public client link; everyone else just sees the board. */}
+      {isAdmin && (
+        <ShareLinkPanel
+          projectId={project.id}
+          initialUrl={project.shareToken ? shareUrl(project.shareToken) : null}
+        />
+      )}
 
       <BoardClient
         lists={lists}
