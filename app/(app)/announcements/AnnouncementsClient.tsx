@@ -57,10 +57,12 @@ export function AnnouncementsClient({
   announcements,
   currentUser,
   canPost,
+  canManage,
 }: {
   announcements: AnnouncementDTO[];
   currentUser: CurrentUser | null;
   canPost: boolean;
+  canManage: boolean;
 }) {
   const [filter, setFilter] = useState<(typeof FILTERS)[number]>("All");
   const [composerOpen, setComposerOpen] = useState(false);
@@ -173,6 +175,7 @@ export function AnnouncementsClient({
                 key={a.id}
                 announcement={a}
                 currentUser={currentUser}
+                canManage={canManage}
                 index={i}
               />
             ))}

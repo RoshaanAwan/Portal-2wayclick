@@ -81,6 +81,7 @@ export default async function AnnouncementsPage() {
   }));
 
   const canPost = can.postAnnouncements(user?.role);
+  const canManage = can.manageAnnouncements(user?.role);
 
   return (
     <div className="mx-auto max-w-3xl">
@@ -102,6 +103,7 @@ export default async function AnnouncementsPage() {
             : null
         }
         canPost={canPost}
+        canManage={canManage}
       />
     </div>
   );

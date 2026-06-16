@@ -41,7 +41,7 @@ export default async function DocumentsPage() {
         action={<AddDocumentButton currentUserName={user?.name ?? null} />}
       />
 
-      <DocumentLibrary docs={docs} />
+      <DocumentLibrary docs={docs} canManage={!!user} />
     </div>
   );
 }

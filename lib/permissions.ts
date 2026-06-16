@@ -81,6 +81,10 @@ export function isManagerTier(role: string | null | undefined): boolean {
 // Named capabilities (read at call sites for clarity). All derive from tiers.
 export const can = {
   postAnnouncements: (role?: string | null) => isManagerTier(role),
+  /** Edit or delete ANY announcement (not just your own). Admin tier. */
+  manageAnnouncements: (role?: string | null) => isAdminTier(role),
+  /** Edit or delete ANY document in the library. Admin tier. */
+  manageDocuments: (role?: string | null) => isAdminTier(role),
   decideLeave: (role?: string | null) => isManagerTier(role),
   manageProjects: (role?: string | null) => isAdminTier(role),
   manageProjectMembers: (role?: string | null) => isAdminTier(role),

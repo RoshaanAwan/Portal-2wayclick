@@ -3,12 +3,22 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
-import { Pin, MessageCircle, SmilePlus, Send, Eye } from "lucide-react";
+import {
+  Pin,
+  MessageCircle,
+  SmilePlus,
+  Send,
+  Eye,
+  Pencil,
+  Trash2,
+} from "lucide-react";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { Badge } from "@/components/ui/Badge";
 import { Avatar } from "@/components/ui/Avatar";
 import { Button } from "@/components/ui/Button";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { cn, timeAgo } from "@/lib/utils";
+import { AnnouncementEditor } from "./AnnouncementEditor";
 import type {
   AnnouncementDTO,
   CurrentUser,
@@ -39,10 +49,12 @@ function coverVariant(coverColor: string): BadgeVariant {
 export function AnnouncementCard({
   announcement,
   currentUser,
+  canManage,
   index,
 }: {
   announcement: AnnouncementDTO;
   currentUser: CurrentUser | null;
+  canManage: boolean;
   index: number;
 }) {
   const router = useRouter();
@@ -51,8 +63,25 @@ export function AnnouncementCard({
   const [commentText, setCommentText] = useState("");
   const [posting, setPosting] = useState(false);
   const [reactingTo, setReactingTo] = useState<string | null>(null);
+  const [editing, setEditing] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const variant = coverVariant(announcement.coverColor);
+
+  async function remove() {
+    if (deleting) return;
+    setDeleting(true);
+    const res = await fetch(`/api/announcements/${announcement.id}`, {
+      method: "DELETE",
+    });
+    if (res.ok) {
+      setConfirmDelete(false);
+      router.refresh();
+    } else {
+      setDeleting(false);
+    }
+  }
 
   // Aggregate reactions by emoji, and flag which the current user has chosen.
   const reactionGroups = useMemo(() => {
@@ -127,15 +156,37 @@ export function AnnouncementCard({
           )}
         />
 
-        {/* Header: category + pinned */}
+        {/* Header: category + pinned + admin controls */}
         <div className="mb-3 flex items-center justify-between gap-3">
           <Badge variant={variant}>{announcement.category}</Badge>
-          {announcement.pinned && (
-            <span className="inline-flex items-center gap-1 text-[11px] font-medium text-accent">
-              <Pin className="h-3.5 w-3.5 fill-accent" />
-              Pinned
-            </span>
-          )}
+          <div className="flex items-center gap-2">
+            {announcement.pinned && (
+              <span className="inline-flex items-center gap-1 text-[11px] font-medium text-accent">
+                <Pin className="h-3.5 w-3.5 fill-accent" />
+                Pinned
+              </span>
+            )}
+            {canManage && (
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => setEditing(true)}
+                  aria-label="Edit announcement"
+                  className="grid h-7 w-7 place-items-center rounded-lg text-ink-400 transition-colors hover:bg-surface-2 hover:text-ink"
+                >
+                  <Pencil className="h-4 w-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setConfirmDelete(true)}
+                  aria-label="Delete announcement"
+                  className="grid h-7 w-7 place-items-center rounded-lg text-ink-400 transition-colors hover:bg-danger-soft hover:text-danger-ink"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </button>
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Title + body */}
@@ -337,6 +388,29 @@ export function AnnouncementCard({
           )}
         </AnimatePresence>
       </GlassCard>
+
+      {canManage && (
+        <>
+          <AnnouncementEditor
+            announcement={announcement}
+            open={editing}
+            onClose={() => setEditing(false)}
+          />
+          <ConfirmDialog
+            open={confirmDelete}
+            title="Delete announcement"
+            message={
+              <>
+                Delete “{announcement.title}”? This also removes all comments and
+                reactions, and can’t be undone.
+              </>
+            }
+            loading={deleting}
+            onConfirm={remove}
+            onClose={() => setConfirmDelete(false)}
+          />
+        </>
+      )}
     </motion.div>
   );
 }

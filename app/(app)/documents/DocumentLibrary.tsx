@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Search,
@@ -10,6 +11,8 @@ import {
   Files,
   FolderSearch,
   Download,
+  Pencil,
+  Trash2,
 } from "lucide-react";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { CountUp } from "@/components/ui/CountUp";
@@ -17,9 +20,11 @@ import { Avatar } from "@/components/ui/Avatar";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { DOC_CATEGORIES } from "@/lib/constants";
 import { cn, formatFileSize, timeAgo } from "@/lib/utils";
 import { fileTypeMeta } from "./fileTypes";
+import { DocumentEditor } from "./DocumentEditor";
 
 export interface DocItem {
   id: string;
@@ -36,7 +41,14 @@ export interface DocItem {
 type View = "grid" | "list";
 type Filter = "All" | (typeof DOC_CATEGORIES)[number];
 
-export function DocumentLibrary({ docs }: { docs: DocItem[] }) {
+export function DocumentLibrary({
+  docs,
+  canManage,
+}: {
+  docs: DocItem[];
+  // The library is a shared resource — any signed-in user may edit/delete.
+  canManage: boolean;
+}) {
   const [view, setView] = useState<View>("grid");
   const [filter, setFilter] = useState<Filter>("All");
   const [query, setQuery] = useState("");
@@ -110,9 +122,9 @@ export function DocumentLibrary({ docs }: { docs: DocItem[] }) {
           }
         />
       ) : view === "grid" ? (
-        <GridView docs={filtered} />
+        <GridView docs={filtered} canManage={canManage} />
       ) : (
-        <ListView docs={filtered} />
+        <ListView docs={filtered} canManage={canManage} />
       )}
     </div>
   );
@@ -286,21 +298,51 @@ function FilterChips({
 
 /* ------------------------------ Views ------------------------------ */
 
-function GridView({ docs }: { docs: DocItem[] }) {
+function GridView({
+  docs,
+  canManage,
+}: {
+  docs: DocItem[];
+  canManage: boolean;
+}) {
   return (
     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
       <AnimatePresence mode="popLayout">
         {docs.map((doc, i) => (
-          <FileCard key={doc.id} doc={doc} index={i} />
+          <FileCard key={doc.id} doc={doc} index={i} canManage={canManage} />
         ))}
       </AnimatePresence>
     </div>
   );
 }
 
-function FileCard({ doc, index }: { doc: DocItem; index: number }) {
+function FileCard({
+  doc,
+  index,
+  canManage,
+}: {
+  doc: DocItem;
+  index: number;
+  canManage: boolean;
+}) {
+  const router = useRouter();
   const meta = fileTypeMeta(doc.fileType);
   const Icon = meta.icon;
+  const [editing, setEditing] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+
+  async function remove() {
+    if (deleting) return;
+    setDeleting(true);
+    const res = await fetch(`/api/documents/${doc.id}`, { method: "DELETE" });
+    if (res.ok) {
+      setConfirmDelete(false);
+      router.refresh();
+    } else {
+      setDeleting(false);
+    }
+  }
 
   return (
     <GlassCard
@@ -329,6 +371,27 @@ function FileCard({ doc, index }: { doc: DocItem; index: number }) {
             <Badge variant={meta.badge}>{doc.category}</Badge>
           </div>
         </div>
+
+        {canManage && (
+          <div className="flex shrink-0 items-center gap-1">
+            <button
+              type="button"
+              onClick={() => setEditing(true)}
+              aria-label="Edit document"
+              className="grid h-7 w-7 place-items-center rounded-lg text-ink-400 transition-colors hover:bg-surface-2 hover:text-ink"
+            >
+              <Pencil className="h-3.5 w-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={() => setConfirmDelete(true)}
+              aria-label="Delete document"
+              className="grid h-7 w-7 place-items-center rounded-lg text-ink-400 transition-colors hover:bg-danger-soft hover:text-danger-ink"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        )}
       </div>
 
       {doc.description && (
@@ -361,11 +424,39 @@ function FileCard({ doc, index }: { doc: DocItem; index: number }) {
           </Button>
         </a>
       </div>
+
+      {canManage && (
+        <>
+          <DocumentEditor
+            doc={doc}
+            open={editing}
+            onClose={() => setEditing(false)}
+          />
+          <ConfirmDialog
+            open={confirmDelete}
+            title="Delete document"
+            message={
+              <>
+                Remove “{doc.title}” from the library? This can’t be undone.
+              </>
+            }
+            loading={deleting}
+            onConfirm={remove}
+            onClose={() => setConfirmDelete(false)}
+          />
+        </>
+      )}
     </GlassCard>
   );
 }
 
-function ListView({ docs }: { docs: DocItem[] }) {
+function ListView({
+  docs,
+  canManage,
+}: {
+  docs: DocItem[];
+  canManage: boolean;
+}) {
   return (
     <GlassCard hover={false} className="overflow-hidden p-0">
       {/* Header (md+) */}
@@ -379,16 +470,40 @@ function ListView({ docs }: { docs: DocItem[] }) {
 
       <AnimatePresence mode="popLayout">
         {docs.map((doc, i) => (
-          <ListRow key={doc.id} doc={doc} index={i} />
+          <ListRow key={doc.id} doc={doc} index={i} canManage={canManage} />
         ))}
       </AnimatePresence>
     </GlassCard>
   );
 }
 
-function ListRow({ doc, index }: { doc: DocItem; index: number }) {
+function ListRow({
+  doc,
+  index,
+  canManage,
+}: {
+  doc: DocItem;
+  index: number;
+  canManage: boolean;
+}) {
+  const router = useRouter();
   const meta = fileTypeMeta(doc.fileType);
   const Icon = meta.icon;
+  const [editing, setEditing] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+
+  async function remove() {
+    if (deleting) return;
+    setDeleting(true);
+    const res = await fetch(`/api/documents/${doc.id}`, { method: "DELETE" });
+    if (res.ok) {
+      setConfirmDelete(false);
+      router.refresh();
+    } else {
+      setDeleting(false);
+    }
+  }
 
   return (
     <motion.div
@@ -438,22 +553,63 @@ function ListRow({ doc, index }: { doc: DocItem; index: number }) {
         {formatFileSize(doc.sizeKb)}
       </div>
 
-      {/* Added + download */}
-      <div className="flex items-center justify-between gap-2 md:justify-end">
+      {/* Added + actions */}
+      <div className="flex items-center justify-between gap-1 md:justify-end">
         <span className="text-xs text-ink-400 md:text-right">
           {timeAgo(doc.createdAt)}
         </span>
-        <a
-          href={doc.url || "#"}
-          download={doc.url !== "#"}
-          className="md:opacity-0 md:transition-opacity md:group-hover:opacity-100"
-          aria-label={`Download ${doc.title}`}
-        >
-          <Button variant="ghost" size="sm" type="button" className="h-7 px-2">
-            <Download className="h-3.5 w-3.5" />
-          </Button>
-        </a>
+        <div className="flex items-center gap-0.5 md:opacity-0 md:transition-opacity md:group-hover:opacity-100">
+          <a
+            href={doc.url || "#"}
+            download={doc.url !== "#"}
+            aria-label={`Download ${doc.title}`}
+          >
+            <Button variant="ghost" size="sm" type="button" className="h-7 px-2">
+              <Download className="h-3.5 w-3.5" />
+            </Button>
+          </a>
+          {canManage && (
+            <>
+              <button
+                type="button"
+                onClick={() => setEditing(true)}
+                aria-label="Edit document"
+                className="grid h-7 w-7 place-items-center rounded-lg text-ink-400 transition-colors hover:bg-surface-2 hover:text-ink"
+              >
+                <Pencil className="h-3.5 w-3.5" />
+              </button>
+              <button
+                type="button"
+                onClick={() => setConfirmDelete(true)}
+                aria-label="Delete document"
+                className="grid h-7 w-7 place-items-center rounded-lg text-ink-400 transition-colors hover:bg-danger-soft hover:text-danger-ink"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </button>
+            </>
+          )}
+        </div>
       </div>
+
+      {canManage && (
+        <>
+          <DocumentEditor
+            doc={doc}
+            open={editing}
+            onClose={() => setEditing(false)}
+          />
+          <ConfirmDialog
+            open={confirmDelete}
+            title="Delete document"
+            message={
+              <>Remove “{doc.title}” from the library? This can’t be undone.</>
+            }
+            loading={deleting}
+            onConfirm={remove}
+            onClose={() => setConfirmDelete(false)}
+          />
+        </>
+      )}
     </motion.div>
   );
 }
