@@ -17,15 +17,25 @@ export function newShareToken(): string {
 }
 
 /**
- * Absolute URL a client opens. Built from APP_URL / NEXT_PUBLIC_APP_URL (set in
- * prod) and falling back to localhost in dev — NOT from the incoming Host
- * header, which a caller can spoof. No trailing slash on the base.
+ * The site's base URL (no trailing slash), built from a trusted source — NOT
+ * the incoming Host header, which a caller can spoof. Resolution order:
+ *   1. NEXT_PUBLIC_APP_URL / APP_URL — set this for a custom domain.
+ *   2. VERCEL_PROJECT_PRODUCTION_URL — the stable prod domain Vercel injects
+ *      automatically (host only, no scheme), so links are correct on Vercel
+ *      with zero config.
+ *   3. localhost — local dev fallback.
  */
+export function appBaseUrl(): string {
+  const explicit = process.env.NEXT_PUBLIC_APP_URL || process.env.APP_URL;
+  if (explicit) return explicit.replace(/\/+$/, "");
+
+  const vercel = process.env.VERCEL_PROJECT_PRODUCTION_URL;
+  if (vercel) return `https://${vercel.replace(/\/+$/, "")}`;
+
+  return "http://localhost:3000";
+}
+
+/** Absolute URL a client opens for a given share token. */
 export function shareUrl(token: string): string {
-  const base = (
-    process.env.NEXT_PUBLIC_APP_URL ||
-    process.env.APP_URL ||
-    "http://localhost:3000"
-  ).replace(/\/+$/, "");
-  return `${base}/shared/${token}`;
+  return `${appBaseUrl()}/shared/${token}`;
 }
