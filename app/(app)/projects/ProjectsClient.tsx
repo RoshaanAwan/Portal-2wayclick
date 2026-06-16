@@ -19,6 +19,8 @@ import { Button } from "@/components/ui/Button";
 import { Avatar } from "@/components/ui/Avatar";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { Pagination } from "@/components/ui/Pagination";
+import { useListParams } from "@/lib/useListParams";
 import { cn, timeAgo } from "@/lib/utils";
 import { ProjectComposer } from "./ProjectComposer";
 import { MemberManager } from "./MemberManager";
@@ -46,12 +48,19 @@ export function ProjectsClient({
   projects,
   roster,
   isAdmin,
+  page,
+  pageCount,
+  total,
 }: {
   projects: ProjectDTO[];
   roster: MemberDTO[];
   isAdmin: boolean;
+  page: number;
+  pageCount: number;
+  total: number;
 }) {
   const router = useRouter();
+  const { setParams, isPending } = useListParams({ page });
   const [composing, setComposing] = useState(false);
   // Which project's member manager is open (admin only).
   const [managing, setManaging] = useState<ProjectDTO | null>(null);
@@ -79,7 +88,7 @@ export function ProjectsClient({
       {isAdmin && (
         <div className="mb-5 flex items-center justify-between">
           <p className="text-sm text-ink-400">
-            {projects.length} {projects.length === 1 ? "project" : "projects"}
+            {total} {total === 1 ? "project" : "projects"}
           </p>
           {!composing && (
             <Button size="sm" onClick={() => setComposing(true)}>
@@ -117,18 +126,33 @@ export function ProjectsClient({
           }
         />
       ) : (
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {projects.map((p) => (
-            <ProjectCard
-              key={p.id}
-              project={p}
-              isAdmin={isAdmin}
-              onManage={() => setManaging(p)}
-              onEdit={() => setEditing(p)}
-              onDelete={() => setDeleteTarget(p)}
-            />
-          ))}
-        </div>
+        <>
+          <div
+            className={cn(
+              "grid grid-cols-1 gap-4 transition-opacity sm:grid-cols-2 lg:grid-cols-3",
+              isPending && "opacity-60",
+            )}
+          >
+            {projects.map((p) => (
+              <ProjectCard
+                key={p.id}
+                project={p}
+                isAdmin={isAdmin}
+                onManage={() => setManaging(p)}
+                onEdit={() => setEditing(p)}
+                onDelete={() => setDeleteTarget(p)}
+              />
+            ))}
+          </div>
+
+          <Pagination
+            page={page}
+            pageCount={pageCount}
+            disabled={isPending}
+            onPage={(p) => setParams({ page: p })}
+            className="mt-6"
+          />
+        </>
       )}
 
       {isAdmin && (

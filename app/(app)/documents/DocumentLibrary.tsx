@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -21,7 +21,9 @@ import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { Pagination } from "@/components/ui/Pagination";
 import { DOC_CATEGORIES } from "@/lib/constants";
+import { useListParams } from "@/lib/useListParams";
 import { cn, formatFileSize, timeAgo } from "@/lib/utils";
 import { fileTypeMeta } from "./fileTypes";
 import { DocumentEditor } from "./DocumentEditor";
@@ -44,44 +46,49 @@ type Filter = "All" | (typeof DOC_CATEGORIES)[number];
 export function DocumentLibrary({
   docs,
   canManage,
+  page,
+  pageCount,
+  total,
+  query,
+  category,
+  libraryTotal,
+  totalSize,
+  countByCategory,
 }: {
   docs: DocItem[];
   // The library is a shared resource — any signed-in user may edit/delete.
   canManage: boolean;
+  page: number;
+  pageCount: number;
+  // Count of documents matching the current filters (drives pagination).
+  total: number;
+  query: string;
+  category: string;
+  // Library-wide stats (computed server-side over every document, so the
+  // headline numbers and chip counts don't shift as you filter or page).
+  libraryTotal: number;
+  totalSize: number;
+  countByCategory: Record<string, number>;
 }) {
   const [view, setView] = useState<View>("grid");
-  const [filter, setFilter] = useState<Filter>("All");
-  const [query, setQuery] = useState("");
+  const filter = category as Filter;
+  const { setParams, isPending } = useListParams({ q: query, category, page });
 
-  const countByCategory = useMemo(() => {
-    const map: Record<string, number> = {};
-    for (const d of docs) map[d.category] = (map[d.category] ?? 0) + 1;
-    return map;
-  }, [docs]);
-
-  const totalSize = useMemo(
-    () => docs.reduce((sum, d) => sum + d.sizeKb, 0),
-    [docs],
-  );
-
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    return docs.filter((d) => {
-      if (filter !== "All" && d.category !== filter) return false;
-      if (!q) return true;
-      return (
-        d.title.toLowerCase().includes(q) ||
-        (d.description?.toLowerCase().includes(q) ?? false) ||
-        d.uploader.name.toLowerCase().includes(q) ||
-        d.category.toLowerCase().includes(q)
-      );
-    });
-  }, [docs, filter, query]);
+  // Local mirror of the search box; debounced into the URL so search runs on
+  // the server across the whole library.
+  const [search, setSearch] = useState(query);
+  useEffect(() => setSearch(query), [query]);
+  useEffect(() => {
+    if (search === query) return;
+    const t = setTimeout(() => setParams({ q: search, page: 1 }), 350);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [search]);
 
   return (
     <div className="space-y-6">
       <StatsRow
-        total={docs.length}
+        total={libraryTotal}
         totalSize={totalSize}
         countByCategory={countByCategory}
       />
@@ -92,8 +99,8 @@ export function DocumentLibrary({
           <div className="relative w-full sm:max-w-xs">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-300" />
             <input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
               placeholder="Search documents…"
               className="input py-2 pl-9"
             />
@@ -104,14 +111,14 @@ export function DocumentLibrary({
 
         <FilterChips
           filter={filter}
-          onChange={setFilter}
+          onChange={(f) => setParams({ category: f, page: 1 })}
           countByCategory={countByCategory}
-          total={docs.length}
+          total={libraryTotal}
         />
       </div>
 
       {/* Results */}
-      {filtered.length === 0 ? (
+      {total === 0 ? (
         <EmptyState
           icon={FolderSearch}
           title="No documents found"
@@ -121,10 +128,24 @@ export function DocumentLibrary({
               : "Add the first document to get the library started."
           }
         />
-      ) : view === "grid" ? (
-        <GridView docs={filtered} canManage={canManage} />
       ) : (
-        <ListView docs={filtered} canManage={canManage} />
+        <>
+          <div className={cn("transition-opacity", isPending && "opacity-60")}>
+            {view === "grid" ? (
+              <GridView docs={docs} canManage={canManage} />
+            ) : (
+              <ListView docs={docs} canManage={canManage} />
+            )}
+          </div>
+
+          <Pagination
+            page={page}
+            pageCount={pageCount}
+            disabled={isPending}
+            onPage={(p) => setParams({ page: p })}
+            className="mt-6"
+          />
+        </>
       )}
     </div>
   );

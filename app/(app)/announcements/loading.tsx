@@ -3,6 +3,7 @@ import {
   SkeletonAvatar,
   SkeletonCard,
   SkeletonPageHeader,
+  SkeletonPagination,
   SkeletonText,
 } from "@/components/ui/Skeleton";
 
@@ -11,7 +12,7 @@ export default function AnnouncementsLoading() {
     <div className="mx-auto max-w-3xl">
       <SkeletonPageHeader />
       <div className="space-y-5">
-        {Array.from({ length: 4 }).map((_, i) => (
+        {Array.from({ length: 5 }).map((_, i) => (
           <SkeletonCard key={i}>
             <div className="flex items-center gap-3">
               <SkeletonAvatar />
@@ -25,6 +26,7 @@ export default function AnnouncementsLoading() {
           </SkeletonCard>
         ))}
       </div>
+      <SkeletonPagination className="mt-8" />
     </div>
   );
 }

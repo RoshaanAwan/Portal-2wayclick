@@ -3,6 +3,7 @@ import {
   SkeletonCard,
   SkeletonGrid,
   SkeletonPageHeader,
+  SkeletonPagination,
 } from "@/components/ui/Skeleton";
 
 export default function ProjectsLoading() {
@@ -10,7 +11,7 @@ export default function ProjectsLoading() {
     <div className="mx-auto max-w-[1200px]">
       <SkeletonPageHeader action />
       <SkeletonGrid
-        count={6}
+        count={9}
         card={
           <SkeletonCard>
             <div className="flex items-center justify-between">
@@ -27,6 +28,7 @@ export default function ProjectsLoading() {
           </SkeletonCard>
         }
       />
+      <SkeletonPagination className="mt-6" />
     </div>
   );
 }

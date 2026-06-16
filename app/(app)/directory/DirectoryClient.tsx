@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { motion, AnimatePresence, LayoutGroup } from "framer-motion";
 import { Search, MapPin, Users, LayoutGrid, Network, ChevronRight } from "lucide-react";
@@ -8,7 +8,9 @@ import { GlassCard } from "@/components/ui/GlassCard";
 import { Avatar } from "@/components/ui/Avatar";
 import { Badge } from "@/components/ui/Badge";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { Pagination } from "@/components/ui/Pagination";
 import { DEPARTMENTS } from "@/lib/constants";
+import { useListParams } from "@/lib/useListParams";
 import { cn } from "@/lib/utils";
 
 export interface DirectoryPerson {
@@ -45,29 +47,54 @@ function deptColor(dept: string) {
   return deptVariant[dept] ?? "neutral";
 }
 
-export function DirectoryClient({ people }: { people: DirectoryPerson[] }) {
-  const [query, setQuery] = useState("");
-  const [dept, setDept] = useState<string | null>(null);
-  const [view, setView] = useState<View>("grid");
+export function DirectoryClient({
+  people,
+  view,
+  page,
+  pageCount,
+  total,
+  query,
+  dept,
+  headcount,
+  countByDept,
+}: {
+  // Server-filtered: the grid gets one page, the org view gets the full set.
+  people: DirectoryPerson[];
+  view: View;
+  page: number;
+  pageCount: number;
+  total: number;
+  query: string;
+  dept: string | null;
+  headcount: number;
+  countByDept: Record<string, number>;
+}) {
+  const { setParams, isPending } = useListParams({
+    q: query,
+    dept,
+    view: view === "grid" ? null : view,
+    page,
+  });
 
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    return people.filter((p) => {
-      if (dept && p.department !== dept) return false;
-      if (!q) return true;
-      return (
-        p.name.toLowerCase().includes(q) ||
-        p.title.toLowerCase().includes(q) ||
-        p.department.toLowerCase().includes(q)
-      );
-    });
-  }, [people, query, dept]);
+  // Local mirror of the search box; debounced into the URL so search runs on
+  // the server across everyone, not just the loaded page.
+  const [search, setSearch] = useState(query);
+  useEffect(() => setSearch(query), [query]);
+  useEffect(() => {
+    if (search === query) return;
+    const t = setTimeout(() => setParams({ q: search, page: 1 }), 350);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [search]);
 
-  // Only show department chips that actually exist in the data.
-  const activeDepts = useMemo(() => {
-    const present = new Set(people.map((p) => p.department));
-    return DEPARTMENTS.filter((d) => present.has(d));
-  }, [people]);
+  // People are already filtered server-side; render them as-is.
+  const filtered = people;
+
+  // Only show department chips for departments that have anyone (company-wide).
+  const activeDepts = useMemo(
+    () => DEPARTMENTS.filter((d) => countByDept[d]),
+    [countByDept],
+  );
 
   return (
     <div className="space-y-5">
@@ -77,8 +104,8 @@ export function DirectoryClient({ people }: { people: DirectoryPerson[] }) {
           <div className="relative flex-1">
             <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-300" />
             <input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
               placeholder="Search by name, title, or department…"
               className="input pl-10"
               aria-label="Search directory"
@@ -99,7 +126,11 @@ export function DirectoryClient({ people }: { people: DirectoryPerson[] }) {
                 return (
                   <button
                     key={opt.id}
-                    onClick={() => setView(opt.id)}
+                    onClick={() =>
+                      // "grid" is the default view → drop the param to keep the
+                      // URL clean; "org" is explicit.
+                      setParams({ view: opt.id === "grid" ? null : opt.id, page: 1 })
+                    }
                     className={cn(
                       "relative flex items-center gap-1.5 rounded-lg px-3.5 py-1.5 text-sm font-medium transition-colors",
                       active ? "text-accent-ink" : "text-ink-400 hover:text-ink-700",
@@ -125,17 +156,17 @@ export function DirectoryClient({ people }: { people: DirectoryPerson[] }) {
         <div className="flex flex-wrap gap-2">
           <FilterChip
             label="All"
-            count={people.length}
+            count={headcount}
             active={dept === null}
-            onClick={() => setDept(null)}
+            onClick={() => setParams({ dept: null, page: 1 })}
           />
           {activeDepts.map((d) => (
             <FilterChip
               key={d}
               label={d}
-              count={people.filter((p) => p.department === d).length}
+              count={countByDept[d] ?? 0}
               active={dept === d}
-              onClick={() => setDept(dept === d ? null : d)}
+              onClick={() => setParams({ dept: dept === d ? null : d, page: 1 })}
             />
           ))}
         </div>
@@ -150,10 +181,21 @@ export function DirectoryClient({ people }: { people: DirectoryPerson[] }) {
             description="Try a different search term or clear the department filter."
           />
         ) : (
-          <PeopleGrid people={filtered} />
+          <>
+            <div className={cn("transition-opacity", isPending && "opacity-60")}>
+              <PeopleGrid people={filtered} />
+            </div>
+            <Pagination
+              page={page}
+              pageCount={pageCount}
+              disabled={isPending}
+              onPage={(p) => setParams({ page: p })}
+              className="mt-6"
+            />
+          </>
         )
       ) : (
-        <OrgView people={filtered} fullCount={people.length} />
+        <OrgView people={filtered} filtered={!!query || !!dept} />
       )}
     </div>
   );
@@ -285,13 +327,12 @@ function buildTree(people: DirectoryPerson[]): OrgNode[] {
 
 function OrgView({
   people,
-  fullCount,
+  filtered,
 }: {
   people: DirectoryPerson[];
-  fullCount: number;
+  filtered: boolean;
 }) {
   const roots = useMemo(() => buildTree(people), [people]);
-  const filtered = people.length !== fullCount;
 
   if (roots.length === 0) {
     return (

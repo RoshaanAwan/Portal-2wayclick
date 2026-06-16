@@ -5,7 +5,9 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Megaphone, Plus, X } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { Pagination } from "@/components/ui/Pagination";
 import { ANNOUNCEMENT_CATEGORIES } from "@/lib/constants";
+import { useListParams } from "@/lib/useListParams";
 import { cn } from "@/lib/utils";
 import { AnnouncementCard } from "./AnnouncementCard";
 import { Composer } from "./Composer";
@@ -58,29 +60,31 @@ export function AnnouncementsClient({
   currentUser,
   canPost,
   canManage,
+  page,
+  pageCount,
+  category,
 }: {
   announcements: AnnouncementDTO[];
   currentUser: CurrentUser | null;
   canPost: boolean;
   canManage: boolean;
+  page: number;
+  pageCount: number;
+  category: string;
 }) {
-  const [filter, setFilter] = useState<(typeof FILTERS)[number]>("All");
   const [composerOpen, setComposerOpen] = useState(false);
+  const filter = category as (typeof FILTERS)[number];
+  const { setParams, isPending } = useListParams({ category, page });
 
-  const visible = useMemo(() => {
-    if (filter === "All") return announcements;
-    return announcements.filter((a) => a.category === filter);
-  }, [announcements, filter]);
-
-  // Keep pinned posts first within the filtered set (data already ordered,
+  // Keep pinned posts first within the current page (data already ordered,
   // but recompute defensively for the animated layout).
   const ordered = useMemo(
     () =>
-      [...visible].sort((a, b) => {
+      [...announcements].sort((a, b) => {
         if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
         return b.createdAt.localeCompare(a.createdAt);
       }),
-    [visible],
+    [announcements],
   );
 
   return (
@@ -134,7 +138,7 @@ export function AnnouncementsClient({
             return (
               <button
                 key={f}
-                onClick={() => setFilter(f)}
+                onClick={() => setParams({ category: f, page: 1 })}
                 className={cn(
                   "relative rounded-full border px-3.5 py-1.5 text-xs font-medium transition-colors",
                   active
@@ -168,19 +172,32 @@ export function AnnouncementsClient({
           }
         />
       ) : (
-        <motion.div layout className="space-y-5">
-          <AnimatePresence mode="popLayout" initial={false}>
-            {ordered.map((a, i) => (
-              <AnnouncementCard
-                key={a.id}
-                announcement={a}
-                currentUser={currentUser}
-                canManage={canManage}
-                index={i}
-              />
-            ))}
-          </AnimatePresence>
-        </motion.div>
+        <>
+          <motion.div
+            layout
+            className={cn("space-y-5 transition-opacity", isPending && "opacity-60")}
+          >
+            <AnimatePresence mode="popLayout" initial={false}>
+              {ordered.map((a, i) => (
+                <AnnouncementCard
+                  key={a.id}
+                  announcement={a}
+                  currentUser={currentUser}
+                  canManage={canManage}
+                  index={i}
+                />
+              ))}
+            </AnimatePresence>
+          </motion.div>
+
+          <Pagination
+            page={page}
+            pageCount={pageCount}
+            disabled={isPending}
+            onPage={(p) => setParams({ page: p })}
+            className="mt-8"
+          />
+        </>
       )}
     </div>
   );

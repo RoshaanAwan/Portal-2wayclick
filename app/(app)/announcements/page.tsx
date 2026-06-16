@@ -5,19 +5,35 @@ import { db } from "@/lib/db";
 import { can } from "@/lib/permissions";
 import { AnnouncementsClient, type AnnouncementDTO } from "./AnnouncementsClient";
 
-export default async function AnnouncementsPage() {
+// Comments are capped to the most recent MAX_COMMENTS per card — enough for the
+// thread view, without loading an unbounded history for every post on a single
+// page load. PAGE_SIZE bounds how many announcements load per page.
+const PAGE_SIZE = 12;
+const MAX_COMMENTS = 30;
+
+export default async function AnnouncementsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ page?: string; category?: string }>;
+}) {
   const user = await getCurrentUser();
 
-  // The feed shows the most recent announcements; cap the page so the query
-  // stays fast as the table grows (the count badges come from `_count`, which
-  // stays exact regardless of the take). Comments are capped to the most recent
-  // MAX_COMMENTS per card — enough for the thread view, without loading an
-  // unbounded history for every post on a single page load.
-  const PAGE_SIZE = 50;
-  const MAX_COMMENTS = 30;
+  const sp = await searchParams;
+  const category =
+    sp.category && sp.category !== "All" ? sp.category : null;
+  const where = category ? { category } : undefined;
+
+  const total = await db.announcement.count({ where });
+  const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const requested = Number.parseInt(sp.page ?? "1", 10);
+  const page = Number.isFinite(requested)
+    ? Math.min(Math.max(requested, 1), pageCount)
+    : 1;
 
   const announcements = await db.announcement.findMany({
+    where,
     orderBy: [{ pinned: "desc" }, { createdAt: "desc" }],
+    skip: (page - 1) * PAGE_SIZE,
     take: PAGE_SIZE,
     include: {
       author: {
@@ -104,6 +120,9 @@ export default async function AnnouncementsPage() {
         }
         canPost={canPost}
         canManage={canManage}
+        page={page}
+        pageCount={pageCount}
+        category={category ?? "All"}
       />
     </div>
   );

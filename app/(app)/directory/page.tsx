@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Users, Network } from "lucide-react";
+import type { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
 import { isAdminTier } from "@/lib/permissions";
@@ -11,20 +12,65 @@ export const metadata = {
   title: "Directory — 2WayClick",
 };
 
-export default async function DirectoryPage() {
+const PAGE_SIZE = 12;
+
+export default async function DirectoryPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ page?: string; q?: string; dept?: string; view?: string }>;
+}) {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
   // Directory is admin tier only (Super Admin + Admin). Everyone else is sent
   // back to their dashboard — they can't reach it via URL either.
   if (!isAdminTier(user.role)) redirect("/dashboard");
 
+  const sp = await searchParams;
+  const query = (sp.q ?? "").trim();
+  const dept = sp.dept ?? null;
+  // The org view needs the complete tree to draw manager→report links, so it
+  // skips pagination entirely; the grid view pages through the filtered set.
+  const view = sp.view === "org" ? "org" : "grid";
+
+  const where: Prisma.UserWhereInput = {};
+  if (dept) where.department = dept;
+  if (query) {
+    where.OR = [
+      { name: { contains: query, mode: "insensitive" } },
+      { title: { contains: query, mode: "insensitive" } },
+      { department: { contains: query, mode: "insensitive" } },
+    ];
+  }
+
+  // Total head-count of the whole company — drives the "All" chip + subtitle,
+  // independent of the active filters.
+  const headcount = await db.user.count();
+  // Matching count, for the grid's pagination.
+  const total = await db.user.count({ where });
+  const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const requested = Number.parseInt(sp.page ?? "1", 10);
+  const page = Number.isFinite(requested)
+    ? Math.min(Math.max(requested, 1), pageCount)
+    : 1;
+
   const users = await db.user.findMany({
+    where,
     orderBy: [{ name: "asc" }],
+    // Org view loads the full filtered set; grid loads one page.
+    ...(view === "grid" ? { skip: (page - 1) * PAGE_SIZE, take: PAGE_SIZE } : {}),
     include: {
       manager: { select: { id: true, name: true } },
       _count: { select: { reports: true } },
     },
   });
+
+  // Per-department counts across the whole company, for the filter chips.
+  const byDept = await db.user.groupBy({
+    by: ["department"],
+    _count: { _all: true },
+  });
+  const countByDept: Record<string, number> = {};
+  for (const g of byDept) countByDept[g.department] = g._count._all;
 
   const people: DirectoryPerson[] = users.map((u) => ({
     id: u.id,
@@ -43,7 +89,7 @@ export default async function DirectoryPage() {
     <div className="mx-auto max-w-7xl">
       <PageHeader
         title="People Directory"
-        subtitle={`${people.length} people across the 2WayClick team`}
+        subtitle={`${headcount} people across the 2WayClick team`}
         icon={Users}
         action={
           <Link
@@ -55,7 +101,17 @@ export default async function DirectoryPage() {
           </Link>
         }
       />
-      <DirectoryClient people={people} />
+      <DirectoryClient
+        people={people}
+        view={view}
+        page={page}
+        pageCount={pageCount}
+        total={total}
+        query={query}
+        dept={dept}
+        headcount={headcount}
+        countByDept={countByDept}
+      />
     </div>
   );
 }

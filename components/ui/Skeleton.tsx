@@ -74,6 +74,20 @@ export function SkeletonPageHeader({ action }: { action?: boolean }) {
   );
 }
 
+/** Footer placeholder for paginated lists — a centered row of page buttons. */
+export function SkeletonPagination({ className }: { className?: string }) {
+  return (
+    <div
+      className={cn("flex items-center justify-center gap-1.5", className)}
+      aria-hidden
+    >
+      {Array.from({ length: 7 }).map((_, i) => (
+        <Skeleton key={i} className="h-9 w-9 rounded-lg" />
+      ))}
+    </div>
+  );
+}
+
 /**
  * A responsive grid of identical skeleton cards — the workhorse for the many
  * list/grid pages (directory, documents, projects, tools, announcements).

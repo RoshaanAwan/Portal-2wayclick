@@ -1,12 +1,9 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
-import { usePathname, useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
 import {
   Search,
   ChevronDown,
-  ChevronLeft,
-  ChevronRight,
   UserPlus,
   UserCog,
   Image as ImageIcon,
@@ -30,7 +27,9 @@ import {
 } from "lucide-react";
 import { Badge } from "@/components/ui/Badge";
 import { GlassCard } from "@/components/ui/GlassCard";
+import { Pagination } from "@/components/ui/Pagination";
 import { ROLE_LABELS, ROLE_BADGE, type Role } from "@/lib/permissions";
+import { useListParams } from "@/lib/useListParams";
 import { timeAgo, formatDate } from "@/lib/utils";
 import { cn } from "@/lib/utils";
 
@@ -104,46 +103,26 @@ export function LogsClient({
   logs,
   page,
   pageCount,
-  total,
   query,
   action,
 }: {
   logs: AuditRow[];
   page: number;
   pageCount: number;
-  total: number;
   query: string;
   action: string;
 }) {
-  const router = useRouter();
-  const pathname = usePathname();
-  const [isPending, startTransition] = useTransition();
+  const { setParams, isPending } = useListParams({ q: query, action, page });
 
   // Local mirror of the search box; pushed to the URL (debounced) so filtering
   // happens on the server across the whole dataset, not just the current page.
   const [search, setSearch] = useState(query);
   useEffect(() => setSearch(query), [query]);
 
-  // Build a URL for the given filter/page state and navigate. Changing a filter
-  // resets to page 1; an explicit page change keeps the current filters.
-  function navigate(next: { q?: string; action?: string; page?: number }) {
-    const params = new URLSearchParams();
-    const q = next.q ?? query;
-    const a = next.action ?? action;
-    const p = next.page ?? 1;
-    if (q) params.set("q", q);
-    if (a && a !== "ALL") params.set("action", a);
-    if (p > 1) params.set("page", String(p));
-    const qs = params.toString();
-    startTransition(() => {
-      router.push(qs ? `${pathname}?${qs}` : pathname);
-    });
-  }
-
   // Debounce search-box edits before hitting the server.
   useEffect(() => {
     if (search === query) return;
-    const t = setTimeout(() => navigate({ q: search, page: 1 }), 350);
+    const t = setTimeout(() => setParams({ q: search, page: 1 }), 350);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [search]);
@@ -163,7 +142,7 @@ export function LogsClient({
         </div>
         <select
           value={action}
-          onChange={(e) => navigate({ action: e.target.value, page: 1 })}
+          onChange={(e) => setParams({ action: e.target.value, page: 1 })}
           className="input max-w-[200px]"
         >
           <option value="ALL">All actions</option>
@@ -194,107 +173,14 @@ export function LogsClient({
         )}
       </GlassCard>
 
-      {pageCount > 1 && (
-        <Pagination
-          page={page}
-          pageCount={pageCount}
-          disabled={isPending}
-          onPage={(p) => navigate({ page: p })}
-        />
-      )}
+      <Pagination
+        page={page}
+        pageCount={pageCount}
+        disabled={isPending}
+        onPage={(p) => setParams({ page: p })}
+      />
     </div>
   );
-}
-
-function Pagination({
-  page,
-  pageCount,
-  disabled,
-  onPage,
-}: {
-  page: number;
-  pageCount: number;
-  disabled: boolean;
-  onPage: (page: number) => void;
-}) {
-  const pages = pageRange(page, pageCount);
-  return (
-    <nav
-      className="flex items-center justify-center gap-1.5"
-      aria-label="Audit log pages"
-    >
-      <PageButton
-        disabled={disabled || page <= 1}
-        onClick={() => onPage(page - 1)}
-        aria-label="Previous page"
-      >
-        <ChevronLeft className="h-4 w-4" />
-      </PageButton>
-
-      {pages.map((p, i) =>
-        p === "…" ? (
-          <span
-            key={`gap-${i}`}
-            className="px-1.5 text-sm text-ink-400 select-none"
-          >
-            …
-          </span>
-        ) : (
-          <PageButton
-            key={p}
-            disabled={disabled}
-            active={p === page}
-            onClick={() => onPage(p)}
-            aria-label={`Page ${p}`}
-            aria-current={p === page ? "page" : undefined}
-          >
-            {p}
-          </PageButton>
-        ),
-      )}
-
-      <PageButton
-        disabled={disabled || page >= pageCount}
-        onClick={() => onPage(page + 1)}
-        aria-label="Next page"
-      >
-        <ChevronRight className="h-4 w-4" />
-      </PageButton>
-    </nav>
-  );
-}
-
-function PageButton({
-  active,
-  className,
-  ...props
-}: React.ButtonHTMLAttributes<HTMLButtonElement> & { active?: boolean }) {
-  return (
-    <button
-      type="button"
-      className={cn(
-        "grid h-9 min-w-9 place-items-center rounded-lg px-2.5 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40",
-        active
-          ? "bg-accent-grad text-white"
-          : "nm-button text-ink-700 hover:text-ink",
-        className,
-      )}
-      {...props}
-    />
-  );
-}
-
-// Compact page list with leading/trailing ellipses: 1 … 4 5 [6] 7 8 … 20.
-function pageRange(current: number, count: number): (number | "…")[] {
-  if (count <= 7) return Array.from({ length: count }, (_, i) => i + 1);
-  const out: (number | "…")[] = [1];
-  const start = Math.max(2, current - 1);
-  const end = Math.min(count - 1, current + 1);
-  if (start > 2) out.push("…");
-  for (let p = start; p <= end; p++) out.push(p);
-  if (end < count - 1) out.push("…");
-  out.push(count);
-  return out;
 }
 
 function LogItem({ log }: { log: AuditRow }) {

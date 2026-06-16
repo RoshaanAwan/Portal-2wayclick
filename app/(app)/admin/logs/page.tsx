@@ -106,7 +106,6 @@ export default async function AdminLogsPage({
         logs={rows}
         page={page}
         pageCount={pageCount}
-        total={total}
         query={query}
         action={action ?? "ALL"}
       />

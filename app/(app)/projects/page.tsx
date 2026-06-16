@@ -5,16 +5,34 @@ import { db } from "@/lib/db";
 import { can } from "@/lib/permissions";
 import { ProjectsClient, type ProjectDTO, type MemberDTO } from "./ProjectsClient";
 
-export default async function ProjectsPage() {
+const PAGE_SIZE = 12;
+
+export default async function ProjectsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ page?: string }>;
+}) {
   const user = await getCurrentUser();
   const isAdmin = can.manageProjects(user?.role);
 
   // Admins see every project; everyone else sees only projects they belong to.
+  const where = isAdmin
+    ? undefined
+    : { members: { some: { userId: user?.id ?? "" } } };
+
+  const sp = await searchParams;
+  const total = await db.project.count({ where });
+  const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const requested = Number.parseInt(sp.page ?? "1", 10);
+  const page = Number.isFinite(requested)
+    ? Math.min(Math.max(requested, 1), pageCount)
+    : 1;
+
   const projects = await db.project.findMany({
     orderBy: { createdAt: "desc" },
-    where: isAdmin
-      ? undefined
-      : { members: { some: { userId: user?.id ?? "" } } },
+    where,
+    skip: (page - 1) * PAGE_SIZE,
+    take: PAGE_SIZE,
     include: {
       owner: { select: { id: true, name: true, avatarUrl: true } },
       members: {
@@ -78,6 +96,9 @@ export default async function ProjectsPage() {
         projects={projectDTOs}
         roster={rosterDTOs}
         isAdmin={isAdmin}
+        page={page}
+        pageCount={pageCount}
+        total={total}
       />
     </div>
   );

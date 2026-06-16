@@ -1,4 +1,9 @@
-import { Skeleton, SkeletonAvatar, SkeletonPageHeader } from "@/components/ui/Skeleton";
+import {
+  Skeleton,
+  SkeletonAvatar,
+  SkeletonPageHeader,
+  SkeletonPagination,
+} from "@/components/ui/Skeleton";
 
 // Mirrors AdminUsersPage: header, a search + "new user" toolbar, then a glass
 // card holding the members table (Member / Role / Department / Joined).
@@ -24,7 +29,7 @@ export default function AdminUsersLoading() {
             <Skeleton className="h-3 w-12" />
           </div>
           {/* Body rows */}
-          {Array.from({ length: 8 }).map((_, i) => (
+          {Array.from({ length: 12 }).map((_, i) => (
             <div
               key={i}
               className="flex items-center gap-4 border-b border-line/60 px-5 py-3 last:border-0"
@@ -42,6 +47,8 @@ export default function AdminUsersLoading() {
             </div>
           ))}
         </div>
+
+        <SkeletonPagination />
       </div>
     </div>
   );

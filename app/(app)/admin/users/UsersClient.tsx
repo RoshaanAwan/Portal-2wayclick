@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -16,13 +16,15 @@ import { Avatar } from "@/components/ui/Avatar";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { GlassCard } from "@/components/ui/GlassCard";
+import { Pagination } from "@/components/ui/Pagination";
 import {
   ROLE_LABELS,
   ROLE_DESCRIPTIONS,
   ROLE_BADGE,
   type Role,
 } from "@/lib/permissions";
-import { formatDate } from "@/lib/utils";
+import { useListParams } from "@/lib/useListParams";
+import { cn, formatDate } from "@/lib/utils";
 
 export interface AdminUserRow {
   id: string;
@@ -54,27 +56,35 @@ function genPassword() {
 
 export function UsersClient({
   users,
+  page,
+  pageCount,
+  total,
+  query,
   assignableRoles,
   departments,
 }: {
   users: AdminUserRow[];
+  page: number;
+  pageCount: number;
+  total: number;
+  query: string;
   assignableRoles: Role[];
   departments: string[];
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
-  const [query, setQuery] = useState("");
+  const { setParams, isPending } = useListParams({ q: query, page });
 
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return users;
-    return users.filter(
-      (u) =>
-        u.name.toLowerCase().includes(q) ||
-        u.email.toLowerCase().includes(q) ||
-        (ROLE_LABELS[u.role as Role] ?? u.role).toLowerCase().includes(q),
-    );
-  }, [users, query]);
+  // Local mirror of the search box; debounced into the URL so search runs on
+  // the server across every user, not just the current page.
+  const [search, setSearch] = useState(query);
+  useEffect(() => setSearch(query), [query]);
+  useEffect(() => {
+    if (search === query) return;
+    const t = setTimeout(() => setParams({ q: search, page: 1 }), 350);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [search]);
 
   return (
     <div className="space-y-5">
@@ -83,8 +93,8 @@ export function UsersClient({
         <div className="relative max-w-sm flex-1">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-400" />
           <input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
             placeholder="Search by name, email, or role…"
             className="input pl-9"
           />
@@ -98,7 +108,12 @@ export function UsersClient({
       {/* User table */}
       <GlassCard hover={false} className="p-0">
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[640px] text-sm">
+          <table
+            className={cn(
+              "w-full min-w-[640px] text-sm transition-opacity",
+              isPending && "opacity-60",
+            )}
+          >
             <thead>
               <tr className="border-b border-line text-left text-[11px] uppercase tracking-wider text-ink-400">
                 <th className="px-5 py-3 font-semibold">Member</th>
@@ -108,14 +123,14 @@ export function UsersClient({
               </tr>
             </thead>
             <tbody>
-              {filtered.length === 0 ? (
+              {users.length === 0 ? (
                 <tr>
                   <td colSpan={4} className="px-5 py-10 text-center text-ink-400">
-                    No users match “{query}”.
+                    {query ? `No users match “${query}”.` : "No users yet."}
                   </td>
                 </tr>
               ) : (
-                filtered.map((u) => (
+                users.map((u) => (
                   <tr
                     key={u.id}
                     className="border-b border-line/60 last:border-0 transition-colors hover:bg-[rgb(var(--hover)/var(--hover-opacity))]"
@@ -141,6 +156,20 @@ export function UsersClient({
           </table>
         </div>
       </GlassCard>
+
+      {total > 0 && (
+        <div className="flex flex-col items-center gap-3">
+          <Pagination
+            page={page}
+            pageCount={pageCount}
+            disabled={isPending}
+            onPage={(p) => setParams({ page: p })}
+          />
+          <p className="text-xs text-ink-400">
+            {total} {total === 1 ? "member" : "members"}
+          </p>
+        </div>
+      )}
 
       <AnimatePresence>
         {open && (
