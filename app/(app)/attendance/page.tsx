@@ -4,7 +4,8 @@ import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { can } from "@/lib/permissions";
-import { dayKey, ATTENDANCE_TZ } from "@/lib/attendance";
+import { dayKey, dayKeyToString, parseDayKey, addDays, ATTENDANCE_TZ } from "@/lib/attendance";
+import { AttendanceDateNav } from "./AttendanceDateNav";
 
 export const metadata = { title: "Attendance — 2WayClick" };
 
@@ -41,7 +42,11 @@ function StatusPill({ status }: { status: "PRESENT" | "CHECKED_OUT" | "AWAY" }) 
   );
 }
 
-export default async function AttendancePage() {
+export default async function AttendancePage({
+  searchParams,
+}: {
+  searchParams: Promise<{ date?: string }>;
+}) {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
 
@@ -49,17 +54,25 @@ export default async function AttendancePage() {
   const seeAll = can.viewAllAttendance(user.role);
 
   if (seeAll) {
-    // Company roster for today: every user, left-joined to today's attendance.
-    const [users, todays] = await Promise.all([
+    // Which day's roster to show: the `?date=` param (YYYY-MM-DD), defaulting to
+    // today and clamped so we never look past today (no future records exist).
+    const sp = await searchParams;
+    const requested = parseDayKey(sp.date) ?? today;
+    const selected = requested.getTime() > today.getTime() ? today : requested;
+    const isToday = selected.getTime() === today.getTime();
+
+    // Company roster for the selected day: every user, left-joined to that day's
+    // attendance.
+    const [users, daysRows] = await Promise.all([
       db.user.findMany({
         orderBy: { name: "asc" },
         select: { id: true, name: true, title: true, department: true, avatarUrl: true },
       }),
-      db.attendance.findMany({ where: { day: today } }),
+      db.attendance.findMany({ where: { day: selected } }),
     ]);
 
     type RowStatus = "PRESENT" | "CHECKED_OUT" | "AWAY";
-    const byUser = new Map(todays.map((a) => [a.userId, a]));
+    const byUser = new Map(daysRows.map((a) => [a.userId, a]));
     const rows = users.map((u) => {
       const a = byUser.get(u.id);
       const status: RowStatus = !a ? "AWAY" : (a.status as "PRESENT" | "CHECKED_OUT");
@@ -70,12 +83,29 @@ export default async function AttendancePage() {
     const out = rows.filter((r) => r.status === "CHECKED_OUT").length;
     const away = rows.filter((r) => r.status === "AWAY").length;
 
+    const selectedLabel = isToday
+      ? "Today"
+      : selected.toLocaleDateString([], {
+          weekday: "long",
+          month: "short",
+          day: "numeric",
+          year: "numeric",
+          timeZone: "UTC",
+        });
+
     return (
       <div className="mx-auto max-w-5xl">
         <PageHeader
           title="Attendance"
-          subtitle={`Today — ${present} present, ${out} checked out, ${away} not in.`}
+          subtitle={`${selectedLabel} — ${present} present, ${out} checked out, ${away} not in.`}
           icon={Clock}
+        />
+        <AttendanceDateNav
+          selected={dayKeyToString(selected)}
+          prev={dayKeyToString(addDays(selected, -1))}
+          next={dayKeyToString(addDays(selected, 1))}
+          today={dayKeyToString(today)}
+          isToday={isToday}
         />
         <div className="overflow-hidden rounded-xl border border-line">
           <table className="w-full text-sm">

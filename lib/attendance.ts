@@ -41,6 +41,35 @@ export function dayKey(at: Date): Date {
   return new Date(`${ymd}T00:00:00.000Z`);
 }
 
+/**
+ * Render a `day` key back to its YYYY-MM-DD string. Because the key is anchored
+ * at UTC midnight of the PKT date (see dayKey), reading it in UTC recovers the
+ * original calendar date — this is the value used in URLs and <input type=date>.
+ */
+export function dayKeyToString(day: Date): string {
+  return day.toISOString().slice(0, 10);
+}
+
+/**
+ * Parse a YYYY-MM-DD string (e.g. from a URL or date input) into a `day` key,
+ * the same UTC-midnight anchor dayKey produces. Returns null if the string is
+ * not a well-formed calendar date, so callers can fall back to "today".
+ */
+export function parseDayKey(ymd: string | null | undefined): Date | null {
+  if (!ymd || !/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return null;
+  const at = new Date(`${ymd}T00:00:00.000Z`);
+  if (Number.isNaN(at.getTime())) return null;
+  // Round-trip guard: rejects impossible dates like 2026-02-31 that Date would
+  // otherwise roll over silently.
+  if (at.toISOString().slice(0, 10) !== ymd) return null;
+  return at;
+}
+
+/** A `day` key shifted by whole days, staying anchored at UTC midnight. */
+export function addDays(day: Date, delta: number): Date {
+  return new Date(day.getTime() + delta * 86_400_000);
+}
+
 /** Minimal actor identity the recorder needs (matches SafeUser's shape). */
 export interface AttendanceActor {
   id: string;
