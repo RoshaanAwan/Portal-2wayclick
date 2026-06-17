@@ -60,6 +60,11 @@ model User {
   triggeredNotifs    Notification[]     @relation("NotifActor")
   attendance         Attendance[]
   createdInvoices    Invoice[]          @relation("InvoiceCreator")
+  submittedExpenses  Expense[]          @relation("ExpenseSubmitter")
+  reviewedExpenses   Expense[]          @relation("ExpenseReviewer")
+  submittedCanteen   CanteenExpense[]   @relation("CanteenSubmitter")
+  reviewedCanteen    CanteenExpense[]   @relation("CanteenReviewer")
+  projectSalaries    ProjectSalary[]    @relation("SalaryEmployee")
 
   // The org tree is walked by managerId (Team Pulse, org chart, audit scope).
   // Postgres does not auto-index FK columns, so this is needed for the
@@ -302,6 +307,10 @@ model Project {
   // Comments & requests left by clients via the share link.
   clientSubmissions ClientSubmission[]
 
+  // Finance: expenses charged to this project, and per-person monthly salaries.
+  expenses Expense[]
+  salaries ProjectSalary[]
+
   @@index([ownerId])
 }
 
@@ -542,5 +551,149 @@ model TaskAssignee {
   // Compound unique covers taskId lookups. Team Pulse / org chart query
   // `WHERE userId IN (...)` to score each person's load, so index userId alone.
   @@unique([taskId, userId])
+  @@index([userId])
+}
+
+// ── Finance: expenses ──────────────────────────────────────────────────────────
+// A general (non-canteen) expense claim raised by an Admin-tier user and decided
+// by a *different* Admin-tier user — same two-party approval shape as
+// LeaveRequest. Money is integer minor units (cents) in `currency`, never a
+// float, mirroring Invoice. An expense may optionally be charged to a Project
+// (SetNull on project delete so the claim survives) and carry a receipt slip
+// (url/name/size, uploaded via POST /api/finance/upload to Vercel Blob).
+// See lib/finance.ts for the statuses, categories, money helpers, and validation.
+model Expense {
+  id    String @id @default(cuid())
+  title String
+
+  // One of lib/finance.ts → EXPENSE_CATEGORIES (Travel, Supplies, …). Stored as
+  // a string; validated at write time.
+  category String
+
+  amountCents Int    @default(0)
+  currency    String @default("USD")
+
+  // Status: PENDING | APPROVED | REJECTED. Drives the badge + available actions.
+  status String @default("PENDING")
+
+  notes String?
+
+  // The day the expense was incurred (date at midnight). Defaults to creation.
+  spentOn DateTime @default(now())
+
+  // Optional receipt slip (Vercel Blob URL or dev data URL) + its metadata.
+  slipUrl    String?
+  slipName   String?
+  slipSizeKb Int?
+
+  // Optional project this expense is charged to. SetNull so deleting a project
+  // keeps the expense record (just unlinks it).
+  projectId String?
+  project   Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+
+  // Who submitted it (denormalized name survives user deletion).
+  submitterId   String?
+  submitter     User?   @relation("ExpenseSubmitter", fields: [submitterId], references: [id], onDelete: SetNull)
+  submitterName String
+
+  // Who decided it (null until decided). Denormalized name like the submitter.
+  reviewerId   String?
+  reviewer     User?   @relation("ExpenseReviewer", fields: [reviewerId], references: [id], onDelete: SetNull)
+  reviewerName String?
+  decidedAt    DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // The list orders newest-first; status filters the approval queue; projectId
+  // for the per-project cost rollup; submitterId for "my claims".
+  @@index([createdAt])
+  @@index([status])
+  @@index([projectId])
+  @@index([submitterId])
+}
+
+// ── Finance: canteen expenses ──────────────────────────────────────────────────
+// A dedicated module, separate from the general Expense above: a meal/canteen
+// spend with its own fields (vendor, headcount, meal date) and a REQUIRED slip.
+// Same two-party PENDING → APPROVED/REJECTED approval workflow. Money is integer
+// minor units (cents). See lib/finance.ts for validation + helpers.
+model CanteenExpense {
+  id     String @id @default(cuid())
+  // The canteen / vendor / restaurant the meal was from.
+  vendor String
+
+  amountCents Int    @default(0)
+  currency    String @default("USD")
+
+  // How many people the meal covered (≥1) — lets per-head cost be derived.
+  headcount Int @default(1)
+
+  // Status: PENDING | APPROVED | REJECTED.
+  status String @default("PENDING")
+
+  notes String?
+
+  // The day the meal happened (date at midnight). Defaults to creation.
+  mealDate DateTime @default(now())
+
+  // The slip is REQUIRED for a canteen expense (non-null columns).
+  slipUrl    String
+  slipName   String
+  slipSizeKb Int    @default(0)
+
+  submitterId   String?
+  submitter     User?   @relation("CanteenSubmitter", fields: [submitterId], references: [id], onDelete: SetNull)
+  submitterName String
+
+  reviewerId   String?
+  reviewer     User?     @relation("CanteenReviewer", fields: [reviewerId], references: [id], onDelete: SetNull)
+  reviewerName String?
+  decidedAt    DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([createdAt])
+  @@index([status])
+  @@index([submitterId])
+}
+
+// ── Finance: per-project salaries ──────────────────────────────────────────────
+// An employee's monthly salary on a given project. One employee may have a salary
+// on several projects (and several rows over time as pay changes), so the cost of
+// a project's payroll is the sum of its active salaries. Money is integer minor
+// units (cents). Only ONE row per (project, employee) — editing pay updates the
+// same row; superseding history is out of scope. Cascade on project delete (the
+// salary has no meaning without its project); SetNull on user delete keeps the
+// row (with the denormalized name) for the cost total.
+model ProjectSalary {
+  id String @id @default(cuid())
+
+  projectId String
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  // The employee this salary is for. SetNull on delete; name is denormalized.
+  userId   String?
+  user     User?   @relation("SalaryEmployee", fields: [userId], references: [id], onDelete: SetNull)
+  userName String
+
+  amountCents Int    @default(0)
+  currency    String @default("USD")
+
+  // Whether this salary currently counts toward the project's payroll cost.
+  // Deactivating (instead of deleting) keeps the record while excluding it.
+  active Boolean @default(true)
+
+  // The day this salary takes effect.
+  effectiveFrom DateTime @default(now())
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // One salary row per person per project; reverse lookup "this person's
+  // salaries"; index projectId for the per-project roster + cost rollup.
+  @@unique([projectId, userId])
+  @@index([projectId])
   @@index([userId])
 }

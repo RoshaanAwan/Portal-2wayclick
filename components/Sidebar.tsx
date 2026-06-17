@@ -18,6 +18,9 @@ import {
   Activity,
   Clock,
   Receipt,
+  Wallet,
+  UtensilsCrossed,
+  Banknote,
 } from "lucide-react";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
@@ -84,6 +87,14 @@ export function Sidebar({ role }: { role?: string | null }) {
     // Invoices — admin tier (create/send client invoices).
     ...(can.manageInvoices(role)
       ? [{ href: "/invoices", label: "Invoices", icon: Receipt }]
+      : []),
+    // Finance — admin tier (expenses, canteen, per-project salaries).
+    ...(can.manageFinance(role)
+      ? [
+          { href: "/expenses", label: "Expenses", icon: Wallet },
+          { href: "/canteen", label: "Canteen", icon: UtensilsCrossed },
+          { href: "/salaries", label: "Salaries", icon: Banknote },
+        ]
       : []),
     ...(can.viewAuditLog(role)
       ? [{ href: "/admin/logs", label: "Audit Log", icon: ScrollText }]

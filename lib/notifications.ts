@@ -16,7 +16,9 @@ export type NotificationType =
   | "task.assigned"
   | "task.comment"
   | "announcement.created"
-  | "invoice.paid";
+  | "invoice.paid"
+  | "expense.decided"
+  | "canteen.decided";
 
 /**
  * In-process pub/sub for live (SSE) delivery. One emitter per server instance;

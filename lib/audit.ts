@@ -53,7 +53,19 @@ export type AuditAction =
   | "invoice.share_revoke"
   | "invoice.delete"
   | "invoice.payment_started"
-  | "invoice.paid";
+  | "invoice.paid"
+  | "expense.create"
+  | "expense.update"
+  | "expense.decide"
+  | "expense.delete"
+  | "canteen.create"
+  | "canteen.update"
+  | "canteen.decide"
+  | "canteen.delete"
+  | "salary.create"
+  | "salary.update"
+  | "salary.deactivate"
+  | "salary.delete";
 
 interface AuditInput {
   actor: SafeUser | { id?: string | null; name: string; role: string };
