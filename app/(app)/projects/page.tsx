@@ -7,12 +7,12 @@ import { ProjectsClient, type ProjectDTO, type MemberDTO } from "./ProjectsClien
 
 const PAGE_SIZE = 12;
 
-type StatusFilter = "ALL" | "ACTIVE" | "INACTIVE";
+type StatusFilter = "ALL" | "ACTIVE" | "INACTIVE" | "COMPLETED";
 
 export default async function ProjectsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ page?: string; status?: string }>;
+  searchParams: Promise<{ page?: string; status?: string; q?: string }>;
 }) {
   const user = await getCurrentUser();
   const isAdmin = can.manageProjects(user?.role);
@@ -24,23 +24,53 @@ export default async function ProjectsPage({
 
   const sp = await searchParams;
 
-  // Active/inactive status filter (URL-driven; defaults to all).
+  // Status filter (URL-driven; defaults to all). Completed is an independent
+  // axis from active/inactive: Active/Inactive exclude completed projects.
   const status: StatusFilter =
-    sp.status === "ACTIVE" || sp.status === "INACTIVE" ? sp.status : "ALL";
-  const where = {
-    ...baseWhere,
-    ...(status === "ALL" ? {} : { active: status === "ACTIVE" }),
-  };
+    sp.status === "ACTIVE" ||
+    sp.status === "INACTIVE" ||
+    sp.status === "COMPLETED"
+      ? sp.status
+      : "ALL";
 
-  // Per-status counts for the filter pills (scoped to what the user can see).
-  const [activeCount, inactiveCount] = await Promise.all([
-    db.project.count({ where: { ...baseWhere, active: true } }),
-    db.project.count({ where: { ...baseWhere, active: false } }),
-  ]);
+  // Name search (URL-driven, case-insensitive contains).
+  const q = (sp.q ?? "").trim();
+  const searchWhere = q
+    ? { name: { contains: q, mode: "insensitive" as const } }
+    : {};
+
+  // Translate a status tab into a Prisma filter. Active/Inactive deliberately
+  // exclude completed projects so the three live tabs don't overlap.
+  function statusWhere(s: StatusFilter) {
+    switch (s) {
+      case "ACTIVE":
+        return { active: true, completedAt: null };
+      case "INACTIVE":
+        return { active: false, completedAt: null };
+      case "COMPLETED":
+        return { completedAt: { not: null } };
+      default:
+        return {};
+    }
+  }
+
+  const where = { ...baseWhere, ...searchWhere, ...statusWhere(status) };
+
+  // Per-status counts for the filter pills (scoped to what the user can see and
+  // to the current search term, so the counts match the visible results).
+  const countBase = { ...baseWhere, ...searchWhere };
+  const [allCount, activeCount, inactiveCount, completedCount] =
+    await Promise.all([
+      db.project.count({ where: { ...countBase, ...statusWhere("ALL") } }),
+      db.project.count({ where: { ...countBase, ...statusWhere("ACTIVE") } }),
+      db.project.count({ where: { ...countBase, ...statusWhere("INACTIVE") } }),
+      db.project.count({ where: { ...countBase, ...statusWhere("COMPLETED") } }),
+    ]);
   const statusCounts = {
-    ALL: activeCount + inactiveCount,
+    ALL: allCount,
     ACTIVE: activeCount,
     INACTIVE: inactiveCount,
+    COMPLETED: completedCount,
   };
 
   const total = await db.project.count({ where });
@@ -85,6 +115,7 @@ export default async function ProjectsPage({
     name: p.name,
     description: p.description,
     active: p.active,
+    completedAt: p.completedAt ? p.completedAt.toISOString() : null,
     createdAt: p.createdAt.toISOString(),
     owner: {
       id: p.owner.id,
@@ -121,6 +152,7 @@ export default async function ProjectsPage({
         isAdmin={isAdmin}
         status={status}
         statusCounts={statusCounts}
+        query={q}
         page={page}
         pageCount={pageCount}
       />

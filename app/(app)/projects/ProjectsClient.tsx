@@ -1,21 +1,25 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   ArrowRight,
+  CheckCircle2,
   FolderKanban,
   KanbanSquare,
   LayoutGrid,
   List,
   Plus,
   Power,
+  RotateCcw,
+  Search,
   Users,
   UserCog,
   Pencil,
   Trash2,
+  X,
 } from "lucide-react";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { Button } from "@/components/ui/Button";
@@ -42,6 +46,7 @@ export interface ProjectDTO {
   name: string;
   description: string | null;
   active: boolean;
+  completedAt: string | null;
   createdAt: string;
   owner: { id: string; name: string; avatarUrl: string | null };
   listCount: number;
@@ -49,12 +54,13 @@ export interface ProjectDTO {
   members: MemberDTO[];
 }
 
-export type StatusFilter = "ALL" | "ACTIVE" | "INACTIVE";
+export type StatusFilter = "ALL" | "ACTIVE" | "INACTIVE" | "COMPLETED";
 
 const STATUS_FILTERS: { key: StatusFilter; label: string }[] = [
   { key: "ALL", label: "All" },
   { key: "ACTIVE", label: "Active" },
   { key: "INACTIVE", label: "Inactive" },
+  { key: "COMPLETED", label: "Completed" },
 ];
 
 type ViewMode = "grid" | "list";
@@ -68,6 +74,7 @@ export function ProjectsClient({
   isAdmin,
   status,
   statusCounts,
+  query,
   page,
   pageCount,
 }: {
@@ -76,12 +83,32 @@ export function ProjectsClient({
   isAdmin: boolean;
   status: StatusFilter;
   statusCounts: Record<StatusFilter, number>;
+  query: string;
   page: number;
   pageCount: number;
 }) {
   const router = useRouter();
-  const { setParams, isPending } = useListParams({ status, page });
+  const { setParams, isPending } = useListParams({ status, q: query, page });
   const [composing, setComposing] = useState(false);
+
+  // Search box. Mirror the URL's `q` locally for a responsive input, then push
+  // the change to the URL (which re-fetches server-side) after a short debounce.
+  const [search, setSearch] = useState(query);
+  // Keep the input in sync if the URL changes elsewhere (e.g. back/forward).
+  useEffect(() => setSearch(query), [query]);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  function onSearchChange(value: string) {
+    setSearch(value);
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      setParams({ q: value.trim() || null, page: 1 });
+    }, 300);
+  }
+  function clearSearch() {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    setSearch("");
+    setParams({ q: null, page: 1 });
+  }
   // Grid (default) vs list layout. Hydrate from localStorage after mount so SSR
   // and the first client render agree (avoids a hydration mismatch).
   const [view, setView] = useState<ViewMode>("grid");
@@ -102,6 +129,8 @@ export function ProjectsClient({
   const [deleting, setDeleting] = useState(false);
   // The id of the project whose active flag is mid-toggle (disables its button).
   const [togglingId, setTogglingId] = useState<string | null>(null);
+  // The id of the project whose completed flag is mid-toggle.
+  const [completingId, setCompletingId] = useState<string | null>(null);
 
   async function toggleActive(project: ProjectDTO) {
     if (togglingId) return;
@@ -113,6 +142,18 @@ export function ProjectsClient({
     });
     if (res.ok) router.refresh();
     setTogglingId(null);
+  }
+
+  async function toggleComplete(project: ProjectDTO) {
+    if (completingId) return;
+    setCompletingId(project.id);
+    const res = await fetch(`/api/projects/${project.id}/complete`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ completed: !project.completedAt }),
+    });
+    if (res.ok) router.refresh();
+    setCompletingId(null);
   }
 
   async function confirmDelete() {
@@ -155,6 +196,29 @@ export function ProjectsClient({
           })}
         </div>
         <div className="flex items-center gap-2">
+          {/* Search by project name */}
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-ink-400" />
+            <input
+              type="search"
+              value={search}
+              onChange={(e) => onSearchChange(e.target.value)}
+              placeholder="Search projects…"
+              aria-label="Search projects by name"
+              className="h-8 w-40 rounded-lg border border-line bg-surface-2 pl-8 pr-7 text-xs text-ink placeholder:text-ink-400 transition-colors focus:border-line-strong focus:outline-none sm:w-52"
+            />
+            {search && (
+              <button
+                type="button"
+                onClick={clearSearch}
+                aria-label="Clear search"
+                className="absolute right-1.5 top-1/2 grid h-5 w-5 -translate-y-1/2 place-items-center rounded text-ink-400 transition-colors hover:text-ink"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </div>
+
           {/* Grid / list view switcher */}
           <div className="flex items-center rounded-lg border border-line bg-surface-2 p-0.5">
             <button
@@ -215,15 +279,17 @@ export function ProjectsClient({
       </AnimatePresence>
 
       {projects.length === 0 ? (
-        status !== "ALL" ? (
+        query ? (
+          <EmptyState
+            icon={Search}
+            title="No projects match your search"
+            description={`Nothing found for “${query}”. Try a different name or clear the search.`}
+          />
+        ) : status !== "ALL" ? (
           <EmptyState
             icon={FolderKanban}
-            title={`No ${status === "ACTIVE" ? "active" : "inactive"} projects`}
-            description={
-              status === "ACTIVE"
-                ? "Nothing here right now — try the Inactive or All filter."
-                : "Nothing here right now — try the Active or All filter."
-            }
+            title={`No ${status.toLowerCase()} projects`}
+            description="Nothing here right now — try another tab."
           />
         ) : (
           <EmptyState
@@ -251,9 +317,11 @@ export function ProjectsClient({
                   project={p}
                   isAdmin={isAdmin}
                   toggling={togglingId === p.id}
+                  completing={completingId === p.id}
                   onManage={() => setManaging(p)}
                   onEdit={() => setEditing(p)}
                   onToggleActive={() => toggleActive(p)}
+                  onToggleComplete={() => toggleComplete(p)}
                   onDelete={() => setDeleteTarget(p)}
                 />
               ))}
@@ -271,9 +339,11 @@ export function ProjectsClient({
                   project={p}
                   isAdmin={isAdmin}
                   toggling={togglingId === p.id}
+                  completing={completingId === p.id}
                   onManage={() => setManaging(p)}
                   onEdit={() => setEditing(p)}
                   onToggleActive={() => toggleActive(p)}
+                  onToggleComplete={() => toggleComplete(p)}
                   onDelete={() => setDeleteTarget(p)}
                 />
               ))}
@@ -322,24 +392,28 @@ function ProjectCard({
   project,
   isAdmin,
   toggling,
+  completing,
   onManage,
   onEdit,
   onToggleActive,
+  onToggleComplete,
   onDelete,
 }: {
   project: ProjectDTO;
   isAdmin: boolean;
   toggling: boolean;
+  completing: boolean;
   onManage: () => void;
   onEdit: () => void;
   onToggleActive: () => void;
+  onToggleComplete: () => void;
   onDelete: () => void;
 }) {
   return (
     <GlassCard
       className={cn(
         "group flex flex-col p-5",
-        !project.active && "opacity-70",
+        (!project.active || project.completedAt) && "opacity-70",
       )}
     >
       <div className="mb-3 flex items-start justify-between gap-2">
@@ -350,9 +424,11 @@ function ProjectCard({
           <ProjectActions
             project={project}
             toggling={toggling}
+            completing={completing}
             onManage={onManage}
             onEdit={onEdit}
             onToggleActive={onToggleActive}
+            onToggleComplete={onToggleComplete}
             onDelete={onDelete}
           />
         )}
@@ -364,11 +440,7 @@ function ProjectCard({
             {project.name}
           </h2>
         </Link>
-        {!project.active && (
-          <Badge variant="amber" className="shrink-0">
-            Inactive
-          </Badge>
-        )}
+        <ProjectStatusBadge project={project} />
       </div>
       <p className="mt-1 line-clamp-2 min-h-[2.5rem] text-xs leading-relaxed text-ink-400">
         {project.description || "No description."}
@@ -416,23 +488,49 @@ function ProjectCard({
   );
 }
 
-// Shared admin action buttons (Members / activate-toggle / edit / delete) used
-// by both the grid card and the list row so the two views stay in lockstep.
+// Status badge shown next to a project's name. Completed takes precedence over
+// Inactive (a completed project is the same state regardless of its active flag).
+function ProjectStatusBadge({ project }: { project: ProjectDTO }) {
+  if (project.completedAt) {
+    return (
+      <Badge variant="emerald" className="shrink-0">
+        Completed
+      </Badge>
+    );
+  }
+  if (!project.active) {
+    return (
+      <Badge variant="amber" className="shrink-0">
+        Inactive
+      </Badge>
+    );
+  }
+  return null;
+}
+
+// Shared admin action buttons (Members / complete-toggle / activate-toggle /
+// edit / delete) used by both the grid card and the list row so the two views
+// stay in lockstep.
 function ProjectActions({
   project,
   toggling,
+  completing,
   onManage,
   onEdit,
   onToggleActive,
+  onToggleComplete,
   onDelete,
 }: {
   project: ProjectDTO;
   toggling: boolean;
+  completing: boolean;
   onManage: () => void;
   onEdit: () => void;
   onToggleActive: () => void;
+  onToggleComplete: () => void;
   onDelete: () => void;
 }) {
+  const completed = !!project.completedAt;
   return (
     <div className="flex items-center gap-1">
       <button
@@ -442,6 +540,25 @@ function ProjectActions({
       >
         <UserCog className="h-3.5 w-3.5" />
         Members
+      </button>
+      <button
+        type="button"
+        onClick={onToggleComplete}
+        disabled={completing}
+        aria-label={completed ? "Reopen project" : "Mark project completed"}
+        title={completed ? "Reopen project" : "Mark completed"}
+        className={cn(
+          "grid h-7 w-7 place-items-center rounded-lg border border-line bg-surface-2 text-ink-500 transition-colors disabled:opacity-50",
+          completed
+            ? "hover:border-accent/40 hover:bg-accent-soft hover:text-accent-ink"
+            : "hover:border-success/40 hover:bg-success-soft hover:text-success-ink",
+        )}
+      >
+        {completed ? (
+          <RotateCcw className="h-3.5 w-3.5" />
+        ) : (
+          <CheckCircle2 className="h-3.5 w-3.5" />
+        )}
       </button>
       <button
         type="button"
@@ -482,24 +599,28 @@ function ProjectRow({
   project,
   isAdmin,
   toggling,
+  completing,
   onManage,
   onEdit,
   onToggleActive,
+  onToggleComplete,
   onDelete,
 }: {
   project: ProjectDTO;
   isAdmin: boolean;
   toggling: boolean;
+  completing: boolean;
   onManage: () => void;
   onEdit: () => void;
   onToggleActive: () => void;
+  onToggleComplete: () => void;
   onDelete: () => void;
 }) {
   return (
     <GlassCard
       className={cn(
         "group flex items-center gap-4 px-4 py-3",
-        !project.active && "opacity-70",
+        (!project.active || project.completedAt) && "opacity-70",
       )}
     >
       <div className="grid h-9 w-9 shrink-0 place-items-center rounded-xl border border-line bg-accent-soft text-accent shadow-xs">
@@ -514,11 +635,7 @@ function ProjectRow({
               {project.name}
             </h2>
           </Link>
-          {!project.active && (
-            <Badge variant="amber" className="shrink-0">
-              Inactive
-            </Badge>
-          )}
+          <ProjectStatusBadge project={project} />
         </div>
         <p className="truncate text-xs text-ink-400">
           {project.description || "No description."}
@@ -543,9 +660,11 @@ function ProjectRow({
           <ProjectActions
             project={project}
             toggling={toggling}
+            completing={completing}
             onManage={onManage}
             onEdit={onEdit}
             onToggleActive={onToggleActive}
+            onToggleComplete={onToggleComplete}
             onDelete={onDelete}
           />
         </div>
