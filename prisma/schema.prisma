@@ -62,6 +62,7 @@ model User {
   auditedBy          AuditLog[]         @relation("AuditTargetUser")
   notifications      Notification[]     @relation("NotifRecipient")
   triggeredNotifs    Notification[]     @relation("NotifActor")
+  pushSubscriptions  PushSubscription[] @relation("UserPushSubs")
   attendance         Attendance[]
   createdInvoices    Invoice[]          @relation("InvoiceCreator")
   submittedExpenses  Expense[]          @relation("ExpenseSubmitter")
@@ -509,6 +510,30 @@ model Notification {
   // Newest-first lookups scoped to a recipient, and unread counts.
   @@index([userId, createdAt])
   @@index([userId, readAt])
+}
+
+// A browser/device's Web Push subscription. One row per push endpoint; a user
+// can have several (phone, laptop, …). Created when the user enables push in a
+// given browser; deleted when they disable it or when the endpoint goes stale
+// (the push service returns 404/410 and we prune it). See lib/push.ts.
+model PushSubscription {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation("UserPushSubs", fields: [userId], references: [id], onDelete: Cascade)
+
+  // The push service endpoint URL (unique per browser+origin) and the keys the
+  // browser generated for encrypting payloads to it.
+  endpoint String  @unique
+  p256dh   String
+  auth     String
+
+  // Coarse device label (from the User-Agent) so the user can tell their
+  // subscriptions apart if we ever list them.
+  userAgent String?
+
+  createdAt DateTime @default(now())
+
+  @@index([userId])
 }
 
 // ── Invoices ──────────────────────────────────────────────────────────────────

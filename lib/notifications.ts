@@ -1,6 +1,7 @@
 import "server-only";
 import { EventEmitter } from "events";
 import { db } from "./db";
+import { sendPushToUser } from "./push";
 
 // ── Notifications ─────────────────────────────────────────────────────────────
 // Per-user inbox writer + in-process event bus. notify() persists a row (so it
@@ -98,6 +99,19 @@ export async function notify(input: NotifyInput): Promise<void> {
       readAt: null,
     };
     bus.emit(`notif:${input.userId}`, live);
+
+    // Fan out an OS-level Web Push to the recipient's subscribed devices (works
+    // even when the app is closed). Fire-and-forget so push latency never slows
+    // the action that triggered this; sendPushToUser is best-effort/never throws.
+    const title = input.actor?.name
+      ? `${input.actor.name}`
+      : "2WayClick";
+    void sendPushToUser(input.userId, {
+      title,
+      body: input.message,
+      url: input.link ?? "/dashboard",
+      tag: input.type,
+    });
   } catch (err) {
     console.error("[notify] failed", input.type, err);
   }
