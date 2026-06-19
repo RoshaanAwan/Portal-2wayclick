@@ -12,7 +12,7 @@
  * Bump CACHE_VERSION to invalidate the precache on the next deploy.
  */
 
-const CACHE_VERSION = "v1";
+const CACHE_VERSION = "v2";
 const PRECACHE = `2wc-precache-${CACHE_VERSION}`;
 const RUNTIME = `2wc-runtime-${CACHE_VERSION}`;
 const OFFLINE_URL = "/offline";
@@ -133,4 +133,60 @@ self.addEventListener("fetch", (event) => {
       })(),
     );
   }
+});
+
+// ── Web Push ─────────────────────────────────────────────────────────────────
+// Show an OS notification from the push payload sent by lib/push.ts.
+self.addEventListener("push", (event) => {
+  let data = {};
+  try {
+    data = event.data ? event.data.json() : {};
+  } catch {
+    // Fall back to plain text if the payload isn't JSON.
+    data = { title: "2WayClick", body: event.data ? event.data.text() : "" };
+  }
+
+  const title = data.title || "2WayClick";
+  const options = {
+    body: data.body || "",
+    icon: "/icons/icon-192.png",
+    badge: "/icons/icon-192.png",
+    // Collapse same-kind notifications so a burst doesn't pile up.
+    tag: data.tag || undefined,
+    // Stash the deep link for the click handler.
+    data: { url: data.url || "/dashboard" },
+  };
+
+  event.waitUntil(self.registration.showNotification(title, options));
+});
+
+// Focus an existing app tab (navigating it to the link) or open a new one.
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const target = (event.notification.data && event.notification.data.url) || "/dashboard";
+  const targetUrl = new URL(target, self.location.origin).href;
+
+  event.waitUntil(
+    (async () => {
+      const clientsList = await self.clients.matchAll({
+        type: "window",
+        includeUncontrolled: true,
+      });
+      for (const client of clientsList) {
+        // Reuse an already-open same-origin tab if there is one.
+        if (new URL(client.url).origin === self.location.origin && "focus" in client) {
+          await client.focus();
+          if ("navigate" in client) {
+            try {
+              await client.navigate(targetUrl);
+            } catch {
+              /* navigate can reject cross-document — focusing is enough */
+            }
+          }
+          return;
+        }
+      }
+      if (self.clients.openWindow) await self.clients.openWindow(targetUrl);
+    })(),
+  );
 });

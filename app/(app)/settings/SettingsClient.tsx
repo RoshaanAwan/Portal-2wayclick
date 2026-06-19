@@ -9,6 +9,7 @@ import {
   User,
   Palette,
   Bell,
+  BellRing,
   ShieldCheck,
   LogOut,
   Check,
@@ -25,6 +26,7 @@ import { Button } from "@/components/ui/Button";
 import { Avatar } from "@/components/ui/Avatar";
 import { Reveal, RevealItem } from "@/components/ui/Reveal";
 import { useTheme, type Theme } from "@/components/ThemeProvider";
+import { usePushSubscription } from "@/lib/usePushSubscription";
 import { cn } from "@/lib/utils";
 
 const THEMES: { key: Theme; label: string; desc: string; Icon: typeof Moon }[] = [
@@ -555,6 +557,10 @@ export function SettingsClient({
           {active === "notifications" && (
             <Reveal className="space-y-5">
               <RevealItem>
+                <PushNotificationsCard />
+              </RevealItem>
+
+              <RevealItem>
                 <GlassCard hover={false}>
                   <h3 className="font-display text-[15px] font-semibold tracking-tight text-ink">
                     Email & in-app notifications
@@ -699,6 +705,56 @@ export function SettingsClient({
         </div>
       </div>
     </div>
+  );
+}
+
+// Real push toggle (the rows below it are session-only demos). Subscribes this
+// browser to Web Push and persists it server-side; see lib/usePushSubscription.
+function PushNotificationsCard() {
+  const { status, busy, error, enable, disable } = usePushSubscription();
+
+  const enabled = status === "enabled";
+  const unavailable = status === "unsupported" || status === "denied";
+
+  const desc =
+    status === "unsupported"
+      ? "This browser doesn't support push notifications."
+      : status === "denied"
+        ? "Notifications are blocked. Allow them in your browser settings, then try again."
+        : enabled
+          ? "You'll get notifications on this device, even when 2WayClick is closed."
+          : "Get notified on this device even when the app is closed.";
+
+  return (
+    <GlassCard hover={false}>
+      <div className="flex items-center gap-2">
+        <BellRing className="h-4 w-4 text-ink-500" />
+        <h3 className="font-display text-[15px] font-semibold tracking-tight text-ink">
+          Push notifications
+        </h3>
+      </div>
+      <div className="mt-1 flex items-center justify-between gap-4 py-2">
+        <div className="min-w-0">
+          <p className="text-sm font-medium text-ink">
+            Push on this device
+          </p>
+          <p className="mt-0.5 text-xs text-ink-400">{desc}</p>
+          {error && <p className="mt-1 text-xs text-danger-ink">{error}</p>}
+        </div>
+        {status === "loading" ? (
+          <Loader2 className="h-5 w-5 animate-spin text-ink-300" />
+        ) : (
+          <Toggle
+            on={enabled}
+            onChange={(v) => {
+              if (busy || unavailable) return;
+              if (v) enable();
+              else disable();
+            }}
+          />
+        )}
+      </div>
+    </GlassCard>
   );
 }
 
