@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { audit } from "@/lib/audit";
+import { notify } from "@/lib/notifications";
+import { sendSlackDM } from "@/lib/slack";
 import { z } from "zod";
 import { TASK_PRIORITIES } from "@/lib/constants";
 
@@ -22,7 +24,11 @@ export async function POST(req: Request) {
     const { listId, title, description, priority, assigneeId, estimateMinutes } =
       schema.parse(await req.json());
 
-    const list = await db.boardList.findUnique({ where: { id: listId } });
+    const list = await db.boardList.findUnique({
+      where: { id: listId },
+      // Pull the project name too, so a create-with-assignee Slack DM can name it.
+      select: { id: true, board: { select: { project: { select: { name: true } } } } },
+    });
     if (!list) {
       return NextResponse.json({ error: "List not found" }, { status: 404 });
     }
@@ -58,6 +64,32 @@ export async function POST(req: Request) {
       summary: `${user.name} created task “${title}”`,
       detail: { listId, priority, estimateMinutes },
     });
+
+    // If the card was created already assigned to someone other than the creator,
+    // tell that assignee — in-app bell + Web Push (notify) and a Slack DM. Mirrors
+    // the assign endpoint (app/api/tasks/assign/route.ts).
+    if (assigneeId && assigneeId !== user.id) {
+      const assignee = await db.user.findUnique({
+        where: { id: assigneeId },
+        select: { id: true, slackUserId: true },
+      });
+      if (assignee) {
+        await notify({
+          userId: assignee.id,
+          type: "task.assigned",
+          message: `assigned you to “${title}”`,
+          link: "/tasks",
+          actor: user,
+        });
+
+        const projectName = list.board?.project?.name;
+        await sendSlackDM(
+          assignee.slackUserId,
+          `📋 *${user.name}* assigned you to *${title}*` +
+            (projectName ? ` in project *${projectName}*` : ""),
+        );
+      }
+    }
 
     return NextResponse.json({ ok: true, id: task.id });
   } catch (e: any) {

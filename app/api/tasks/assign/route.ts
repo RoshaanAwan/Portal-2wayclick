@@ -3,6 +3,7 @@ import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { audit } from "@/lib/audit";
 import { notify } from "@/lib/notifications";
+import { sendSlackDM } from "@/lib/slack";
 import { recordActivity } from "@/lib/activityFeed";
 import { z } from "zod";
 
@@ -17,8 +18,19 @@ export async function POST(req: Request) {
     const { taskId, userId } = schema.parse(await req.json());
 
     const [task, member] = await Promise.all([
-      db.task.findUnique({ where: { id: taskId }, select: { id: true, title: true } }),
-      db.user.findUnique({ where: { id: userId }, select: { id: true, name: true } }),
+      db.task.findUnique({
+        where: { id: taskId },
+        select: {
+          id: true,
+          title: true,
+          // Task → list → board → project, so the Slack DM can name the project.
+          list: { select: { board: { select: { project: { select: { name: true } } } } } },
+        },
+      }),
+      db.user.findUnique({
+        where: { id: userId },
+        select: { id: true, name: true, slackUserId: true },
+      }),
     ]);
     if (!task) return NextResponse.json({ error: "Task not found" }, { status: 404 });
     if (!member) return NextResponse.json({ error: "User not found" }, { status: 404 });
@@ -46,6 +58,15 @@ export async function POST(req: Request) {
         link: "/tasks",
         actor,
       });
+
+      // Also DM the assignee on Slack (best-effort; no-ops if Slack isn't
+      // configured or the user has no linked slackUserId). lib/slack.ts.
+      const projectName = task.list?.board?.project?.name;
+      await sendSlackDM(
+        member.slackUserId,
+        `📋 *${actor.name}* assigned you to *${task.title}*` +
+          (projectName ? ` in project *${projectName}*` : ""),
+      );
 
       await audit({
         actor,
