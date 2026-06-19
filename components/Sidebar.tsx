@@ -20,7 +20,6 @@ import {
   Clock,
   Receipt,
   Wallet,
-  UtensilsCrossed,
   Banknote,
   MessageSquare,
   X,
@@ -101,11 +100,10 @@ export function Sidebar({ role }: { role?: string | null }) {
     ...(can.manageInvoices(role)
       ? [{ href: "/invoices", label: "Invoices", icon: Receipt }]
       : []),
-    // Finance — admin tier (expenses, canteen, per-user monthly salaries).
+    // Finance — admin tier (expenses, per-user monthly salaries).
     ...(can.manageFinance(role)
       ? [
           { href: "/expenses", label: "Expenses", icon: Wallet },
-          { href: "/canteen", label: "Canteen", icon: UtensilsCrossed },
           { href: "/salaries", label: "Salaries", icon: Banknote },
         ]
       : []),

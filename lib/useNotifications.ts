@@ -1,10 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { usePolling, REALTIME_TRANSPORT } from "@/lib/usePolling";
 
 // Client-side notification store for the topbar bell. Loads the initial list
-// over HTTP, then opens an SSE stream so new notifications arrive live. Exposes
-// the list, the unread count, and actions to persist read state.
+// over HTTP, then keeps it live. Default transport is polling (serverless-safe);
+// set NEXT_PUBLIC_REALTIME_TRANSPORT="sse" on a single long-running host to use
+// the SSE stream instead. Exposes the list, the unread count, and read actions.
 
 export interface ClientNotification {
   id: string;
@@ -20,9 +22,11 @@ export interface ClientNotification {
 export function useNotifications() {
   const [items, setItems] = useState<ClientNotification[]>([]);
   const [unread, setUnread] = useState(0);
-  // Guards the optimistic merge in the SSE handler against duplicate ids (e.g.
-  // an event that races the initial fetch).
+  // Guards the optimistic merge against duplicate ids (e.g. a poll batch that
+  // races the initial fetch).
   const seen = useRef<Set<string>>(new Set());
+  // Poll high-water mark: ISO timestamp of the newest notification we've seen.
+  const cursor = useRef<string | null>(null);
 
   const ingest = useCallback((n: ClientNotification, atTop = true) => {
     if (seen.current.has(n.id)) return;
@@ -42,6 +46,8 @@ export function useNotifications() {
         list.forEach((n) => seen.current.add(n.id));
         setItems(list);
         setUnread(data.unread ?? 0);
+        // Seed the cursor to the newest notification (list is newest-first).
+        if (list[0]?.createdAt) cursor.current = list[0].createdAt;
       })
       .catch(() => {});
     return () => {
@@ -49,8 +55,35 @@ export function useNotifications() {
     };
   }, []);
 
-  // Live stream.
+  // ── Transport: polling (serverless-safe, default) ──────────────────────────
+  usePolling(
+    async () => {
+      try {
+        const url = cursor.current
+          ? `/api/notifications/since?cursor=${encodeURIComponent(cursor.current)}`
+          : "/api/notifications/since";
+        const res = await fetch(url);
+        if (!res.ok) return;
+        const data = await res.json();
+        if (data.cursor) cursor.current = data.cursor;
+        // Server returns oldest-first; ingest in order so the newest ends on top.
+        (data.notifications ?? []).forEach((n: ClientNotification) =>
+          ingest(n),
+        );
+        // Trust the server's authoritative unread count (read-state may have
+        // changed elsewhere, e.g. another tab).
+        if (typeof data.unread === "number") setUnread(data.unread);
+      } catch {
+        // next tick retries
+      }
+    },
+    undefined,
+    REALTIME_TRANSPORT === "poll",
+  );
+
+  // ── Transport: SSE (single long-running host) ──────────────────────────────
   useEffect(() => {
+    if (REALTIME_TRANSPORT !== "sse") return;
     const es = new EventSource("/api/notifications/stream");
     es.addEventListener("notification", (ev) => {
       try {
@@ -59,7 +92,6 @@ export function useNotifications() {
         // ignore malformed frames
       }
     });
-    // On error EventSource auto-reconnects; nothing to do but let it.
     return () => es.close();
   }, [ingest]);
 

@@ -70,6 +70,8 @@ export interface ConversationListItem {
     name: string;
     title: string;
     avatarUrl: string | null;
+    // Read cursor — used to render "seen" receipts on the sender's messages.
+    lastReadAt: string;
   }[];
   lastMessage: {
     id: string;
@@ -139,6 +141,7 @@ export async function listConversationsFor(
         name: m.user.name,
         title: m.user.title,
         avatarUrl: m.user.avatarUrl,
+        lastReadAt: m.lastReadAt.toISOString(),
       })),
       lastMessage: last
         ? {

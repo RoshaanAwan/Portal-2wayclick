@@ -7,20 +7,42 @@ import { ProjectsClient, type ProjectDTO, type MemberDTO } from "./ProjectsClien
 
 const PAGE_SIZE = 12;
 
+type StatusFilter = "ALL" | "ACTIVE" | "INACTIVE";
+
 export default async function ProjectsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ page?: string }>;
+  searchParams: Promise<{ page?: string; status?: string }>;
 }) {
   const user = await getCurrentUser();
   const isAdmin = can.manageProjects(user?.role);
 
   // Admins see every project; everyone else sees only projects they belong to.
-  const where = isAdmin
-    ? undefined
+  const baseWhere = isAdmin
+    ? {}
     : { members: { some: { userId: user?.id ?? "" } } };
 
   const sp = await searchParams;
+
+  // Active/inactive status filter (URL-driven; defaults to all).
+  const status: StatusFilter =
+    sp.status === "ACTIVE" || sp.status === "INACTIVE" ? sp.status : "ALL";
+  const where = {
+    ...baseWhere,
+    ...(status === "ALL" ? {} : { active: status === "ACTIVE" }),
+  };
+
+  // Per-status counts for the filter pills (scoped to what the user can see).
+  const [activeCount, inactiveCount] = await Promise.all([
+    db.project.count({ where: { ...baseWhere, active: true } }),
+    db.project.count({ where: { ...baseWhere, active: false } }),
+  ]);
+  const statusCounts = {
+    ALL: activeCount + inactiveCount,
+    ACTIVE: activeCount,
+    INACTIVE: inactiveCount,
+  };
+
   const total = await db.project.count({ where });
   const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const requested = Number.parseInt(sp.page ?? "1", 10);
@@ -62,6 +84,7 @@ export default async function ProjectsPage({
     id: p.id,
     name: p.name,
     description: p.description,
+    active: p.active,
     createdAt: p.createdAt.toISOString(),
     owner: {
       id: p.owner.id,
@@ -96,9 +119,10 @@ export default async function ProjectsPage({
         projects={projectDTOs}
         roster={rosterDTOs}
         isAdmin={isAdmin}
+        status={status}
+        statusCounts={statusCounts}
         page={page}
         pageCount={pageCount}
-        total={total}
       />
     </div>
   );

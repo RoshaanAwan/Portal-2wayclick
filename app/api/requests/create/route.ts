@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { audit } from "@/lib/audit";
 import { recordActivity } from "@/lib/activityFeed";
 import { LEAVE_TYPES } from "@/lib/constants";
+import { isSuperAdmin } from "@/lib/permissions";
 
 const schema = z
   .object({
@@ -37,21 +38,27 @@ export async function POST(req: Request) {
       select: { managerId: true },
     });
 
+    // A Super Admin sits at the top of the approval chain, so their own time-off
+    // is auto-approved on submit (recorded as both owner and reviewer) instead of
+    // waiting on a review they'd just rubber-stamp themselves.
+    const autoApprove = isSuperAdmin(user.role);
+
     const request = await db.leaveRequest.create({
       data: {
         type,
         startDate: new Date(startDate),
         endDate: new Date(endDate),
         reason: reason && reason.length > 0 ? reason : null,
-        status: "PENDING",
+        status: autoApprove ? "APPROVED" : "PENDING",
         ownerId: user.id,
-        reviewerId: me?.managerId ?? null,
+        reviewerId: autoApprove ? user.id : me?.managerId ?? null,
+        decidedAt: autoApprove ? new Date() : null,
       },
     });
 
     await recordActivity({
       actor: user,
-      verb: "requested",
+      verb: autoApprove ? "approved" : "requested",
       target: `${type} time off`,
       meta: { requestId: request.id },
     });
@@ -61,8 +68,10 @@ export async function POST(req: Request) {
       action: "leave.create",
       entity: "LeaveRequest",
       entityId: request.id,
-      summary: `${user.name} requested ${type} time off`,
-      detail: { type, startDate, endDate },
+      summary: `${user.name} ${
+        autoApprove ? "took" : "requested"
+      } ${type} time off`,
+      detail: { type, startDate, endDate, status: autoApprove ? "APPROVED" : "PENDING" },
     });
 
     return NextResponse.json({ ok: true, id: request.id });

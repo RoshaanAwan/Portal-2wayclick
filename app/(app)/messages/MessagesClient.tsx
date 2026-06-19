@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import { MessageSquare, Plus, Users, FolderKanban } from "lucide-react";
 import { Avatar } from "@/components/ui/Avatar";
+import { Skeleton } from "@/components/ui/Skeleton";
 import { cn, timeAgo } from "@/lib/utils";
 import {
   useMessaging,
@@ -43,7 +44,8 @@ export function conversationLabel(
 }
 
 export function MessagesClient() {
-  const { me, conversations, activeId, setActiveId, refresh } = useMessaging();
+  const { me, conversations, loadingConversations, activeId, setActiveId, refresh } =
+    useMessaging();
   const router = useRouter();
   const params = useSearchParams();
   const [showNew, setShowNew] = useState(false);
@@ -96,7 +98,9 @@ export function MessagesClient() {
           </div>
 
           <div className="min-h-0 flex-1 overflow-y-auto py-1">
-            {conversations.length === 0 ? (
+            {loadingConversations ? (
+              <ConversationListSkeleton />
+            ) : conversations.length === 0 ? (
               <div className="px-4 py-12 text-center">
                 <MessageSquare className="mx-auto mb-2 h-6 w-6 text-ink-300" />
                 <p className="text-sm text-ink-400">No conversations yet</p>
@@ -222,5 +226,25 @@ function ConversationRow({
         </div>
       </div>
     </button>
+  );
+}
+
+// Shimmer placeholders shown while the first conversation-list load is in flight.
+function ConversationListSkeleton() {
+  return (
+    <div className="py-1" aria-hidden>
+      {Array.from({ length: 6 }).map((_, i) => (
+        <div key={i} className="flex items-center gap-3 px-3 py-2.5">
+          <Skeleton className="h-10 w-10 shrink-0 rounded-full" />
+          <div className="min-w-0 flex-1 space-y-2">
+            <div className="flex items-center justify-between gap-2">
+              <Skeleton className="h-3.5 w-28" />
+              <Skeleton className="h-2.5 w-8" />
+            </div>
+            <Skeleton className="h-3 w-40" />
+          </div>
+        </div>
+      ))}
+    </div>
   );
 }

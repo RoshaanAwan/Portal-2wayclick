@@ -9,6 +9,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { usePolling, REALTIME_TRANSPORT } from "@/lib/usePolling";
 
 // ── Messaging provider ────────────────────────────────────────────────────────
 // The single source of truth for chat on the client. Mounted in the (app) layout
@@ -27,6 +28,8 @@ export interface ChatMember {
   name: string;
   title: string;
   avatarUrl: string | null;
+  // Read cursor (ISO) — drives "seen" receipts on the sender's messages.
+  lastReadAt: string;
 }
 
 export interface ChatLastMessage {
@@ -65,6 +68,8 @@ interface MessagingContextValue {
   me: { id: string; name: string; avatarUrl: string | null };
   conversations: ChatConversation[];
   totalUnread: number;
+  /** True until the first conversation-list load resolves (drives the skeleton). */
+  loadingConversations: boolean;
   activeId: string | null;
   setActiveId: (id: string | null) => void;
   /** Subscribe a thread hook to the live stream. Returns an unsubscribe fn. */
@@ -93,6 +98,10 @@ export function MessagingProvider({
 }) {
   const [conversations, setConversations] = useState<ChatConversation[]>([]);
   const [activeId, setActiveIdState] = useState<string | null>(null);
+  // True until the first conversation-list load resolves — drives the list
+  // skeleton on the /messages page (the page loads its data client-side, so the
+  // route-level loading.tsx can't cover it).
+  const [loadingConversations, setLoadingConversations] = useState(true);
 
   // activeId in a ref so the SSE handler (a stable closure) always sees the
   // latest value without re-subscribing the stream.
@@ -106,6 +115,9 @@ export function MessagingProvider({
   }, []);
 
   const seen = useRef<Set<string>>(new Set());
+  // Poll high-water mark: the ISO timestamp of the newest message we've ingested.
+  // Seeded from the initial conversation list so we never replay shown history.
+  const cursor = useRef<string | null>(null);
 
   const markReadLocal = useCallback((conversationId: string) => {
     setConversations((prev) =>
@@ -130,8 +142,21 @@ export function MessagingProvider({
       const list: ChatConversation[] = data.conversations ?? [];
       list.forEach((c) => c.lastMessage && seen.current.add(c.lastMessage.id));
       setConversations(list);
+      // Seed/advance the poll cursor to the newest message we already have, so
+      // the first poll only returns genuinely new messages. Only advance it
+      // forward (a concurrent refresh shouldn't rewind a cursor the poll moved).
+      const newest = list
+        .map((c) => c.lastMessage?.createdAt)
+        .filter(Boolean)
+        .sort()
+        .pop() as string | undefined;
+      if (newest && (!cursor.current || newest > cursor.current)) {
+        cursor.current = newest;
+      }
     } catch {
       // ignore — the bell-style reconcile happens on the next load
+    } finally {
+      setLoadingConversations(false);
     }
   }, []);
 
@@ -176,28 +201,69 @@ export function MessagingProvider({
     [me.id, refresh],
   );
 
-  // Live stream — one EventSource for the whole app.
+  // Handle one incoming message regardless of transport: dedupe, update the
+  // list, and fan to any open thread hooks (they dedupe too and may need the
+  // clientId echo to reconcile an optimistic row).
+  const ingestMessage = useCallback(
+    (m: LiveChatMessage) => {
+      if (seen.current.has(m.id)) {
+        handlers.current.forEach((h) => h(m));
+        return;
+      }
+      seen.current.add(m.id);
+      ingestToList(m);
+      handlers.current.forEach((h) => h(m));
+    },
+    [ingestToList],
+  );
+
+  // ── Transport: polling (serverless-safe, default) ──────────────────────────
+  // Pull every message newer than our cursor on an interval. Works across Vercel
+  // instances where the in-process SSE bus can't reach the receiver. Every other
+  // tick we also re-pull the conversation list, which carries each member's
+  // lastReadAt — that's what keeps "seen" receipts live for the sender (the
+  // recipient reading produces no new message to poll, only an advanced cursor).
+  const tick = useRef(0);
+  usePolling(
+    async () => {
+      try {
+        const url = cursor.current
+          ? `/api/messages/since?cursor=${encodeURIComponent(cursor.current)}`
+          : "/api/messages/since";
+        const res = await fetch(url);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.cursor) cursor.current = data.cursor;
+          (data.messages ?? []).forEach((m: LiveChatMessage) =>
+            ingestMessage(m),
+          );
+        }
+      } catch {
+        // next tick retries
+      }
+      // Reconcile the list (read receipts, membership, ordering) ~every 5s.
+      tick.current = (tick.current + 1) % 2;
+      if (tick.current === 0) void refresh();
+    },
+    undefined,
+    REALTIME_TRANSPORT === "poll",
+  );
+
+  // ── Transport: SSE (single long-running host, e.g. DigitalOcean) ───────────
+  // One EventSource for the whole app. Enabled only when the transport flag is
+  // "sse"; the route still exists for that deployment.
   useEffect(() => {
+    if (REALTIME_TRANSPORT !== "sse") return;
     const es = new EventSource("/api/messages/stream");
     es.addEventListener("message", (ev) => {
       try {
-        const m: LiveChatMessage = JSON.parse((ev as MessageEvent).data);
-        // Dedupe against the initial fetch's last-messages and re-delivery.
-        if (seen.current.has(m.id)) {
-          // Still fan to thread hooks — they dedupe too and may need the echo
-          // (clientId) to reconcile an optimistic row.
-          handlers.current.forEach((h) => h(m));
-          return;
-        }
-        seen.current.add(m.id);
-        ingestToList(m);
-        handlers.current.forEach((h) => h(m));
+        ingestMessage(JSON.parse((ev as MessageEvent).data));
       } catch {
         // ignore malformed frames
       }
     });
     return () => es.close();
-  }, [ingestToList]);
+  }, [ingestMessage]);
 
   const totalUnread = useMemo(
     () => conversations.reduce((sum, c) => sum + c.unread, 0),
@@ -208,6 +274,7 @@ export function MessagingProvider({
     me,
     conversations,
     totalUnread,
+    loadingConversations,
     activeId,
     setActiveId,
     subscribe,

@@ -67,8 +67,6 @@ model User {
   createdInvoices    Invoice[]          @relation("InvoiceCreator")
   submittedExpenses  Expense[]          @relation("ExpenseSubmitter")
   reviewedExpenses   Expense[]          @relation("ExpenseReviewer")
-  submittedCanteen   CanteenExpense[]   @relation("CanteenSubmitter")
-  reviewedCanteen    CanteenExpense[]   @relation("CanteenReviewer")
   projectSalaries    ProjectSalary[]    @relation("SalaryEmployee")
   salary             UserSalary?
   // Chat / messaging.
@@ -339,6 +337,11 @@ model Project {
   name        String
   description String?
   createdAt   DateTime @default(now())
+
+  // Whether the project is active. Deactivating marks it inactive (shows an
+  // "Inactive" badge) without removing it or hiding it from any list — a
+  // reversible status flag, toggled by the admin tier from the projects page.
+  active Boolean @default(true)
 
   ownerId String
   owner   User   @relation("ProjectOwner", fields: [ownerId], references: [id])
@@ -731,8 +734,8 @@ model TaskAssignee {
 }
 
 // ── Finance: expenses ──────────────────────────────────────────────────────────
-// A general (non-canteen) expense claim raised by an Admin-tier user and decided
-// by a *different* Admin-tier user — same two-party approval shape as
+// An expense claim raised by an Admin-tier user and decided by a *different*
+// Admin-tier user — same two-party approval shape as
 // LeaveRequest. Money is integer minor units (cents) in `currency`, never a
 // float, mirroring Invoice. An expense may optionally be charged to a Project
 // (SetNull on project delete so the claim survives) and carry a receipt slip
@@ -786,52 +789,6 @@ model Expense {
   @@index([createdAt])
   @@index([status])
   @@index([projectId])
-  @@index([submitterId])
-}
-
-// ── Finance: canteen expenses ──────────────────────────────────────────────────
-// A dedicated module, separate from the general Expense above: a meal/canteen
-// spend with its own fields (vendor, headcount, meal date) and a REQUIRED slip.
-// Same two-party PENDING → APPROVED/REJECTED approval workflow. Money is integer
-// minor units (cents). See lib/finance.ts for validation + helpers.
-model CanteenExpense {
-  id     String @id @default(cuid())
-  // The canteen / vendor / restaurant the meal was from.
-  vendor String
-
-  amountCents Int    @default(0)
-  currency    String @default("USD")
-
-  // How many people the meal covered (≥1) — lets per-head cost be derived.
-  headcount Int @default(1)
-
-  // Status: PENDING | APPROVED | REJECTED.
-  status String @default("PENDING")
-
-  notes String?
-
-  // The day the meal happened (date at midnight). Defaults to creation.
-  mealDate DateTime @default(now())
-
-  // The slip is REQUIRED for a canteen expense (non-null columns).
-  slipUrl    String
-  slipName   String
-  slipSizeKb Int    @default(0)
-
-  submitterId   String?
-  submitter     User?   @relation("CanteenSubmitter", fields: [submitterId], references: [id], onDelete: SetNull)
-  submitterName String
-
-  reviewerId   String?
-  reviewer     User?     @relation("CanteenReviewer", fields: [reviewerId], references: [id], onDelete: SetNull)
-  reviewerName String?
-  decidedAt    DateTime?
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@index([createdAt])
-  @@index([status])
   @@index([submitterId])
 }
 

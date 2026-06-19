@@ -9,8 +9,11 @@ import {
   FolderKanban,
   AlertCircle,
   RotateCw,
+  Eye,
+  Check,
 } from "lucide-react";
 import { Avatar } from "@/components/ui/Avatar";
+import { Skeleton } from "@/components/ui/Skeleton";
 import { cn } from "@/lib/utils";
 import { useMessages, type ThreadMessage } from "@/lib/useMessages";
 import type { ChatConversation } from "@/components/MessagingProvider";
@@ -32,6 +35,32 @@ export function ThreadPane({
     useMessages(conversation.id);
   const [input, setInput] = useState("");
   const { name, avatar, subtitle, group } = conversationLabel(conversation, meId);
+
+  // "Seen" threshold: a message of mine is seen once every OTHER member has read
+  // up to (or past) it. We take the *minimum* of the other members' read cursors
+  // so a group message reads "Seen" only when everyone has caught up. The cursors
+  // come from the conversation row, which the provider re-polls — so this updates
+  // live. We render the eye only on the LAST of my seen messages to avoid a
+  // column of icons.
+  const others = conversation.members.filter((m) => m.id !== meId);
+  const seenThreshold =
+    others.length > 0
+      ? others.reduce(
+          (min, m) => (m.lastReadAt < min ? m.lastReadAt : min),
+          others[0].lastReadAt,
+        )
+      : null;
+  // The newest of my delivered messages that the other side has read.
+  const lastSeenMineId = (() => {
+    if (!seenThreshold) return null;
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const m = messages[i];
+      const delivered =
+        m.senderId === meId && m.status !== "sending" && m.status !== "failed";
+      if (delivered && m.createdAt <= seenThreshold) return m.id;
+    }
+    return null;
+  })();
 
   function submit() {
     const text = input;
@@ -77,9 +106,7 @@ export function ThreadPane({
         className="flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto px-3 py-4 sm:px-4"
       >
         {loading ? (
-          <div className="flex flex-1 items-center justify-center">
-            <Loader2 className="h-5 w-5 animate-spin text-ink-400" />
-          </div>
+          <ThreadSkeleton />
         ) : (
           <>
             {hasMore && (
@@ -105,6 +132,7 @@ export function ThreadPane({
                   m={m}
                   mine={m.senderId === meId}
                   showSender={group && m.senderId !== meId && isFirstOfRun(messages, i)}
+                  seen={m.id === lastSeenMineId}
                   onRetry={() => m.clientId && retry(m.clientId)}
                 />
               ))
@@ -155,15 +183,46 @@ function isFirstOfRun(messages: ThreadMessage[], i: number): boolean {
   return messages[i - 1].senderId !== messages[i].senderId;
 }
 
+// Shimmer placeholders shown while a thread's history loads — alternating
+// incoming/outgoing bubble shapes so the layout doesn't jump when real messages
+// arrive.
+function ThreadSkeleton() {
+  // Varied widths + sides read like a real conversation at a glance.
+  const rows: { mine: boolean; w: string }[] = [
+    { mine: false, w: "w-40" },
+    { mine: true, w: "w-52" },
+    { mine: false, w: "w-32" },
+    { mine: false, w: "w-56" },
+    { mine: true, w: "w-36" },
+    { mine: true, w: "w-44" },
+    { mine: false, w: "w-28" },
+  ];
+  return (
+    <div className="flex flex-1 flex-col justify-end gap-2" aria-hidden>
+      {rows.map((r, i) => (
+        <div
+          key={i}
+          className={cn("flex", r.mine ? "justify-end" : "justify-start")}
+        >
+          <Skeleton className={cn("h-9 rounded-2xl", r.w)} />
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function Bubble({
   m,
   mine,
   showSender,
+  seen,
   onRetry,
 }: {
   m: ThreadMessage;
   mine: boolean;
   showSender: boolean;
+  // True only on my newest message the other side has read — renders the eye.
+  seen: boolean;
   onRetry: () => void;
 }) {
   return (
@@ -183,7 +242,7 @@ function Bubble({
       >
         {m.body}
       </div>
-      {m.status === "failed" && (
+      {m.status === "failed" ? (
         <button
           onClick={onRetry}
           className="mt-0.5 inline-flex items-center gap-1 text-[11px] font-medium text-danger hover:underline"
@@ -191,7 +250,16 @@ function Bubble({
           <AlertCircle className="h-3 w-3" /> Failed — tap to retry{" "}
           <RotateCw className="h-3 w-3" />
         </button>
-      )}
+      ) : seen ? (
+        // Read receipt — the eye appears on my latest message once it's been seen.
+        <span className="mr-1 mt-0.5 inline-flex items-center gap-1 text-[10px] font-medium text-ink-400">
+          <Eye className="h-3 w-3" /> Seen
+        </span>
+      ) : mine && m.status === "sending" ? (
+        <span className="mr-1 mt-0.5 inline-flex items-center gap-1 text-[10px] text-ink-400">
+          <Check className="h-3 w-3" /> Sending…
+        </span>
+      ) : null}
     </div>
   );
 }

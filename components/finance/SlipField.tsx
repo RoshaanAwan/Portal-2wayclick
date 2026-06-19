@@ -5,8 +5,8 @@ import { Paperclip, X, FileText, Loader2 } from "lucide-react";
 import { formatFileSize } from "@/lib/utils";
 import type { SlipMeta } from "@/lib/finance";
 
-// A receipt/slip picker used by the expense and canteen forms. Uploads the
-// chosen file to POST /api/finance/upload immediately and reports the resulting
+// A receipt/slip picker used by the expense form. Uploads the chosen file to
+// POST /api/finance/upload immediately and reports the resulting
 // { url, name, sizeKb } up via onChange. The parent stores that on submit.
 export function SlipField({
   value,

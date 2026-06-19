@@ -3,11 +3,14 @@ import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { audit } from "@/lib/audit";
 import { recordActivity } from "@/lib/activityFeed";
-import { can } from "@/lib/permissions";
+import { can, isSuperAdmin } from "@/lib/permissions";
 import { expenseInputSchema, toCents, formatMoney } from "@/lib/finance";
 
 // POST /api/expenses/create — raise a general expense claim (Admin tier only).
-// The claim starts PENDING; a *different* Admin-tier user approves/rejects it.
+// The claim normally starts PENDING; a *different* Admin-tier user approves or
+// rejects it. A Super Admin sits at the top of the approval chain, so their own
+// claims are auto-approved on submit (recorded as both submitter and reviewer)
+// rather than waiting on a review they'd just rubber-stamp themselves.
 export async function POST(req: Request) {
   try {
     const actor = await requireUser();
@@ -30,6 +33,9 @@ export async function POST(req: Request) {
 
     const amountCents = toCents(input.amount);
 
+    // Super Admins approve their own claims on submit; everyone else starts PENDING.
+    const autoApprove = isSuperAdmin(actor.role);
+
     const expense = await db.expense.create({
       data: {
         title: input.title,
@@ -44,12 +50,20 @@ export async function POST(req: Request) {
         slipSizeKb: input.slip?.sizeKb ?? null,
         submitterId: actor.id,
         submitterName: actor.name,
+        ...(autoApprove
+          ? {
+              status: "APPROVED",
+              reviewerId: actor.id,
+              reviewerName: actor.name,
+              decidedAt: new Date(),
+            }
+          : {}),
       },
     });
 
     await recordActivity({
       actor,
-      verb: "requested",
+      verb: autoApprove ? "approved" : "requested",
       target: `an expense — ${input.title}`,
     });
 
@@ -58,16 +72,16 @@ export async function POST(req: Request) {
       action: "expense.create",
       entity: "Expense",
       entityId: expense.id,
-      summary: `${actor.name} submitted expense "${input.title}" (${formatMoney(
-        amountCents,
-        input.currency,
-      )})`,
+      summary: `${actor.name} ${
+        autoApprove ? "submitted and auto-approved" : "submitted"
+      } expense "${input.title}" (${formatMoney(amountCents, input.currency)})`,
       detail: {
         title: input.title,
         category: input.category,
         amountCents,
         currency: input.currency,
         projectId: input.projectId || null,
+        status: autoApprove ? "APPROVED" : "PENDING",
       },
     });
 

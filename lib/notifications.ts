@@ -19,7 +19,6 @@ export type NotificationType =
   | "announcement.created"
   | "invoice.paid"
   | "expense.decided"
-  | "canteen.decided"
   | "message.received";
 
 /**

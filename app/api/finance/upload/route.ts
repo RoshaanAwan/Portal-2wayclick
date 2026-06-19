@@ -5,13 +5,13 @@ import { can } from "@/lib/permissions";
 import { audit } from "@/lib/audit";
 
 // Uploads an expense receipt/slip (multipart/form-data, field "file") to Vercel
-// Blob and returns the hosted URL plus name + size. Shared by the general
-// expense and canteen forms. Mirrors /api/documents/upload: when
-// BLOB_READ_WRITE_TOKEN isn't set (local dev) it falls back to an inline data
-// URL so uploads work end-to-end with no extra setup.
+// Blob and returns the hosted URL plus name + size. Used by the expense form.
+// Mirrors /api/documents/upload: when BLOB_READ_WRITE_TOKEN isn't set (local
+// dev) it falls back to an inline data URL so uploads work end-to-end with no
+// extra setup.
 //
 // Admin-tier only — same gate as the rest of the finance module. The create
-// steps persist the returned url/name/sizeKb onto the Expense / CanteenExpense.
+// step persists the returned url/name/sizeKb onto the Expense.
 
 const MAX_BYTES = 10 * 1024 * 1024; // 10 MB — a receipt photo or PDF.
 
