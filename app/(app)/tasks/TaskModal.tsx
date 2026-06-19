@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   AlignLeft,
   CalendarClock,
+  Check,
   Clock,
   MessageSquare,
   Pencil,
@@ -66,6 +67,7 @@ export function TaskModal({
   onAssign,
   onAddComment,
   onLogTime,
+  onSaveDescription,
   onEdit,
   onDelete,
 }: {
@@ -83,6 +85,7 @@ export function TaskModal({
     minutes: number,
     reason?: string,
   ) => Promise<boolean>;
+  onSaveDescription: (taskId: string, description: string) => Promise<boolean>;
   onEdit: (taskId: string) => void;
   onDelete: (taskId: string) => void;
 }) {
@@ -93,7 +96,31 @@ export function TaskModal({
   // Reason required when the new total would exceed the card's estimate.
   const [reasonDraft, setReasonDraft] = useState("");
   const [loggingTime, setLoggingTime] = useState(false);
+  // Inline description editing — `editingDesc` holds the draft while open.
+  const [editingDesc, setEditingDesc] = useState<string | null>(null);
+  const [savingDesc, setSavingDesc] = useState(false);
   const threadRef = useRef<HTMLDivElement>(null);
+
+  // Close the inline description editor whenever a different card is opened.
+  const taskId = task?.id ?? null;
+  useEffect(() => {
+    setEditingDesc(null);
+    setSavingDesc(false);
+  }, [taskId]);
+
+  async function saveDescription() {
+    if (!task || savingDesc || editingDesc === null) return;
+    const next = editingDesc.trim();
+    // Nothing changed — just close the editor.
+    if (next === (task.description ?? "").trim()) {
+      setEditingDesc(null);
+      return;
+    }
+    setSavingDesc(true);
+    const ok = await onSaveDescription(task.id, next);
+    setSavingDesc(false);
+    if (ok) setEditingDesc(null);
+  }
 
   // Close on Escape.
   useEffect(() => {
@@ -304,18 +331,81 @@ export function TaskModal({
                 </div>
               </section>
 
-              {/* Description — the card's free-text detail, distinct from the title. */}
+              {/* Description — the card's free-text detail, distinct from the
+                  title. Managers can edit it inline via the pencil button. */}
               <section className="mb-6">
-                <div className="mb-2 flex items-center gap-2 text-ink-500">
-                  <AlignLeft className="h-4 w-4" />
-                  <h3 className="text-xs font-semibold uppercase tracking-wide">
-                    Description
-                  </h3>
+                <div className="mb-2 flex items-center justify-between gap-2 text-ink-500">
+                  <div className="flex items-center gap-2">
+                    <AlignLeft className="h-4 w-4" />
+                    <h3 className="text-xs font-semibold uppercase tracking-wide">
+                      Description
+                    </h3>
+                  </div>
+                  {canManage && editingDesc === null && (
+                    <button
+                      type="button"
+                      onClick={() => setEditingDesc(task.description ?? "")}
+                      aria-label="Edit description"
+                      className="hover-surface grid h-7 w-7 place-items-center rounded-lg text-ink-400 hover:text-ink"
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                    </button>
+                  )}
                 </div>
-                {task.description?.trim() ? (
+                {editingDesc !== null ? (
+                  <div>
+                    <textarea
+                      value={editingDesc}
+                      onChange={(e) => setEditingDesc(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Escape") setEditingDesc(null);
+                        if (
+                          (e.metaKey || e.ctrlKey) &&
+                          e.key === "Enter"
+                        ) {
+                          e.preventDefault();
+                          void saveDescription();
+                        }
+                      }}
+                      rows={4}
+                      maxLength={2000}
+                      autoFocus
+                      placeholder="Add a description (optional)…"
+                      className="input resize-none text-sm"
+                    />
+                    <div className="mt-2 flex items-center justify-end gap-2">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => setEditingDesc(null)}
+                        disabled={savingDesc}
+                      >
+                        Cancel
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        loading={savingDesc}
+                        onClick={() => void saveDescription()}
+                      >
+                        {!savingDesc && <Check className="h-4 w-4" />}
+                        Save
+                      </Button>
+                    </div>
+                  </div>
+                ) : task.description?.trim() ? (
                   <p className="whitespace-pre-wrap break-words rounded-xl border border-line bg-surface-2 px-3.5 py-3 text-sm leading-relaxed text-ink-700">
                     {task.description}
                   </p>
+                ) : canManage ? (
+                  <button
+                    type="button"
+                    onClick={() => setEditingDesc("")}
+                    className="hover-surface w-full rounded-xl border border-dashed border-line px-3.5 py-3 text-left text-sm leading-relaxed text-ink-400"
+                  >
+                    No description yet. Click to add one.
+                  </button>
                 ) : (
                   <p className="rounded-xl border border-dashed border-line px-3.5 py-3 text-sm leading-relaxed text-ink-400">
                     No description yet.
