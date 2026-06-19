@@ -14,6 +14,15 @@ export const TICKET_STATUS = {
   CONSUMED: "CONSUMED",
 } as const;
 
+// Two QR directions — see the LoginTicket model.
+//   SCAN_TO_APPROVE: login-page QR; a signed-in phone approves a NEW device.
+//   DIRECT_LINK: dashboard QR; a NOT-signed-in phone signs ITSELF in as the
+//     dashboard user who created the (already-authorized) ticket.
+export const TICKET_KIND = {
+  SCAN_TO_APPROVE: "SCAN_TO_APPROVE",
+  DIRECT_LINK: "DIRECT_LINK",
+} as const;
+
 // Short-lived on purpose: the QR is only useful for the moment it's on screen.
 export const TICKET_TTL_MS = 2 * 60 * 1000; // 2 minutes
 

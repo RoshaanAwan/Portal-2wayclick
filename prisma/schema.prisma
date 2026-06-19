@@ -100,6 +100,13 @@ model Session {
 model LoginTicket {
   id        String   @id @default(cuid())
   token     String   @unique
+  // Direction of the handshake:
+  //   SCAN_TO_APPROVE — a new device shows the QR; an already-signed-in phone
+  //     scans + approves; the showing device then claims a session (login page).
+  //   DIRECT_LINK — an already-signed-in device (dashboard) shows the QR bound
+  //     to its own user; a NOT-signed-in phone scans it and signs itself in as
+  //     that user. Created authenticated, so no separate approval step.
+  kind      String   @default("SCAN_TO_APPROVE")
   // PENDING | APPROVED | CONSUMED  (string to mirror the rest of the schema's
   // enum-as-string convention; see lib/permissions.ts for role precedent).
   status    String   @default("PENDING")

@@ -1,0 +1,2 @@
+-- AlterTable
+ALTER TABLE "LoginTicket" ADD COLUMN     "kind" TEXT NOT NULL DEFAULT 'SCAN_TO_APPROVE';
