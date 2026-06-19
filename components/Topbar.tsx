@@ -13,10 +13,12 @@ import {
   User,
   CheckCheck,
   Menu,
+  ScanLine,
 } from "lucide-react";
 import { Avatar } from "@/components/ui/Avatar";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { Logo } from "@/components/ui/Logo";
+import { ApproveScannerButton } from "@/components/ApproveScanner";
 import { timeAgo } from "@/lib/utils";
 import { useNotifications } from "@/lib/useNotifications";
 import { useMobileNav } from "@/components/MobileNavProvider";
@@ -265,6 +267,15 @@ export function Topbar({ user }: { user: SafeUser }) {
                         My profile
                       </Link>
                     )}
+                    {/* Approve a device by scanning its login QR — runs the
+                        camera + approve inside this signed-in app, so it always
+                        has the session (a scanned deep link often doesn't). */}
+                    <ApproveScannerButton
+                      className="hover-surface flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm text-ink-500 hover:text-ink"
+                    >
+                      <ScanLine className="h-4 w-4" />
+                      Approve a device
+                    </ApproveScannerButton>
                     <Link
                       href="/settings"
                       onClick={() => setMenuOpen(false)}
