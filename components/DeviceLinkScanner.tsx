@@ -1,32 +1,39 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useCallback, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, ShieldCheck } from "lucide-react";
-import { useQrLogin } from "@/lib/useQrLogin";
 import { QrCodeSurface } from "@/components/QrCodeSurface";
+import type { QrPhase } from "@/lib/useQrLogin";
 
 /**
- * "Link a device" modal — shows a QR code to be scanned from a phone that's
- * already signed in. Scanning opens the approval page (/link/<token>) on the
- * phone; once approved, this browser's session is confirmed and the modal
- * closes. Same handshake as the login-page QR, surfaced from the dashboard.
+ * "Link a device" modal (dashboard side). Shows a QR bound to the current user
+ * (a DIRECT_LINK ticket). A phone that scans it — even one that's NOT signed in —
+ * opens /link/<token> and signs ITSELF in as this user with one tap. This modal
+ * only needs to show the code; it doesn't poll or claim (the phone is the device
+ * being signed in, not this one).
  */
 function DeviceLinkModal({ onClose }: { onClose: () => void }) {
-  const router = useRouter();
-  const [done, setDone] = useState(false);
+  const [phase, setPhase] = useState<QrPhase>("loading");
+  const [linkUrl, setLinkUrl] = useState("");
 
-  const { phase, linkUrl, restart } = useQrLogin({
-    onSignedIn: () => {
-      setDone(true);
-      // Refresh server components so anything session-derived re-renders, then
-      // close the modal shortly after the success tick shows.
-      router.refresh();
-      setTimeout(onClose, 1100);
-    },
-  });
+  const createCode = useCallback(async () => {
+    setPhase("loading");
+    try {
+      const res = await fetch("/api/auth/qr/link/create", { method: "POST" });
+      if (!res.ok) throw new Error("create failed");
+      const data = (await res.json()) as { token: string };
+      setLinkUrl(`${window.location.origin}/link/${data.token}`);
+      setPhase("ready");
+    } catch {
+      setPhase("error");
+    }
+  }, []);
+
+  useEffect(() => {
+    createCode();
+  }, [createCode]);
 
   if (typeof document === "undefined") return null;
 
@@ -50,11 +57,11 @@ function DeviceLinkModal({ onClose }: { onClose: () => void }) {
           <div className="mb-4 flex items-start justify-between gap-3">
             <div>
               <h2 className="font-display text-lg font-semibold tracking-tight text-ink">
-                Link a device
+                Sign in on your phone
               </h2>
               <p className="mt-1 text-xs text-ink-500">
-                Scan this code with a phone you&apos;re already signed in on, then
-                approve it there.
+                Scan this code with your phone to sign in there — no password
+                needed.
               </p>
             </div>
             <button
@@ -70,26 +77,24 @@ function DeviceLinkModal({ onClose }: { onClose: () => void }) {
             <QrCodeSurface
               phase={phase}
               linkUrl={linkUrl}
-              onRestart={restart}
+              onRestart={createCode}
               size={196}
             />
 
-            {!done && (
-              <ol className="w-full space-y-1.5 text-xs text-ink-500">
-                <li className="flex gap-2">
-                  <Step n={1} />
-                  Open your phone camera and point it at this code.
-                </li>
-                <li className="flex gap-2">
-                  <Step n={2} />
-                  Tap the link to open 2WayClick, then approve the device.
-                </li>
-              </ol>
-            )}
+            <ol className="w-full space-y-1.5 text-xs text-ink-500">
+              <li className="flex gap-2">
+                <Step n={1} />
+                Open your phone camera and point it at this code.
+              </li>
+              <li className="flex gap-2">
+                <Step n={2} />
+                Tap the link, then confirm to sign in on your phone.
+              </li>
+            </ol>
 
             <p className="flex items-center gap-1.5 text-center text-[11px] text-ink-400">
               <ShieldCheck className="h-3.5 w-3.5 shrink-0 text-ink-300" />
-              The code expires in a couple of minutes and can be used once.
+              The code expires in a couple of minutes and signs in one device.
             </p>
           </div>
         </motion.div>
