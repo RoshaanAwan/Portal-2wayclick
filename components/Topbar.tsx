@@ -31,6 +31,7 @@ const typeColor: Record<string, string> = {
   "leave.decided": "text-success",
   "task.assigned": "text-info",
   "task.comment": "text-accent",
+  "message.received": "text-accent",
 };
 
 export function Topbar({ user }: { user: SafeUser }) {

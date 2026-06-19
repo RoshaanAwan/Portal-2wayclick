@@ -71,6 +71,10 @@ model User {
   reviewedCanteen    CanteenExpense[]   @relation("CanteenReviewer")
   projectSalaries    ProjectSalary[]    @relation("SalaryEmployee")
   salary             UserSalary?
+  // Chat / messaging.
+  conversationMemberships ConversationMember[] @relation("ConvMembership")
+  sentMessages            Message[]            @relation("MessageSender")
+  createdConversations    Conversation[]       @relation("ConversationCreator")
 
   // The org tree is walked by managerId (Team Pulse, org chart, audit scope).
   // Postgres does not auto-index FK columns, so this is needed for the
@@ -345,6 +349,9 @@ model Project {
 
   members ProjectMember[]
 
+  // 1:1 with the chat channel auto-created for this project (kind="project").
+  channel Conversation? @relation("ProjectChannel")
+
   // Public client-share link. Anyone with this opaque token can open a
   // read-only board at /shared/<token> and leave comments / submit requests
   // — no portal login. Nullable so it can be revoked (set to null) and
@@ -413,6 +420,87 @@ model ProjectMember {
   // Compound unique covers projectId lookups; index userId for "my projects".
   @@unique([projectId, userId])
   @@index([userId])
+}
+
+// ── Chat / messaging ──────────────────────────────────────────────────────────
+// A conversation is a DM (two people), a named group, or a project channel
+// (auto-tied to a Project, roster mirrors ProjectMember + owner). Messages are
+// delivered live over the per-user `chat-user:<id>` bus (see lib/notifications.ts)
+// and also fire a normal notification (bell + Web Push) so recipients are
+// alerted when the app is closed. The Message row is the source of truth.
+model Conversation {
+  id   String @id @default(cuid())
+  // "dm" | "group" | "project". Stored as a string (matches the Role / kind
+  // convention elsewhere; see lib/messaging.ts for the source of truth).
+  kind String
+
+  // Group/channel display name. Null for DMs (rendered from the other member).
+  title String?
+
+  // For DMs: the sorted "minId:maxId" of the two members. @unique so a DM
+  // between A and B can never be created twice (upsert collapses the race).
+  // Null for groups and project channels.
+  dmKey String? @unique
+
+  // For project channels: the backing project (1:1). @unique so a project has
+  // at most one channel. Null for DMs/groups.
+  projectId String?  @unique
+  project   Project? @relation("ProjectChannel", fields: [projectId], references: [id], onDelete: Cascade)
+
+  // Who started it. SetNull so the thread survives the creator being deleted.
+  createdById String?
+  createdBy   User?   @relation("ConversationCreator", fields: [createdById], references: [id], onDelete: SetNull)
+
+  // Bumped on every send so the conversation list sorts by recent activity
+  // without scanning Message. Defaults to creation time for empty threads.
+  lastMessageAt DateTime @default(now())
+  createdAt     DateTime @default(now())
+
+  members  ConversationMember[] @relation("ConvMembers")
+  messages Message[]
+
+  @@index([lastMessageAt])
+}
+
+// One row per (conversation, user). lastReadAt is a cheap per-member cursor:
+// unread = count(messages with createdAt > lastReadAt and not mine), which is
+// served by the Message [conversationId, createdAt] index — no per-message
+// receipt rows. Defaults to the epoch so a freshly-added member sees existing
+// history as unread without any app-side backfill.
+model ConversationMember {
+  id             String       @id @default(cuid())
+  conversationId String
+  conversation   Conversation @relation("ConvMembers", fields: [conversationId], references: [id], onDelete: Cascade)
+  userId         String
+  user           User         @relation("ConvMembership", fields: [userId], references: [id], onDelete: Cascade)
+
+  // Read cursor. lastReadMessageId is kept (nullable) so a future "read up to
+  // here" divider is free; unread counting uses the timestamp.
+  lastReadAt        DateTime @default(dbgenerated("'1970-01-01 00:00:00'::timestamp"))
+  lastReadMessageId String?
+  joinedAt          DateTime @default(now())
+
+  @@unique([conversationId, userId])
+  @@index([userId])
+}
+
+model Message {
+  id             String       @id @default(cuid())
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  // SetNull + denormalized name/avatar so a deleted sender still renders in the
+  // thread (mirrors Notification.actorName / Invoice / Expense).
+  senderId     String?
+  sender       User?   @relation("MessageSender", fields: [senderId], references: [id], onDelete: SetNull)
+  senderName   String
+  senderAvatar String?
+
+  body      String
+  createdAt DateTime @default(now())
+
+  // Serves both keyset history paging and the unread range count.
+  @@index([conversationId, createdAt])
 }
 
 model BoardList {
