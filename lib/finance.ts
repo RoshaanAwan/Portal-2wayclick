@@ -3,17 +3,17 @@ import { CURRENCIES } from "./invoices";
 
 // ── Finance domain helpers ────────────────────────────────────────────────────
 // Shared types, enums, money helpers, and validation for the finance module:
-// general expenses, canteen expenses, and per-project monthly salaries. Money is
-// integer minor units (cents) everywhere, exactly like lib/invoices.ts — never a
-// float. formatMoney/toCents live there (the single source of money math); we
-// re-export them so finance callers have one import.
+// general expenses and per-project monthly salaries. Money is integer minor units
+// (cents) everywhere, exactly like lib/invoices.ts — never a float. formatMoney/
+// toCents live there (the single source of money math); we re-export them so
+// finance callers have one import.
 
 export { formatMoney, toCents, CURRENCIES } from "./invoices";
 export type { Currency } from "./invoices";
 
 // ── Approval status ────────────────────────────────────────────────────────────
-// Both expenses and canteen expenses ride the same workflow: a submitter raises a
-// claim (PENDING) and a different Admin-tier user approves or rejects it.
+// Expenses ride a two-party workflow: a submitter raises a claim (PENDING) and a
+// different Admin-tier user approves or rejects it.
 
 export const FINANCE_STATUSES = ["PENDING", "APPROVED", "REJECTED"] as const;
 export type FinanceStatus = (typeof FINANCE_STATUSES)[number];
@@ -35,8 +35,8 @@ export const FINANCE_STATUS_META: Record<
 };
 
 // ── Expense categories ─────────────────────────────────────────────────────────
-// The kinds of general (non-canteen) expense a claim can fall under. Stored as a
-// plain string on the row; validated against this list at write time.
+// The kinds of expense a claim can fall under. Stored as a plain string on the
+// row; validated against this list at write time.
 
 export const EXPENSE_CATEGORIES = [
   "Travel",
@@ -52,8 +52,8 @@ export const EXPENSE_CATEGORIES = [
 export type ExpenseCategory = (typeof EXPENSE_CATEGORIES)[number];
 
 // ── Slip attachment ────────────────────────────────────────────────────────────
-// A receipt/slip uploaded for an expense (general or canteen). Mirrors the
-// Document upload return shape: a hosted (or data) URL plus name + size.
+// A receipt/slip uploaded for an expense. Mirrors the Document upload return
+// shape: a hosted (or data) URL plus name + size.
 
 export interface SlipMeta {
   url: string;
@@ -90,24 +90,6 @@ export const expenseInputSchema = z.object({
   slip: slipSchema,
 });
 export type ExpenseInput = z.infer<typeof expenseInputSchema>;
-
-export const canteenInputSchema = z.object({
-  vendor: z.string().trim().min(1, "Vendor required").max(200),
-  amount: amountMajor,
-  currency: z.enum(CURRENCIES),
-  // How many people the meal covered (≥1).
-  headcount: z.number().int().min(1, "Headcount must be at least 1").max(10_000),
-  // ISO date (yyyy-mm-dd) the meal happened, or empty (defaults to today).
-  mealDate: z.string().trim().optional().or(z.literal("")),
-  notes: z.string().trim().max(1000).optional().or(z.literal("")),
-  // The slip is REQUIRED for canteen expenses.
-  slip: z.object({
-    url: z.string().trim().min(1).max(5000),
-    name: z.string().trim().min(1).max(200),
-    sizeKb: z.number().int().min(0).max(50 * 1024),
-  }),
-});
-export type CanteenInput = z.infer<typeof canteenInputSchema>;
 
 export const decisionSchema = z.object({
   id: z.string().min(1),
@@ -260,25 +242,6 @@ export interface ExpenseDTO {
   slipSizeKb: number | null;
   projectId: string | null;
   projectName: string | null;
-  submitterId: string | null;
-  submitterName: string;
-  reviewerName: string | null;
-  decidedAt: string | null;
-  createdAt: string;
-}
-
-export interface CanteenExpenseDTO {
-  id: string;
-  vendor: string;
-  amountCents: number;
-  currency: string;
-  headcount: number;
-  status: FinanceStatus;
-  notes: string | null;
-  mealDate: string;
-  slipUrl: string;
-  slipName: string;
-  slipSizeKb: number;
   submitterId: string | null;
   submitterName: string;
   reviewerName: string | null;

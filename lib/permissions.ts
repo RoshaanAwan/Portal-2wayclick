@@ -96,10 +96,10 @@ export const can = {
   /** Create, edit, send, and delete client invoices. Admin tier. */
   manageInvoices: (role?: string | null) => isAdminTier(role),
   /**
-   * Manage the finance module — expenses, canteen expenses, and per-project
-   * salaries. Admin tier only (Super Admin / Admin). Submitting an expense and
-   * approving it are both gated on this; the routes enforce that an approver is
-   * not the submitter so the approval workflow still has two parties.
+   * Manage the finance module — expenses and per-project salaries. Admin tier
+   * only (Super Admin / Admin). Submitting an expense and approving it are both
+   * gated on this; the routes enforce that an approver is not the submitter so
+   * the approval workflow still has two parties.
    */
   manageFinance: (role?: string | null) => isAdminTier(role),
   manageProjects: (role?: string | null) => isAdminTier(role),

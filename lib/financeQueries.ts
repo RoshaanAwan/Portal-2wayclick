@@ -3,7 +3,6 @@ import { Prisma } from "@prisma/client";
 import { db } from "./db";
 import type {
   ExpenseDTO,
-  CanteenExpenseDTO,
   ProjectSalaryDTO,
   ProjectIncomeLineDTO,
   ProjectShareLineDTO,
@@ -53,52 +52,6 @@ export async function listExpenses(): Promise<ExpenseDTO[]> {
     include: expenseInclude,
   });
   return rows.map(toExpenseDTO);
-}
-
-export function toCanteenDTO(c: {
-  id: string;
-  vendor: string;
-  amountCents: number;
-  currency: string;
-  headcount: number;
-  status: string;
-  notes: string | null;
-  mealDate: Date;
-  slipUrl: string;
-  slipName: string;
-  slipSizeKb: number;
-  submitterId: string | null;
-  submitterName: string;
-  reviewerName: string | null;
-  decidedAt: Date | null;
-  createdAt: Date;
-}): CanteenExpenseDTO {
-  return {
-    id: c.id,
-    vendor: c.vendor,
-    amountCents: c.amountCents,
-    currency: c.currency,
-    headcount: c.headcount,
-    status: c.status as FinanceStatus,
-    notes: c.notes,
-    mealDate: c.mealDate.toISOString(),
-    slipUrl: c.slipUrl,
-    slipName: c.slipName,
-    slipSizeKb: c.slipSizeKb,
-    submitterId: c.submitterId,
-    submitterName: c.submitterName,
-    reviewerName: c.reviewerName,
-    decidedAt: c.decidedAt ? c.decidedAt.toISOString() : null,
-    createdAt: c.createdAt.toISOString(),
-  };
-}
-
-/** All canteen expenses, newest first, as DTOs. */
-export async function listCanteenExpenses(): Promise<CanteenExpenseDTO[]> {
-  const rows = await db.canteenExpense.findMany({
-    orderBy: { createdAt: "desc" },
-  });
-  return rows.map(toCanteenDTO);
 }
 
 const salaryInclude = {
