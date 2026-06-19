@@ -19,7 +19,8 @@ export type NotificationType =
   | "announcement.created"
   | "invoice.paid"
   | "expense.decided"
-  | "canteen.decided";
+  | "canteen.decided"
+  | "message.received";
 
 /**
  * In-process pub/sub for live (SSE) delivery. One emitter per server instance;
@@ -53,6 +54,52 @@ export function subscribe(
   const channel = `notif:${userId}`;
   bus.on(channel, handler);
   return () => bus.off(channel, handler);
+}
+
+// ── Live chat messages ────────────────────────────────────────────────────────
+// A per-user channel (chat-user:<id>), separate from the bell's notif:<id>
+// channel, that carries every message addressed to a user — across all their
+// conversations — over one SSE stream (app/api/messages/stream). The client uses
+// it to append to an open thread AND to keep the conversation list + unread
+// badge live for threads that aren't open. A normal notify() call (fired
+// alongside the publish in lib/messaging.ts) still handles the bell + Web Push,
+// so recipients are alerted even with the app closed. Same single-process caveat
+// as the bell bus: the Message row is the source of truth and reconciles on
+// reload. The publish includes the sender too (multi-tab); clients dedupe.
+
+/** Shape pushed down the chat stream. `clientId` echoes the sender's optimistic
+ *  temp id so their own tab can reconcile instead of rendering a duplicate. */
+export interface LiveMessage {
+  id: string;
+  conversationId: string;
+  senderId: string | null;
+  senderName: string;
+  senderAvatar: string | null;
+  body: string;
+  createdAt: string;
+  clientId?: string | null;
+}
+
+/** Subscribe to live chat messages for one user. Returns an unsubscribe fn. */
+export function subscribeChat(
+  userId: string,
+  handler: (m: LiveMessage) => void,
+): () => void {
+  const channel = `chat-user:${userId}`;
+  bus.on(channel, handler);
+  return () => bus.off(channel, handler);
+}
+
+/** Push one message to every recipient's open chat stream. De-dupes the
+ *  recipient list. Best-effort, never throws. */
+export function publishChatToUsers(userIds: string[], msg: LiveMessage): void {
+  try {
+    for (const userId of new Set(userIds)) {
+      bus.emit(`chat-user:${userId}`, msg);
+    }
+  } catch (err) {
+    console.error("[publishChatToUsers] failed", msg.conversationId, err);
+  }
 }
 
 interface NotifyInput {

@@ -22,6 +22,7 @@ import {
   Wallet,
   UtensilsCrossed,
   Banknote,
+  MessageSquare,
   X,
 } from "lucide-react";
 import { useState } from "react";
@@ -29,9 +30,11 @@ import { cn } from "@/lib/utils";
 import { Logo } from "@/components/ui/Logo";
 import { can, isManagerTier } from "@/lib/permissions";
 import { useMobileNav } from "@/components/MobileNavProvider";
+import { useMessaging } from "@/components/MessagingProvider";
 
 const NAV = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/messages", label: "Messages", icon: MessageSquare },
   { href: "/announcements", label: "Announcements", icon: Megaphone },
   { href: "/projects", label: "Projects", icon: FolderKanban },
   // Directory is admin-tier only — see adminTierNav below.
@@ -188,6 +191,8 @@ function SidebarBody({
   onClose?: () => void;
 }) {
   const { adminTierNav, managerNav, adminNav } = sections;
+  // Live unread total for the Messages entry — same source as the page badge.
+  const { totalUnread } = useMessaging();
   return (
     <div className="glass relative flex h-full flex-col overflow-hidden px-3 py-4">
       {/* Brand */}
@@ -230,6 +235,7 @@ function SidebarBody({
             active={isActive(item.href)}
             onGo={go}
             scope={scope}
+            badge={item.href === "/messages" ? totalUnread : 0}
           />
         ))}
 
@@ -300,6 +306,7 @@ function NavLink({
   active,
   onGo,
   scope,
+  badge = 0,
 }: {
   href: string;
   label: string;
@@ -309,6 +316,8 @@ function NavLink({
   // Disambiguates the sliding-pill layoutId between the desktop and mobile
   // instances, which can both be mounted at once (drawer open over the page).
   scope: string;
+  // Optional unread count pill (Messages). Hidden when 0.
+  badge?: number;
 }) {
   return (
     <Link
@@ -333,7 +342,17 @@ function NavLink({
           active ? "text-white" : "text-ink-400 group-hover:text-ink-700",
         )}
       />
-      <span className="relative z-10">{label}</span>
+      <span className="relative z-10 flex-1">{label}</span>
+      {badge > 0 && (
+        <span
+          className={cn(
+            "relative z-10 inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full px-1 text-[10px] font-bold leading-none",
+            active ? "bg-white/25 text-white" : "bg-accent text-white",
+          )}
+        >
+          {badge > 9 ? "9+" : badge}
+        </span>
+      )}
     </Link>
   );
 }
