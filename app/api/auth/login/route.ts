@@ -23,6 +23,15 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Invalid email or password" }, { status: 401 });
     }
 
+    // Disabled accounts cannot sign in. Distinct message so the person knows
+    // it's an access issue, not a wrong password.
+    if (user.disabledAt) {
+      return NextResponse.json(
+        { error: "This account has been disabled. Contact your administrator." },
+        { status: 403 },
+      );
+    }
+
     await createSession(user.id);
 
     await audit({

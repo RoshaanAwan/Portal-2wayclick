@@ -118,7 +118,7 @@ export function RequestComposer() {
                   <label className="mb-1.5 block text-xs font-medium text-ink-500">
                     Type
                   </label>
-                  <div className="grid grid-cols-4 gap-2">
+                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                     {LEAVE_TYPES.map((t) => (
                       <button
                         key={t}

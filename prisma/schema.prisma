@@ -33,6 +33,9 @@ model User {
   slackUserId  String?  @unique
   slackHandle  String?
   startDate    DateTime @default(now())
+  // When set, the account is disabled: the user can't sign in and their active
+  // sessions are revoked. Null = active. Reversible by an admin (re-enable).
+  disabledAt   DateTime?
   managerId    String?
   manager      User?    @relation("ManagerReports", fields: [managerId], references: [id])
   reports      User[]   @relation("ManagerReports")
@@ -41,6 +44,7 @@ model User {
 
   // Relations
   sessions           Session[]
+  approvedLogins     LoginTicket[]      @relation("LoginTicketApprover")
   authoredPosts      Announcement[]     @relation("PostAuthor")
   uploadedDocs       Document[]         @relation("DocUploader")
   leaveRequests      LeaveRequest[]     @relation("RequestOwner")
@@ -65,6 +69,7 @@ model User {
   submittedCanteen   CanteenExpense[]   @relation("CanteenSubmitter")
   reviewedCanteen    CanteenExpense[]   @relation("CanteenReviewer")
   projectSalaries    ProjectSalary[]    @relation("SalaryEmployee")
+  salary             UserSalary?
 
   // The org tree is walked by managerId (Team Pulse, org chart, audit scope).
   // Postgres does not auto-index FK columns, so this is needed for the
@@ -82,6 +87,40 @@ model Session {
 
   // Session FK lookup (e.g. cascade deletes, listing a user's sessions).
   @@index([userId])
+}
+
+// QR "scan to sign in" handshake (WhatsApp-Web style). A new device shows a QR
+// encoding this ticket's `token`; an already-authenticated phone scans it and
+// approves; the new device then claims the ticket to mint a real Session.
+//
+// Lifecycle: PENDING → APPROVED → CONSUMED (terminal). Anything past `expiresAt`
+// is dead. The token is single-use and short-lived (a couple of minutes). The
+// approver is recorded so `claim` knows which user's session to mint — and so
+// the approving device never has to hand its own session token to the new one.
+model LoginTicket {
+  id        String   @id @default(cuid())
+  token     String   @unique
+  // PENDING | APPROVED | CONSUMED  (string to mirror the rest of the schema's
+  // enum-as-string convention; see lib/permissions.ts for role precedent).
+  status    String   @default("PENDING")
+
+  // Set when an authenticated user approves the sign-in. SetNull on user delete
+  // so a stray pending ticket never blocks account removal.
+  approvedById String?
+  approvedBy   User?   @relation("LoginTicketApprover", fields: [approvedById], references: [id], onDelete: SetNull)
+  approvedAt   DateTime?
+
+  // Coarse device hints captured from the requesting browser, shown to the
+  // approver so they can sanity-check what they're authorizing.
+  userAgent String?
+  ipAddress String?
+
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  // Status sweeps / lookups: the poll and claim both query by token (unique,
+  // already indexed); expiresAt supports cleanup of stale tickets.
+  @@index([expiresAt])
 }
 
 model Announcement {
@@ -307,9 +346,19 @@ model Project {
   // Comments & requests left by clients via the share link.
   clientSubmissions ClientSubmission[]
 
-  // Finance: expenses charged to this project, and per-person monthly salaries.
-  expenses Expense[]
-  salaries ProjectSalary[]
+  // Finance: the project's income (one or more named lines — milestones,
+  // retainers, etc.), the currency it and all derived money is in, the named
+  // "share" lines carved out before payroll, the expenses charged to it, and
+  // per-person salaries. revenueCents is a CACHE of sum(incomeLines.amountCents),
+  // recomputed whenever a line changes (lib/financeQueries.ts), so the existing
+  // share/pool math reads one number. The salary pool = revenue − sum(shares).
+  revenueCents    Int    @default(0)
+  revenueCurrency String @default("USD")
+  incomeLines     ProjectIncomeLine[]
+  shareLines      ProjectShareLine[]
+  expenses        Expense[]
+  salaries        ProjectSalary[]
+  salaryAllocations UserSalaryAllocation[]
 
   @@index([ownerId])
 }
@@ -383,6 +432,13 @@ model Task {
   // Priority: LOW | MEDIUM | HIGH
   priority    String    @default("MEDIUM")
   dueDate     DateTime?
+  // Time estimate (minutes) set by whoever creates the card — the planned
+  // effort, distinct from `timeSpentMinutes` (the actual logged time). Null
+  // when no estimate was given.
+  estimateMinutes  Int?
+  // Manual time tracking ("time lock"). A single pool of minutes logged against
+  // the card by anyone who can edit it; managers can adjust/reset the total.
+  timeSpentMinutes Int   @default(0)
   listId      String
   list        BoardList @relation(fields: [listId], references: [id], onDelete: Cascade)
   creatorId   String
@@ -678,8 +734,17 @@ model ProjectSalary {
   user     User?   @relation("SalaryEmployee", fields: [userId], references: [id], onDelete: SetNull)
   userName String
 
-  amountCents Int    @default(0)
-  currency    String @default("USD")
+  // The monthly salary is a list of NAMED components (e.g. "Dev", "BD", "Lead",
+  // or any custom field an admin adds — "QA", "Bonus", …). The total monthly
+  // pay is the SUM of its components (computed in the app, never stored, so it
+  // can't drift). A salary with no components is zero. See lib/finance.ts.
+  components SalaryComponent[]
+
+  // Payments made against this salary (a running log). Paid = sum of payments;
+  // remaining = salary total − paid. Cumulative, no monthly reset.
+  payments SalaryPayment[]
+
+  currency String @default("USD")
 
   // Whether this salary currently counts toward the project's payroll cost.
   // Deactivating (instead of deleting) keeps the record while excluding it.
@@ -693,7 +758,164 @@ model ProjectSalary {
 
   // One salary row per person per project; reverse lookup "this person's
   // salaries"; index projectId for the per-project roster + cost rollup.
+  // The (projectId, userName) unique keys the FREE-TEXT path: a salary typed by
+  // name (userId null) is one-per-(project, name), so editing its cells upserts
+  // the same row. Real-user rows still dedupe on (projectId, userId).
   @@unique([projectId, userId])
+  @@unique([projectId, userName])
   @@index([projectId])
   @@index([userId])
+}
+
+// ── Finance: a named salary component ───────────────────────────────────────────
+// One line of an employee's monthly pay on a project — a label ("Dev", "BD",
+// "Lead", or any custom field) plus an amount in minor units. A salary's total
+// is the sum of its components. Cascade-deleted with the salary; ordered for a
+// stable display.
+model SalaryComponent {
+  id String @id @default(cuid())
+
+  salaryId String
+  salary   ProjectSalary @relation(fields: [salaryId], references: [id], onDelete: Cascade)
+
+  label       String
+  amountCents Int    @default(0)
+
+  // Optional Excel-style formula in canonical label form (e.g. "={Dev}*1.1").
+  // null = a plain literal amount. Formulas reference OTHER COMPONENTS IN THE
+  // SAME SALARY only; amountCents is the cached evaluated result (always kept in
+  // sync by the same upsert), so every reader of amountCents stays correct. See
+  // lib/formula.ts.
+  formula String?
+
+  // Display order within the salary (0-based).
+  position Int @default(0)
+
+  @@index([salaryId])
+}
+
+// ── Finance: a salary payment ───────────────────────────────────────────────────
+// One payment made against a salary (a running log; no monthly reset). The amount
+// paid so far = sum of a salary's payments; remaining = salary total − paid.
+// Cascade-deleted with the salary; newest first by paidOn for display.
+model SalaryPayment {
+  id String @id @default(cuid())
+
+  salaryId String
+  salary   ProjectSalary @relation(fields: [salaryId], references: [id], onDelete: Cascade)
+
+  amountCents Int      @default(0)
+  paidOn      DateTime @default(now())
+  note        String?
+
+  createdAt DateTime @default(now())
+
+  @@index([salaryId])
+}
+
+// ── Payroll: a user's monthly salary, allocated across projects ──────────────────
+// The NEW salary model (supersedes the per-project ProjectSalary flow). Each user
+// has ONE total monthly salary; that total is then ALLOCATED across the projects
+// they work on (by percent or fixed amount) via UserSalaryAllocation lines. The
+// allocations are informational splits of the total — they need not sum to it
+// (the UI shows any unallocated remainder).
+model UserSalary {
+  id String @id @default(cuid())
+
+  // One salary per user. Cascade-deleted with the user.
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // The user's total monthly pay, in minor units, in `currency`.
+  totalCents Int    @default(0)
+  currency   String @default("USD")
+
+  // Whether this salary is currently in effect (deactivate instead of delete).
+  active Boolean @default(true)
+
+  // The day this salary takes effect.
+  effectiveFrom DateTime @default(now())
+
+  allocations UserSalaryAllocation[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ── Payroll: one allocation line of a user's salary to a project ─────────────────
+// Splits part of a UserSalary across a project — EITHER a percent of the total
+// (percentBps) OR a fixed amount (amountCents); exactly one is set, mirroring
+// ProjectShareLine. Cascade-deleted with the salary; SetNull-safe per project.
+model UserSalaryAllocation {
+  id String @id @default(cuid())
+
+  salaryId String
+  salary   UserSalary @relation(fields: [salaryId], references: [id], onDelete: Cascade)
+
+  // The project this slice is allocated to. Cascade-deleted if the project goes.
+  projectId String
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  // Exactly one of these is set. percentBps = basis points of the total salary
+  // (4000 = 40%); amountCents = a fixed slice in the salary's currency.
+  percentBps  Int?
+  amountCents Int?
+
+  // Display order within the salary (0-based).
+  position Int @default(0)
+
+  // One allocation per (salary, project) — a project appears at most once.
+  @@unique([salaryId, projectId])
+  @@index([salaryId])
+  @@index([projectId])
+}
+
+// ── Finance: a project income line ──────────────────────────────────────────────
+// One source of a project's income — a label ("Milestone 1", "Retainer", …) plus
+// an amount in the project's currency (minor units). The project's total revenue
+// is the sum of its income lines (cached on Project.revenueCents). Cascade-deleted
+// with the project; ordered for stable display.
+model ProjectIncomeLine {
+  id String @id @default(cuid())
+
+  projectId String
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  label       String
+  amountCents Int    @default(0)
+
+  // Display + entry order within the project (0-based).
+  position Int @default(0)
+
+  createdAt DateTime @default(now())
+
+  @@index([projectId])
+}
+
+// ── Finance: a project "share" line ─────────────────────────────────────────────
+// An amount carved out of a project's revenue BEFORE payroll — the company cut,
+// reinvestment, tax, a bonus pot, etc. Each line is either a PERCENT of revenue
+// (percentBps, basis points: 4000 = 40%) or a FIXED amount (amountCents); never
+// both. The salary pool that's left = revenue − sum(resolved lines). Cascade-
+// deleted with the project; ordered for stable display and so percent lines can
+// be read top-to-bottom.
+model ProjectShareLine {
+  id String @id @default(cuid())
+
+  projectId String
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  label String
+
+  // Exactly one of these is set (the other is null): a percent of revenue in
+  // basis points, OR a fixed minor-unit amount in the project's currency.
+  percentBps  Int?
+  amountCents Int?
+
+  // Display + evaluation order within the project (0-based).
+  position Int @default(0)
+
+  createdAt DateTime @default(now())
+
+  @@index([projectId])
 }

@@ -10,6 +10,10 @@ export const ROLES = [
   "LEAD",
   "PROJECT_MANAGER",
   "EMPLOYEE",
+  // Intern sits at the bottom of the hierarchy. It carries the same access as
+  // Employee (standard member) — it exists as a distinct label/badge for
+  // reporting, not as a separate privilege tier.
+  "INTERN",
 ] as const;
 
 export type Role = (typeof ROLES)[number];
@@ -22,6 +26,7 @@ export const ROLE_LABELS: Record<Role, string> = {
   LEAD: "Lead",
   PROJECT_MANAGER: "Project Manager",
   EMPLOYEE: "Employee",
+  INTERN: "Intern",
 };
 
 /** A short description shown next to each role in pickers. */
@@ -32,6 +37,7 @@ export const ROLE_DESCRIPTIONS: Record<Role, string> = {
   LEAD: "Team lead — approvals, announcements, and projects.",
   PROJECT_MANAGER: "Runs projects and their boards.",
   EMPLOYEE: "Standard member access.",
+  INTERN: "Standard member access — for interns and trainees.",
 };
 
 export function isRole(value: unknown): value is Role {
@@ -39,13 +45,14 @@ export function isRole(value: unknown): value is Role {
 }
 
 /** Badge variant per role for consistent coloring in the UI. */
-export const ROLE_BADGE: Record<Role, "accent" | "amber" | "cyan" | "emerald" | "neutral"> = {
+export const ROLE_BADGE: Record<Role, "accent" | "amber" | "cyan" | "emerald" | "neutral" | "pink"> = {
   SUPER_ADMIN: "accent",
   ADMIN: "accent",
   HR: "cyan",
   LEAD: "amber",
   PROJECT_MANAGER: "emerald",
   EMPLOYEE: "neutral",
+  INTERN: "pink",
 };
 
 // ── Privilege tiers ─────────────────────────────────────────────────────────
@@ -119,7 +126,7 @@ export function creatableRoles(actorRole: string | null | undefined): Role[] {
     return ROLES.filter((r) => r !== "SUPER_ADMIN");
   }
   if (actorRole === "ADMIN") {
-    return ["HR", "LEAD", "PROJECT_MANAGER", "EMPLOYEE"];
+    return ["HR", "LEAD", "PROJECT_MANAGER", "EMPLOYEE", "INTERN"];
   }
   // Everyone else cannot create users.
   return [];
@@ -136,4 +143,31 @@ export function canCreateUserWithRole(
 /** Whether `actorRole` may create users at all. */
 export function canCreateUsers(actorRole: string | null | undefined): boolean {
   return creatableRoles(actorRole).length > 0;
+}
+
+// ── User-management authorization (edit / disable / reset password) ───────────
+// Mirrors creation: only the admin tier manages users, and never someone at or
+// above their own authority. Rank by position in ROLES (lower index = higher
+// authority) so the rule is a single comparison.
+
+function roleRank(role: string | null | undefined): number {
+  const i = ROLES.indexOf(role as Role);
+  // Unknown roles rank lowest (least authority).
+  return i === -1 ? ROLES.length : i;
+}
+
+/**
+ * Whether `actor` may edit / disable / reset another user (`target`).
+ * Admin tier only; you may only manage users strictly below your own authority,
+ * and never yourself (self-edits go through profile/settings, and self-disable
+ * would be a foot-gun).
+ */
+export function canManageUser(
+  actor: { id: string; role: string | null | undefined },
+  target: { id: string; role: string | null | undefined },
+): boolean {
+  if (!isAdminTier(actor.role)) return false;
+  if (actor.id === target.id) return false;
+  // Strictly higher authority than the target (lower rank index).
+  return roleRank(actor.role) < roleRank(target.role);
 }

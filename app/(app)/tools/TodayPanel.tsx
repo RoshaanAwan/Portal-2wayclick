@@ -64,7 +64,7 @@ export function TodayPanel({ firstName }: { firstName: string }) {
         <p className="text-xs font-medium uppercase tracking-widest text-ink-400">
           Today at 2WayClick
         </p>
-        <h2 className="mt-1.5 text-lg font-bold text-ink">
+        <h2 className="mt-1.5 pr-12 text-lg font-bold text-ink">
           {label}, {firstName}
         </h2>
         <p className="mt-0.5 text-sm text-ink-500" suppressHydrationWarning>

@@ -60,9 +60,12 @@ export default async function TasksPage() {
     tasks: list.tasks.map((t) => ({
       id: t.id,
       title: t.title,
+      description: t.description,
       priority: t.priority,
       position: t.position,
       dueDate: t.dueDate ? t.dueDate.toISOString() : null,
+      estimateMinutes: t.estimateMinutes,
+      timeSpentMinutes: t.timeSpentMinutes,
       listId: t.listId,
       creator: {
         id: t.creator.id,

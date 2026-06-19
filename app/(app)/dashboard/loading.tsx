@@ -10,7 +10,7 @@ export default function DashboardLoading() {
   return (
     <div className="mx-auto max-w-7xl space-y-6">
       {/* Hero */}
-      <div className="glass flex items-center gap-5 p-6">
+      <div className="glass flex flex-col gap-5 p-6 sm:flex-row sm:items-center">
         <Skeleton className="h-16 w-16 rounded-2xl" />
         <div className="flex-1 space-y-2.5">
           <Skeleton className="h-7 w-64" />

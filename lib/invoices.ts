@@ -39,13 +39,21 @@ export const STATUS_META: Record<
 
 // ── Money ─────────────────────────────────────────────────────────────────────
 
-/** Minor-unit symbol-ish formatting via Intl; falls back to code + amount. */
+/**
+ * Minor-unit symbol-ish formatting via Intl; falls back to code + amount.
+ * Fraction digits are pinned to 2 explicitly: a currency's DEFAULT digit count
+ * varies between ICU versions (e.g. server Node vs the browser render PKR as
+ * "50,000" vs "50,000.00"), which causes React hydration mismatches. Money here
+ * is integer cents, so 2 digits is both consistent and the honest precision.
+ */
 export function formatMoney(cents: number, currency: string): string {
   const amount = cents / 100;
   try {
     return new Intl.NumberFormat("en-US", {
       style: "currency",
       currency,
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
     }).format(amount);
   } catch {
     return `${currency} ${amount.toFixed(2)}`;

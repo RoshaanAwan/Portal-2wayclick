@@ -279,9 +279,11 @@ function DetailRow({
   mono?: boolean;
 }) {
   return (
-    <div className="flex gap-3">
+    <div className="flex flex-col gap-1 sm:flex-row sm:gap-3">
       <span className="w-24 shrink-0 text-ink-400">{label}</span>
-      <span className={cn("text-ink-700", mono && "font-mono")}>{value}</span>
+      <span className={cn("min-w-0 break-all text-ink-700", mono && "font-mono")}>
+        {value}
+      </span>
     </div>
   );
 }

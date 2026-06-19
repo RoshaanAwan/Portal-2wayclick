@@ -541,8 +541,8 @@ function CardModal({
           ) : (
             card.comments.map((c) => (
               <div key={c.id} className="min-w-0">
-                <div className="flex items-baseline gap-2">
-                  <span className="text-xs font-semibold text-ink">
+                <div className="flex flex-wrap items-baseline gap-2">
+                  <span className="break-all text-xs font-semibold text-ink">
                     {c.authorName}
                   </span>
                   {c.isClient && (

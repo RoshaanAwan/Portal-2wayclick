@@ -194,7 +194,7 @@ export function InvoiceForm({
         </div>
 
         {/* Meta: currency, tax, dates */}
-        <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-4">
           <div>
             <label className="mb-1.5 block text-xs font-medium text-ink-500">
               Currency
@@ -268,7 +268,7 @@ export function InvoiceForm({
               return (
                 <div
                   key={l.key}
-                  className="flex items-start gap-2 rounded-xl border border-line bg-surface-2 p-2.5"
+                  className="flex flex-col gap-2 rounded-xl border border-line bg-surface-2 p-2.5 sm:flex-row sm:items-start"
                 >
                   <input
                     value={l.description}
@@ -279,42 +279,46 @@ export function InvoiceForm({
                     placeholder="Description of work or item"
                     className="input min-w-0 flex-1"
                   />
-                  <input
-                    type="number"
-                    min={1}
-                    step={1}
-                    value={l.quantity}
-                    onChange={(e) =>
-                      updateLine(l.key, { quantity: e.target.value })
-                    }
-                    aria-label="Quantity"
-                    placeholder="Qty"
-                    className="input w-16 shrink-0 text-center"
-                  />
-                  <input
-                    type="number"
-                    min={0}
-                    step="0.01"
-                    value={l.unitPrice}
-                    onChange={(e) =>
-                      updateLine(l.key, { unitPrice: e.target.value })
-                    }
-                    aria-label="Unit price"
-                    placeholder="Price"
-                    className="input w-24 shrink-0 text-right"
-                  />
-                  <div className="grid h-9 w-24 shrink-0 place-items-end px-1 text-right text-sm tabular-nums text-ink-700">
-                    {formatMoney(amount, currency)}
+                  {/* Qty / price / amount / delete — full-width row on mobile
+                      (under the description), inline on sm+. */}
+                  <div className="flex items-start gap-2">
+                    <input
+                      type="number"
+                      min={1}
+                      step={1}
+                      value={l.quantity}
+                      onChange={(e) =>
+                        updateLine(l.key, { quantity: e.target.value })
+                      }
+                      aria-label="Quantity"
+                      placeholder="Qty"
+                      className="input w-16 shrink-0 text-center"
+                    />
+                    <input
+                      type="number"
+                      min={0}
+                      step="0.01"
+                      value={l.unitPrice}
+                      onChange={(e) =>
+                        updateLine(l.key, { unitPrice: e.target.value })
+                      }
+                      aria-label="Unit price"
+                      placeholder="Price"
+                      className="input w-24 shrink-0 text-right"
+                    />
+                    <div className="grid h-9 flex-1 place-items-end px-1 text-right text-sm tabular-nums text-ink-700 sm:w-24 sm:flex-none">
+                      {formatMoney(amount, currency)}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => removeLine(l.key)}
+                      disabled={lines.length === 1}
+                      aria-label="Remove line"
+                      className="grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-line bg-surface text-ink-400 transition-colors hover:border-danger/40 hover:bg-danger-soft hover:text-danger-ink disabled:opacity-40 disabled:hover:border-line disabled:hover:bg-surface disabled:hover:text-ink-400"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => removeLine(l.key)}
-                    disabled={lines.length === 1}
-                    aria-label="Remove line"
-                    className="grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-line bg-surface text-ink-400 transition-colors hover:border-danger/40 hover:bg-danger-soft hover:text-danger-ink disabled:opacity-40 disabled:hover:border-line disabled:hover:bg-surface disabled:hover:text-ink-400"
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </button>
                 </div>
               );
             })}

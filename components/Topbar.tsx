@@ -12,11 +12,14 @@ import {
   Settings,
   User,
   CheckCheck,
+  Menu,
 } from "lucide-react";
 import { Avatar } from "@/components/ui/Avatar";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { Logo } from "@/components/ui/Logo";
 import { timeAgo } from "@/lib/utils";
 import { useNotifications } from "@/lib/useNotifications";
+import { useMobileNav } from "@/components/MobileNavProvider";
 import { isAdminTier } from "@/lib/permissions";
 import type { SafeUser } from "@/lib/auth";
 
@@ -30,6 +33,7 @@ const typeColor: Record<string, string> = {
 
 export function Topbar({ user }: { user: SafeUser }) {
   const router = useRouter();
+  const { openNav } = useMobileNav();
   const [menuOpen, setMenuOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
   // Real per-user notifications: loaded over HTTP, kept live via SSE, read state
@@ -45,7 +49,21 @@ export function Topbar({ user }: { user: SafeUser }) {
 
   return (
     <header className="sticky top-0 z-20 px-3 pt-3 lg:px-6">
-      <div className="frost flex items-center gap-3 rounded-2xl border border-line px-3 py-2.5 shadow-card">
+      <div className="frost flex items-center gap-2 rounded-2xl border border-line px-3 py-2.5 shadow-card sm:gap-3">
+        {/* Mobile: hamburger opens the nav drawer (the sidebar is hidden below
+            lg). Paired with a compact brand mark so the bar still reads as the
+            app on phones, where the sidebar logo isn't visible. */}
+        <button
+          onClick={openNav}
+          aria-label="Open menu"
+          className="hover-surface grid h-9 w-9 shrink-0 place-items-center rounded-xl text-ink-500 transition hover:text-ink lg:hidden"
+        >
+          <Menu className="h-5 w-5" />
+        </button>
+        <span className="flex shrink-0 items-center lg:hidden">
+          <Logo size="sm" />
+        </span>
+
         {/* Command-bar search */}
         {/* <button className="group relative flex h-10 flex-1 max-w-md items-center gap-2.5 rounded-xl border border-line bg-surface-2/70 px-3 text-left transition hover:border-line-strong hover:bg-surface-2">
           <Search className="h-4 w-4 text-ink-400 transition group-hover:text-ink-500" />

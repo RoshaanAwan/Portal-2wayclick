@@ -8,17 +8,19 @@ import { TASK_PRIORITIES } from "@/lib/constants";
 const schema = z.object({
   listId: z.string().min(1),
   title: z.string().trim().min(1).max(200),
+  description: z.string().trim().max(2000).optional(),
   priority: z.enum(TASK_PRIORITIES).optional().default("MEDIUM"),
   // Optional first assignee (Trello: assign yourself / a member on create).
   assigneeId: z.string().optional(),
+  // Optional planned-effort estimate in minutes (capped at one year).
+  estimateMinutes: z.number().int().positive().max(525600).optional(),
 });
 
 export async function POST(req: Request) {
   try {
     const user = await requireUser();
-    const { listId, title, priority, assigneeId } = schema.parse(
-      await req.json(),
-    );
+    const { listId, title, description, priority, assigneeId, estimateMinutes } =
+      schema.parse(await req.json());
 
     const list = await db.boardList.findUnique({ where: { id: listId } });
     if (!list) {
@@ -36,10 +38,12 @@ export async function POST(req: Request) {
     const task = await db.task.create({
       data: {
         title,
+        description: description || null,
         priority,
         position,
         listId,
         creatorId: user.id,
+        estimateMinutes: estimateMinutes ?? null,
         assignees: assigneeId
           ? { create: { userId: assigneeId } }
           : undefined,
@@ -52,7 +56,7 @@ export async function POST(req: Request) {
       entity: "Task",
       entityId: task.id,
       summary: `${user.name} created task “${title}”`,
-      detail: { listId, priority },
+      detail: { listId, priority, estimateMinutes },
     });
 
     return NextResponse.json({ ok: true, id: task.id });

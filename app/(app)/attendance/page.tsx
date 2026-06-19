@@ -107,8 +107,8 @@ export default async function AttendancePage({
           today={dayKeyToString(today)}
           isToday={isToday}
         />
-        <div className="overflow-hidden rounded-xl border border-line">
-          <table className="w-full text-sm">
+        <div className="overflow-x-auto rounded-xl border border-line">
+          <table className="w-full min-w-[560px] text-sm">
             <thead className="bg-surface-2 text-left text-xs uppercase tracking-wide text-ink-400">
               <tr>
                 <th className="px-4 py-3">Person</th>
@@ -159,8 +159,8 @@ export default async function AttendancePage({
           No attendance yet. Post “check in” in Slack to start your day.
         </div>
       ) : (
-        <div className="overflow-hidden rounded-xl border border-line">
-          <table className="w-full text-sm">
+        <div className="overflow-x-auto rounded-xl border border-line">
+          <table className="w-full min-w-[560px] text-sm">
             <thead className="bg-surface-2 text-left text-xs uppercase tracking-wide text-ink-400">
               <tr>
                 <th className="px-4 py-3">Day</th>

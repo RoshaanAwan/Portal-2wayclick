@@ -23,11 +23,13 @@ export function EditTaskForm({
   onSave: (
     taskId: string,
     title: string,
+    description: string,
     priority: TaskPriority,
   ) => Promise<boolean>;
   onCancel: () => void;
 }) {
   const [title, setTitle] = useState(task.title);
+  const [description, setDescription] = useState(task.description ?? "");
   const [priority, setPriority] = useState<TaskPriority>(
     (task.priority as TaskPriority) ?? "MEDIUM",
   );
@@ -39,7 +41,7 @@ export function EditTaskForm({
     e.preventDefault();
     if (!canSubmit || loading) return;
     setLoading(true);
-    const ok = await onSave(task.id, title.trim(), priority);
+    const ok = await onSave(task.id, title.trim(), description.trim(), priority);
     setLoading(false);
     if (ok) onCancel();
   }
@@ -67,6 +69,18 @@ export function EditTaskForm({
         maxLength={200}
         placeholder="Enter a title for this card…"
         className="input resize-none text-sm"
+      />
+
+      <textarea
+        value={description}
+        onChange={(e) => setDescription(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Escape") onCancel();
+        }}
+        rows={3}
+        maxLength={2000}
+        placeholder="Add a description (optional)…"
+        className="input mt-2 resize-none text-sm"
       />
 
       <div className="mt-2 flex flex-wrap items-center gap-1.5">

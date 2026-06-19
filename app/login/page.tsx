@@ -1,7 +1,8 @@
 import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/auth";
-import { LoginForm } from "./LoginForm";
+import { LoginPanel } from "./LoginPanel";
 import { LoginHero } from "./LoginHero";
+import { LoginThemeToggle } from "./LoginThemeToggle";
 
 export default async function LoginPage() {
   const user = await getCurrentUser();
@@ -9,6 +10,9 @@ export default async function LoginPage() {
 
   return (
     <main className="grid min-h-screen lg:grid-cols-[1.05fr_1fr]">
+      {/* Theme switch — floats over the form panel, top-right. */}
+      <LoginThemeToggle />
+
       {/* ── Left: branded gradient hero ──────────────────────────────────
          Hidden on small screens; the form takes the full width there. */}
       <LoginHero />
@@ -26,7 +30,7 @@ export default async function LoginPage() {
           }}
         />
         <div className="relative z-10 flex w-full justify-center">
-          <LoginForm />
+          <LoginPanel />
         </div>
       </div>
     </main>

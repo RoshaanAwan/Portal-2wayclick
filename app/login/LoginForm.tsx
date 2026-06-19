@@ -1,14 +1,22 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { motion } from "framer-motion";
 import { Mail, Lock, ArrowRight } from "lucide-react";
 import { Logo } from "@/components/ui/Logo";
 import { Button } from "@/components/ui/Button";
 
+// Only allow same-site relative redirects (no protocol/host) to avoid an
+// open-redirect via the ?next= param.
+function safeNext(next: string | null): string {
+  if (next && next.startsWith("/") && !next.startsWith("//")) return next;
+  return "/dashboard";
+}
+
 export function LoginForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -24,7 +32,7 @@ export function LoginForm() {
       body: JSON.stringify({ email, password }),
     });
     if (res.ok) {
-      router.push("/dashboard");
+      router.push(safeNext(searchParams.get("next")));
       router.refresh();
     } else {
       const data = await res.json().catch(() => ({}));

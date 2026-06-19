@@ -82,7 +82,7 @@ export function AssigneePicker({
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -6, scale: 0.97 }}
             transition={{ duration: 0.15, ease: "easeOut" }}
-            className="glass-strong absolute left-0 z-30 mt-2 w-64 overflow-hidden rounded-xl p-2 shadow-pop"
+            className="glass-strong absolute left-0 z-30 mt-2 w-[min(16rem,calc(100vw-2.5rem))] overflow-hidden rounded-xl p-2 shadow-pop"
           >
             <p className="px-2 pb-1.5 pt-1 text-[11px] font-semibold uppercase tracking-wide text-ink-400">
               Assign members

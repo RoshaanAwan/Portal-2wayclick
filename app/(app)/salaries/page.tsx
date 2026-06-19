@@ -5,11 +5,11 @@ import { getCurrentUser } from "@/lib/auth";
 import { can } from "@/lib/permissions";
 import { db } from "@/lib/db";
 import { listProjectSalaries } from "@/lib/financeQueries";
-import { SalariesClient } from "./SalariesClient";
+import { SalarySheet } from "./SalarySheet";
 
-// Per-project salaries — an admin-tier surface (Super Admin / Admin). One
-// employee may have a salary on several projects; the page rolls up each
-// project's monthly payroll cost from its active salaries.
+// Salaries — an admin-tier surface (Super Admin / Admin). A simple spreadsheet:
+// one row per (project, employee) with a monthly salary amount. Add rows by
+// picking a project + employee and typing a salary.
 export default async function SalariesPage() {
   const user = await getCurrentUser();
   if (!can.manageFinance(user?.role)) redirect("/dashboard");
@@ -27,13 +27,13 @@ export default async function SalariesPage() {
   ]);
 
   return (
-    <div className="mx-auto max-w-[1200px]">
+    <div className="mx-auto max-w-[1100px]">
       <PageHeader
         icon={Banknote}
-        title="Project Salaries"
-        subtitle="Set each employee's monthly salary per project and track payroll cost."
+        title="Salaries"
+        subtitle="Add a project, an employee, and their monthly salary — one row each."
       />
-      <SalariesClient
+      <SalarySheet
         salaries={salaries}
         projects={projects}
         employees={employees}

@@ -5,8 +5,12 @@ import type {
   ExpenseDTO,
   CanteenExpenseDTO,
   ProjectSalaryDTO,
+  ProjectIncomeLineDTO,
+  ProjectShareLineDTO,
+  ProjectFinanceDTO,
   FinanceStatus,
 } from "./finance";
+import { computeSalaryPool, salaryTotalCents } from "./finance";
 
 // ── Finance read helpers ──────────────────────────────────────────────────────
 // Server-only queries + the Prisma→DTO serializers used by the finance pages.
@@ -100,11 +104,15 @@ export async function listCanteenExpenses(): Promise<CanteenExpenseDTO[]> {
 const salaryInclude = {
   project: { select: { name: true } },
   user: { select: { title: true } },
+  components: { orderBy: { position: "asc" } },
+  payments: { orderBy: { paidOn: "desc" } },
 } satisfies Prisma.ProjectSalaryInclude;
 
 type SalaryRow = Prisma.ProjectSalaryGetPayload<{ include: typeof salaryInclude }>;
 
 export function toSalaryDTO(s: SalaryRow): ProjectSalaryDTO {
+  const totalCents = s.components.reduce((sum, c) => sum + c.amountCents, 0);
+  const paidCents = s.payments.reduce((sum, p) => sum + p.amountCents, 0);
   return {
     id: s.id,
     projectId: s.projectId,
@@ -112,11 +120,25 @@ export function toSalaryDTO(s: SalaryRow): ProjectSalaryDTO {
     userId: s.userId,
     userName: s.userName,
     userTitle: s.user?.title ?? null,
-    amountCents: s.amountCents,
+    components: s.components.map((c) => ({
+      id: c.id,
+      label: c.label,
+      amountCents: c.amountCents,
+      formula: c.formula ?? null,
+    })),
     currency: s.currency,
     active: s.active,
     effectiveFrom: s.effectiveFrom.toISOString(),
     createdAt: s.createdAt.toISOString(),
+    payments: s.payments.map((p) => ({
+      id: p.id,
+      amountCents: p.amountCents,
+      paidOn: p.paidOn.toISOString(),
+      note: p.note ?? null,
+    })),
+    paidCents,
+    // Remaining = salary total − paid. May go negative (overpaid); UI flags it.
+    remainingCents: totalCents - paidCents,
   };
 }
 
@@ -127,4 +149,100 @@ export async function listProjectSalaries(): Promise<ProjectSalaryDTO[]> {
     include: salaryInclude,
   });
   return rows.map(toSalaryDTO);
+}
+
+// ── Project finance: income → revenue → share lines → salary pool ──────────────
+
+function toIncomeLineDTO(l: {
+  id: string;
+  label: string;
+  amountCents: number;
+}): ProjectIncomeLineDTO {
+  return { id: l.id, label: l.label, amountCents: l.amountCents };
+}
+
+function toShareLineDTO(l: {
+  id: string;
+  label: string;
+  percentBps: number | null;
+  amountCents: number | null;
+}): ProjectShareLineDTO {
+  return {
+    id: l.id,
+    label: l.label,
+    percentBps: l.percentBps,
+    amountCents: l.amountCents,
+  };
+}
+
+const projectFinanceInclude = {
+  incomeLines: { orderBy: { position: "asc" } },
+  shareLines: { orderBy: { position: "asc" } },
+  salaries: {
+    where: { active: true },
+    select: { components: { select: { amountCents: true } } },
+  },
+} satisfies Prisma.ProjectInclude;
+
+type ProjectFinanceRow = Prisma.ProjectGetPayload<{
+  include: typeof projectFinanceInclude;
+}>;
+
+export function toProjectFinanceDTO(p: ProjectFinanceRow): ProjectFinanceDTO {
+  const incomeLines = p.incomeLines.map(toIncomeLineDTO);
+  const shareLines = p.shareLines.map(toShareLineDTO);
+  const { sharedCents, poolCents } = computeSalaryPool(p.revenueCents, shareLines);
+  // Payroll committed = sum of every active salary's component total.
+  const committedCents = p.salaries.reduce(
+    (sum, s) => sum + salaryTotalCents(s),
+    0,
+  );
+  return {
+    projectId: p.id,
+    projectName: p.name,
+    incomeLines,
+    revenueCents: p.revenueCents,
+    currency: p.revenueCurrency,
+    shareLines,
+    sharedCents,
+    poolCents,
+    committedCents,
+  };
+}
+
+/**
+ * Recompute and persist Project.revenueCents as the sum of its income lines.
+ * Call after any income line is added or removed so the cached total (which all
+ * the share/pool math reads) stays in sync. Returns the new total.
+ */
+export async function recomputeProjectRevenue(
+  projectId: string,
+): Promise<number> {
+  const agg = await db.projectIncomeLine.aggregate({
+    where: { projectId },
+    _sum: { amountCents: true },
+  });
+  const revenueCents = agg._sum.amountCents ?? 0;
+  await db.project.update({ where: { id: projectId }, data: { revenueCents } });
+  return revenueCents;
+}
+
+/** Finance summary (revenue, shares, pool, committed payroll) for one project. */
+export async function getProjectFinance(
+  projectId: string,
+): Promise<ProjectFinanceDTO | null> {
+  const p = await db.project.findUnique({
+    where: { id: projectId },
+    include: projectFinanceInclude,
+  });
+  return p ? toProjectFinanceDTO(p) : null;
+}
+
+/** Finance summary for every project (for the salaries page roll-up). */
+export async function listProjectFinances(): Promise<ProjectFinanceDTO[]> {
+  const rows = await db.project.findMany({
+    orderBy: { name: "asc" },
+    include: projectFinanceInclude,
+  });
+  return rows.map(toProjectFinanceDTO);
 }

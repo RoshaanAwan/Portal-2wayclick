@@ -1,8 +1,9 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Inter, Space_Grotesk } from "next/font/google";
 import "./globals.css";
 import { AnimatedBackground } from "@/components/AnimatedBackground";
 import { ThemeProvider, themeInitScript } from "@/components/ThemeProvider";
+import { ServiceWorkerRegister } from "@/components/ServiceWorkerRegister";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -19,8 +20,47 @@ const spaceGrotesk = Space_Grotesk({
 });
 
 export const metadata: Metadata = {
+  // Base for resolving relative metadata URLs to absolute ones. Prefers an
+  // explicit site URL, then Vercel's auto-injected deployment host, else local.
+  metadataBase: new URL(
+    process.env.NEXT_PUBLIC_SITE_URL ??
+      (process.env.VERCEL_URL
+        ? `https://${process.env.VERCEL_URL}`
+        : "http://localhost:3000"),
+  ),
+  applicationName: "2WayClick",
   title: "2WayClick — Company Portal",
   description: "Your immersive internal employee hub.",
+  manifest: "/manifest.webmanifest",
+  icons: {
+    icon: [
+      { url: "/favicon.ico", sizes: "any" },
+      { url: "/icons/icon-192.png", type: "image/png", sizes: "192x192" },
+      { url: "/icons/icon-512.png", type: "image/png", sizes: "512x512" },
+    ],
+    apple: [{ url: "/icons/apple-touch-icon.png", sizes: "180x180" }],
+  },
+  // iOS standalone (Add to Home Screen) presentation.
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "black-translucent",
+    title: "2WayClick",
+  },
+  formatDetection: { telephone: false },
+};
+
+export const viewport: Viewport = {
+  // Essential for mobile responsiveness — without this the page renders at
+  // desktop width on phones and ignores the responsive breakpoints.
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+  // OS browser/status-bar chrome tint — matched to each theme's canvas color
+  // (see globals.css: dark #181a1f, light #f4f5f7).
+  themeColor: [
+    { media: "(prefers-color-scheme: dark)", color: "#181a1f" },
+    { media: "(prefers-color-scheme: light)", color: "#f4f5f7" },
+  ],
 };
 
 export default function RootLayout({
@@ -45,6 +85,7 @@ export default function RootLayout({
           <AnimatedBackground />
           {children}
         </ThemeProvider>
+        <ServiceWorkerRegister />
       </body>
     </html>
   );

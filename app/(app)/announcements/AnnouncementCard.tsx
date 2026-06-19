@@ -257,7 +257,7 @@ export function AnnouncementCard({
                       animate={{ opacity: 1, y: 0, scale: 1 }}
                       exit={{ opacity: 0, y: 6, scale: 0.9 }}
                       transition={{ duration: 0.15 }}
-                      className="absolute bottom-9 left-0 z-20 flex gap-1 rounded-xl border border-line bg-surface p-1.5 shadow-pop"
+                      className="absolute bottom-9 right-0 z-20 flex max-w-[calc(100vw-2.5rem)] flex-wrap gap-1 rounded-xl border border-line bg-surface p-1.5 shadow-pop"
                     >
                       {REACTION_EMOJIS.map((emoji) => {
                         const mine = reactionGroups.find(
