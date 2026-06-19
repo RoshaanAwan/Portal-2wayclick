@@ -29,7 +29,13 @@ export async function createSession(userId: string): Promise<string> {
   const cookieStore = await cookies();
   cookieStore.set(SESSION_COOKIE, token, {
     httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
+    // Secure cookies are dropped by browsers over plain http. While the app is
+    // served over http (no TLS/domain yet), set COOKIE_INSECURE=true to allow
+    // the session cookie to be stored. Remove this env var once on HTTPS.
+    secure:
+      process.env.COOKIE_INSECURE === "true"
+        ? false
+        : process.env.NODE_ENV === "production",
     sameSite: "lax",
     expires: expiresAt,
     path: "/",
