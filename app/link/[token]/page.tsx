@@ -1,5 +1,4 @@
 import type { Metadata } from "next";
-import { redirect } from "next/navigation";
 import { Smartphone, ShieldCheck, LogIn } from "lucide-react";
 import { getCurrentUser } from "@/lib/auth";
 import { db } from "@/lib/db";
@@ -8,6 +7,7 @@ import { Avatar } from "@/components/ui/Avatar";
 import { describeDevice, TICKET_STATUS, TICKET_KIND } from "@/lib/qrLogin";
 import { ApproveActions } from "./ApproveActions";
 import { DirectSignInActions } from "./DirectSignInActions";
+import { ApprovalGate } from "./ApprovalGate";
 
 export const metadata: Metadata = {
   title: "Sign in — 2WayClick",
@@ -104,18 +104,18 @@ export default async function LinkPage({
   }
 
   // ── SCAN_TO_APPROVE: signed-in phone approves a NEW device. ─────────────────
-  const user = await getCurrentUser();
-  // Not signed in on this phone → send to login, then back here to approve.
-  if (!user) {
-    redirect(`/login?next=${encodeURIComponent(`/link/${token}`)}`);
-  }
+  if (expired) return shell(expiredBlock);
 
   const alreadyApproved = ticket?.status === TICKET_STATUS.APPROVED;
   const device = ticket ? describeDevice(ticket.userAgent) : "Unknown device";
+  const user = await getCurrentUser();
 
-  if (expired) return shell(expiredBlock);
-
-  return shell(
+  // The approval UI, given a resolved user (name/email/avatar) to show.
+  const approveBlock = (u: {
+    name: string;
+    email: string;
+    avatarUrl: string | null;
+  }) => (
     <>
       <div className="mb-5 flex flex-col items-center text-center">
         <div className="mb-3 grid h-12 w-12 place-items-center rounded-2xl border border-line bg-accent-soft text-accent-ink">
@@ -131,10 +131,10 @@ export default async function LinkPage({
 
       {/* Who this will sign in as. */}
       <div className="mb-4 flex items-center gap-3 rounded-xl border border-line bg-surface-2 px-3.5 py-3">
-        <Avatar name={user.name} src={user.avatarUrl} size="sm" />
+        <Avatar name={u.name} src={u.avatarUrl} size="sm" />
         <div className="min-w-0">
-          <p className="truncate text-sm font-semibold text-ink">{user.name}</p>
-          <p className="truncate text-xs text-ink-400">{user.email}</p>
+          <p className="truncate text-sm font-semibold text-ink">{u.name}</p>
+          <p className="truncate text-xs text-ink-400">{u.email}</p>
         </div>
       </div>
 
@@ -161,6 +161,25 @@ export default async function LinkPage({
         Only approve if you just scanned this code yourself. Approving signs that
         device in to your account.
       </p>
-    </>,
+    </>
+  );
+
+  // When the SSR navigation carried the session cookie (the common desktop /
+  // same-context case), render the approve UI straight away.
+  if (user) return shell(approveBlock(user));
+
+  // No cookie on this navigation. This is the PWA deep-link case: a scanned link
+  // opens into the installed app, but the SameSite=lax session cookie isn't sent
+  // on that externally-initiated navigation — even though the user IS signed in.
+  // Re-check from the client (a same-origin fetch DOES carry the cookie); only
+  // truly-signed-out users fall through to login. See ApprovalGate / /api/auth/me.
+  return shell(
+    <ApprovalGate
+      token={token}
+      alreadyApproved={alreadyApproved}
+      device={device}
+      ipAddress={ticket?.ipAddress ?? null}
+      loginHref={`/login?next=${encodeURIComponent(`/link/${token}`)}`}
+    />,
   );
 }
