@@ -68,6 +68,13 @@ export const getCurrentUser = cache(async () => {
     return null;
   }
 
+  // A disabled account is treated as signed-out everywhere, even if it still
+  // holds a (not-yet-revoked) session cookie. Disabling also deletes sessions,
+  // so this is a belt-and-suspenders guard.
+  if (session.user.disabledAt) {
+    return null;
+  }
+
   const { passwordHash, ...safeUser } = session.user;
   return safeUser;
 });

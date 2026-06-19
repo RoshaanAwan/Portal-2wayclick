@@ -4,14 +4,16 @@ import { useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import {
   CalendarClock,
+  Clock,
   GripVertical,
   MessageSquare,
   MoreHorizontal,
   Pencil,
+  Target,
   Trash2,
 } from "lucide-react";
 import { Avatar } from "@/components/ui/Avatar";
-import { cn, formatDate } from "@/lib/utils";
+import { cn, formatDate, formatMinutes } from "@/lib/utils";
 import { type TaskPriority } from "@/lib/constants";
 import type { TaskDTO } from "./BoardClient";
 
@@ -63,15 +65,31 @@ export function TaskCard({
   const priority = (task.priority as TaskPriority) ?? "MEDIUM";
   const due = dueState(task.dueDate);
   const mine = !!currentUserId && task.assignees.some((a) => a.id === currentUserId);
-  const hasFooter = task.assignees.length > 0 || task.comments.length > 0;
+  // Tracked time has blown past the estimate — flag the whole card in red.
+  const overEstimate =
+    task.estimateMinutes != null &&
+    task.timeSpentMinutes > task.estimateMinutes;
+  const hasFooter =
+    task.assignees.length > 0 ||
+    task.comments.length > 0 ||
+    task.timeSpentMinutes > 0 ||
+    task.estimateMinutes != null;
 
   // Card overflow menu (Edit / Delete). Closes on outside click or Escape.
+  // The trigger lives inside the card (which is `overflow-hidden` to clip the
+  // priority stripe), but the dropdown panel is rendered in the outer wrapper
+  // so it isn't clipped — hence two refs for the outside-click check.
   const [menuOpen, setMenuOpen] = useState(false);
-  const menuRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLDivElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!menuOpen) return;
     function onDocClick(e: MouseEvent) {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+      const target = e.target as Node;
+      if (
+        !triggerRef.current?.contains(target) &&
+        !panelRef.current?.contains(target)
+      ) {
         setMenuOpen(false);
       }
     }
@@ -110,11 +128,17 @@ export function TaskCard({
         onDragOver={onDragOverCard}
         onDrop={onDropCard}
         className={cn(
-          "group relative cursor-pointer overflow-hidden rounded-xl border bg-surface pl-3.5 pr-3 py-2.5 shadow-xs outline-none transition-all focus-visible:shadow-focus-ring",
-          // Cards assigned to me get a quiet accent ring so "mine" pops.
-          mine
-            ? "border-accent/35 ring-1 ring-inset ring-accent/15"
-            : "border-line hover:border-line-strong",
+          // Cards sit on a white (bg-surface) column, so the default card uses
+          // the off-white surface-2 + a stronger border to stay distinct (the
+          // design is flat, so contrast comes from fill + border, not shadow).
+          "group relative cursor-pointer overflow-hidden rounded-xl border pl-3.5 pr-3 py-2.5 shadow-xs outline-none transition-all focus-visible:shadow-focus-ring",
+          // Over-estimate cards go prominently red — overrides "mine". Otherwise
+          // cards assigned to me get a quiet accent ring so "mine" pops.
+          overEstimate
+            ? "border-danger/50 bg-danger-soft/40 ring-1 ring-inset ring-danger/25"
+            : mine
+              ? "border-accent/35 bg-surface-2 ring-1 ring-inset ring-accent/15"
+              : "border-line-strong bg-surface-2 hover:border-ink-300",
           dragging && "opacity-40",
         )}
       >
@@ -134,7 +158,7 @@ export function TaskCard({
           </span>
 
           {canManage && (
-            <div ref={menuRef} className="relative">
+            <div ref={triggerRef}>
               <button
                 type="button"
                 aria-label="Card actions"
@@ -154,40 +178,6 @@ export function TaskCard({
               >
                 <MoreHorizontal className="h-4 w-4" />
               </button>
-
-              {menuOpen && (
-                <div
-                  role="menu"
-                  className="absolute right-0 top-7 z-20 w-32 overflow-hidden rounded-lg border border-line bg-surface py-1 shadow-lg"
-                >
-                  <button
-                    type="button"
-                    role="menuitem"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setMenuOpen(false);
-                      onEdit();
-                    }}
-                    className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs font-medium text-ink-700 hover:bg-surface-2"
-                  >
-                    <Pencil className="h-3.5 w-3.5" />
-                    Edit
-                  </button>
-                  <button
-                    type="button"
-                    role="menuitem"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setMenuOpen(false);
-                      onDelete();
-                    }}
-                    className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs font-medium text-danger-ink hover:bg-danger-soft"
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                    Delete
-                  </button>
-                </div>
-              )}
             </div>
           )}
         </div>
@@ -243,15 +233,81 @@ export function TaskCard({
               )}
             </div>
 
-            {task.comments.length > 0 && (
-              <span className="flex items-center gap-1 text-[11px] text-ink-400">
-                <MessageSquare className="h-3.5 w-3.5" />
-                {task.comments.length}
-              </span>
-            )}
+            <div className="flex items-center gap-2.5">
+              {task.estimateMinutes != null && (
+                <span
+                  className="flex items-center gap-1 text-[11px] text-ink-400"
+                  title={`${formatMinutes(task.estimateMinutes)} estimated`}
+                >
+                  <Target className="h-3.5 w-3.5" />
+                  {formatMinutes(task.estimateMinutes)}
+                </span>
+              )}
+              {task.timeSpentMinutes > 0 && (
+                <span
+                  className={cn(
+                    "flex items-center gap-1 text-[11px]",
+                    overEstimate
+                      ? "font-semibold text-danger-ink"
+                      : "text-ink-400",
+                  )}
+                  title={
+                    overEstimate
+                      ? `${formatMinutes(task.timeSpentMinutes)} tracked — over the ${formatMinutes(task.estimateMinutes!)} estimate`
+                      : `${formatMinutes(task.timeSpentMinutes)} tracked`
+                  }
+                >
+                  <Clock className="h-3.5 w-3.5" />
+                  {formatMinutes(task.timeSpentMinutes)}
+                </span>
+              )}
+              {task.comments.length > 0 && (
+                <span className="flex items-center gap-1 text-[11px] text-ink-400">
+                  <MessageSquare className="h-3.5 w-3.5" />
+                  {task.comments.length}
+                </span>
+              )}
+            </div>
           </div>
         )}
       </motion.div>
+
+      {/* Overflow menu panel — rendered outside the `overflow-hidden` card so
+          it isn't clipped. Positioned to the card's top-right. */}
+      {canManage && menuOpen && (
+        <div
+          ref={panelRef}
+          role="menu"
+          className="absolute right-1 top-9 z-30 w-32 max-w-[calc(100vw-2rem)] overflow-hidden rounded-lg border border-line bg-surface py-1 shadow-lg"
+        >
+          <button
+            type="button"
+            role="menuitem"
+            onClick={(e) => {
+              e.stopPropagation();
+              setMenuOpen(false);
+              onEdit();
+            }}
+            className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs font-medium text-ink-700 hover:bg-surface-2"
+          >
+            <Pencil className="h-3.5 w-3.5" />
+            Edit
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            onClick={(e) => {
+              e.stopPropagation();
+              setMenuOpen(false);
+              onDelete();
+            }}
+            className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs font-medium text-danger-ink hover:bg-danger-soft"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+            Delete
+          </button>
+        </div>
+      )}
     </div>
   );
 }

@@ -5,9 +5,12 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   AlignLeft,
   CalendarClock,
+  Clock,
   MessageSquare,
   Pencil,
+  Plus,
   Send,
+  Target,
   Trash2,
   Users,
   X,
@@ -15,7 +18,13 @@ import {
 import { Avatar } from "@/components/ui/Avatar";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
-import { cn, formatDate, timeAgo } from "@/lib/utils";
+import {
+  cn,
+  formatDate,
+  formatMinutes,
+  parseDuration,
+  timeAgo,
+} from "@/lib/utils";
 import {
   priorityLabel,
   priorityVariant,
@@ -39,6 +48,14 @@ function parseClientComment(
   };
 }
 
+// Time-log entries are stored as system comments prefixed with "[time]" so the
+// thread records who tracked time. Recognise the marker to render them with a
+// clock badge instead of the raw text.
+function parseTimeComment(stored: string): { body: string } | null {
+  if (!stored.startsWith("[time]")) return null;
+  return { body: stored.slice("[time]".length).trimStart() };
+}
+
 export function TaskModal({
   task,
   listName,
@@ -48,6 +65,7 @@ export function TaskModal({
   onClose,
   onAssign,
   onAddComment,
+  onLogTime,
   onEdit,
   onDelete,
 }: {
@@ -59,11 +77,22 @@ export function TaskModal({
   onClose: () => void;
   onAssign: (taskId: string, member: MemberDTO, shouldAssign: boolean) => void;
   onAddComment: (taskId: string, body: string) => Promise<boolean>;
+  onLogTime: (
+    taskId: string,
+    mode: "add" | "set",
+    minutes: number,
+    reason?: string,
+  ) => Promise<boolean>;
   onEdit: (taskId: string) => void;
   onDelete: (taskId: string) => void;
 }) {
   const [draft, setDraft] = useState("");
   const [posting, setPosting] = useState(false);
+  // Time tracking: the free-text duration the user is logging ("2h 30m").
+  const [timeDraft, setTimeDraft] = useState("");
+  // Reason required when the new total would exceed the card's estimate.
+  const [reasonDraft, setReasonDraft] = useState("");
+  const [loggingTime, setLoggingTime] = useState(false);
   const threadRef = useRef<HTMLDivElement>(null);
 
   // Close on Escape.
@@ -96,6 +125,48 @@ export function TaskModal({
   }
 
   const priority = (task?.priority as TaskPriority) ?? "MEDIUM";
+  // Live preview of the duration the user is typing, so they see "2h 30m" parse.
+  const parsedDraft = parseDuration(timeDraft);
+  // Coerce a missing/non-finite total to 0 (older cards, stale serialization).
+  const tracked = Number.isFinite(task?.timeSpentMinutes)
+    ? task!.timeSpentMinutes
+    : 0;
+  // If the card has an estimate and this entry pushes the total past it, a
+  // reason is required before the time can be logged.
+  const estimate = task?.estimateMinutes ?? null;
+  // Already over budget (before any new entry) — drives the red total.
+  const alreadyOver = estimate != null && tracked > estimate;
+  const wouldExceed =
+    estimate != null && !!parsedDraft && tracked + parsedDraft > estimate;
+  const needsReason = wouldExceed && reasonDraft.trim().length === 0;
+
+  async function logTime(e: React.FormEvent) {
+    e.preventDefault();
+    if (!task || loggingTime) return;
+    const minutes = parseDuration(timeDraft);
+    if (!minutes || minutes <= 0) return;
+    // Block until a reason is given when this entry goes over the estimate.
+    if (needsReason) return;
+    setLoggingTime(true);
+    const ok = await onLogTime(
+      task.id,
+      "add",
+      minutes,
+      wouldExceed ? reasonDraft.trim() : undefined,
+    );
+    if (ok) {
+      setTimeDraft("");
+      setReasonDraft("");
+    }
+    setLoggingTime(false);
+  }
+
+  async function resetTime() {
+    if (!task || loggingTime) return;
+    setLoggingTime(true);
+    await onLogTime(task.id, "set", 0);
+    setLoggingTime(false);
+  }
 
   return (
     <AnimatePresence>
@@ -172,6 +243,18 @@ export function TaskModal({
                     Due {formatDate(task.dueDate)}
                   </Badge>
                 )}
+                {tracked > 0 && (
+                  <Badge variant="neutral">
+                    <Clock className="h-3 w-3" />
+                    {formatMinutes(tracked)} tracked
+                  </Badge>
+                )}
+                {task.estimateMinutes != null && (
+                  <Badge variant="neutral">
+                    <Target className="h-3 w-3" />
+                    {formatMinutes(task.estimateMinutes)} estimate
+                  </Badge>
+                )}
                 <span className="text-[11px] text-ink-400">
                   Created by {task.creator.name}
                 </span>
@@ -221,17 +304,126 @@ export function TaskModal({
                 </div>
               </section>
 
-              {/* Description placeholder (kept minimal — title carries the card) */}
+              {/* Description — the card's free-text detail, distinct from the title. */}
               <section className="mb-6">
                 <div className="mb-2 flex items-center gap-2 text-ink-500">
                   <AlignLeft className="h-4 w-4" />
                   <h3 className="text-xs font-semibold uppercase tracking-wide">
-                    Details
+                    Description
                   </h3>
                 </div>
-                <p className="rounded-xl border border-line bg-surface-2 px-3.5 py-3 text-sm leading-relaxed text-ink-500">
-                  {task.title}
-                </p>
+                {task.description?.trim() ? (
+                  <p className="whitespace-pre-wrap break-words rounded-xl border border-line bg-surface-2 px-3.5 py-3 text-sm leading-relaxed text-ink-700">
+                    {task.description}
+                  </p>
+                ) : (
+                  <p className="rounded-xl border border-dashed border-line px-3.5 py-3 text-sm leading-relaxed text-ink-400">
+                    No description yet.
+                  </p>
+                )}
+              </section>
+
+              {/* Time tracked — a single pool of logged minutes. Anyone who can
+                  see the card can log time; managers can reset the total. */}
+              <section className="mb-6">
+                <div className="mb-2.5 flex items-center justify-between gap-2 text-ink-500">
+                  <div className="flex items-center gap-2">
+                    <Clock className="h-4 w-4" />
+                    <h3 className="text-xs font-semibold uppercase tracking-wide">
+                      Time tracked
+                    </h3>
+                  </div>
+                  <span
+                    className={cn(
+                      "text-sm font-semibold",
+                      alreadyOver ? "text-danger-ink" : "text-ink",
+                    )}
+                  >
+                    {formatMinutes(tracked)}
+                    {task.estimateMinutes != null && (
+                      <span
+                        className={cn(
+                          "font-normal",
+                          alreadyOver ? "text-danger-ink/70" : "text-ink-400",
+                        )}
+                      >
+                        {" "}
+                        / {formatMinutes(task.estimateMinutes)} est
+                        {alreadyOver && " · over"}
+                      </span>
+                    )}
+                  </span>
+                </div>
+
+                <form onSubmit={logTime}>
+                  <div className="flex items-center gap-2">
+                    <input
+                      value={timeDraft}
+                      onChange={(e) => setTimeDraft(e.target.value)}
+                      placeholder="e.g. 2h 30m"
+                      aria-label="Time to log"
+                      className="input h-9 flex-1 text-sm"
+                    />
+                    <Button
+                      type="submit"
+                      size="sm"
+                      variant="ghost"
+                      loading={loggingTime}
+                      disabled={!parsedDraft || parsedDraft <= 0 || needsReason}
+                    >
+                      {!loggingTime && <Plus className="h-4 w-4" />}
+                      Log
+                    </Button>
+                    {canManage && tracked > 0 && (
+                      <button
+                        type="button"
+                        onClick={resetTime}
+                        disabled={loggingTime}
+                        className="text-xs font-medium text-ink-400 transition-colors hover:text-danger-ink disabled:opacity-50"
+                      >
+                        Reset
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Over-estimate reason — required before logging when this
+                      entry pushes the total past the card's estimate. */}
+                  {wouldExceed && (
+                    <textarea
+                      value={reasonDraft}
+                      onChange={(e) => setReasonDraft(e.target.value)}
+                      rows={2}
+                      maxLength={500}
+                      placeholder="This goes over the estimate — add a reason…"
+                      aria-label="Reason for exceeding the estimate"
+                      className="input mt-2 resize-none text-sm"
+                    />
+                  )}
+                </form>
+
+                {timeDraft.trim() && parsedDraft ? (
+                  <p
+                    className={cn(
+                      "mt-1.5 text-[11px]",
+                      wouldExceed ? "text-warn-ink" : "text-ink-400",
+                    )}
+                  >
+                    Adds {formatMinutes(parsedDraft)} →{" "}
+                    {formatMinutes(tracked + parsedDraft)} total
+                    {wouldExceed &&
+                      ` — over the ${formatMinutes(estimate!)} estimate`}
+                    {needsReason && (
+                      <span className="text-danger-ink">
+                        {" "}
+                        · reason required
+                      </span>
+                    )}
+                  </p>
+                ) : timeDraft.trim() ? (
+                  <p className="mt-1.5 text-[11px] text-danger-ink">
+                    Couldn’t read that — try “2h 30m”, “90m” or “1.5h”.
+                  </p>
+                ) : null}
               </section>
 
               {/* Comments */}
@@ -253,6 +445,28 @@ export function TaskModal({
                     </p>
                   ) : (
                     task.comments.map((c) => {
+                      const timeLog = parseTimeComment(c.body);
+                      // Time-log entries render as a compact "who tracked what"
+                      // line rather than a full comment bubble.
+                      if (timeLog) {
+                        return (
+                          <div
+                            key={c.id}
+                            className="flex items-center gap-2 text-[11px] text-ink-500"
+                          >
+                            <Clock className="h-3.5 w-3.5 shrink-0 text-ink-400" />
+                            <span className="font-semibold text-ink-700">
+                              {c.author.name}
+                            </span>
+                            <span className="min-w-0 break-words">
+                              {timeLog.body}
+                            </span>
+                            <span className="shrink-0 text-[10px] text-ink-400">
+                              · {timeAgo(c.createdAt)}
+                            </span>
+                          </div>
+                        );
+                      }
                       const client = parseClientComment(c.body);
                       return (
                         <div key={c.id} className="flex gap-2.5">

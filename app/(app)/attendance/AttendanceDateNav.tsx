@@ -56,7 +56,7 @@ export function AttendanceDateNav({
           if (e.target.value) go(e.target.value);
         }}
         disabled={isPending}
-        className="input max-w-[180px] py-2"
+        className="input max-w-[160px] py-2 sm:max-w-[180px]"
         aria-label="Pick a date"
       />
 
@@ -78,7 +78,7 @@ export function AttendanceDateNav({
 
       <a
         href={`/api/attendance/export?date=${selected}`}
-        className="ml-auto inline-flex h-8 items-center gap-2 rounded-xl px-3 text-xs font-medium text-ink-500 transition-colors hover-surface hover:text-ink"
+        className="inline-flex h-8 items-center gap-2 rounded-xl px-3 text-xs font-medium text-ink-500 transition-colors hover-surface hover:text-ink sm:ml-auto"
       >
         <Download className="h-4 w-4" />
         Export CSV

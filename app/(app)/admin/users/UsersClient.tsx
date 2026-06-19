@@ -11,6 +11,11 @@ import {
   Check,
   Copy,
   RefreshCw,
+  MoreHorizontal,
+  Pencil,
+  Ban,
+  CircleCheck,
+  KeyRound,
 } from "lucide-react";
 import { Avatar } from "@/components/ui/Avatar";
 import { Badge } from "@/components/ui/Badge";
@@ -35,6 +40,9 @@ export interface AdminUserRow {
   department: string;
   avatarUrl: string | null;
   createdAt: string;
+  disabled: boolean;
+  /** Whether the current actor may edit / disable / reset this user. */
+  canManage: boolean;
 }
 
 function roleBadge(role: string) {
@@ -73,6 +81,12 @@ export function UsersClient({
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
+  // Row being edited, and the result of a password reset (shown once).
+  const [editing, setEditing] = useState<AdminUserRow | null>(null);
+  const [resetResult, setResetResult] = useState<{
+    name: string;
+    password: string;
+  } | null>(null);
   const { setParams, isPending } = useListParams({ q: query, page });
 
   // Local mirror of the search box; debounced into the URL so search runs on
@@ -110,7 +124,7 @@ export function UsersClient({
         <div className="overflow-x-auto">
           <table
             className={cn(
-              "w-full min-w-[640px] text-sm transition-opacity",
+              "w-full min-w-full text-sm transition-opacity sm:min-w-[640px]",
               isPending && "opacity-60",
             )}
           >
@@ -120,12 +134,13 @@ export function UsersClient({
                 <th className="px-5 py-3 font-semibold">Role</th>
                 <th className="px-5 py-3 font-semibold">Department</th>
                 <th className="px-5 py-3 font-semibold">Joined</th>
+                <th className="px-5 py-3 text-right font-semibold">Actions</th>
               </tr>
             </thead>
             <tbody>
               {users.length === 0 ? (
                 <tr>
-                  <td colSpan={4} className="px-5 py-10 text-center text-ink-400">
+                  <td colSpan={5} className="px-5 py-10 text-center text-ink-400">
                     {query ? `No users match “${query}”.` : "No users yet."}
                   </td>
                 </tr>
@@ -133,13 +148,21 @@ export function UsersClient({
                 users.map((u) => (
                   <tr
                     key={u.id}
-                    className="border-b border-line/60 last:border-0 transition-colors hover:bg-[rgb(var(--hover)/var(--hover-opacity))]"
+                    className={cn(
+                      "border-b border-line/60 last:border-0 transition-colors hover:bg-[rgb(var(--hover)/var(--hover-opacity))]",
+                      u.disabled && "opacity-60",
+                    )}
                   >
                     <td className="px-5 py-3">
                       <div className="flex items-center gap-3">
                         <Avatar name={u.name} src={u.avatarUrl} size="sm" />
                         <div className="min-w-0">
-                          <p className="truncate font-medium text-ink">{u.name}</p>
+                          <p className="flex items-center gap-2 truncate font-medium text-ink">
+                            {u.name}
+                            {u.disabled && (
+                              <Badge variant="red">Disabled</Badge>
+                            )}
+                          </p>
                           <p className="truncate text-xs text-ink-400">{u.email}</p>
                         </div>
                       </div>
@@ -148,6 +171,20 @@ export function UsersClient({
                     <td className="px-5 py-3 text-ink-500">{u.department}</td>
                     <td className="px-5 py-3 text-ink-400">
                       {formatDate(u.createdAt)}
+                    </td>
+                    <td className="px-5 py-3 text-right">
+                      {u.canManage ? (
+                        <RowActions
+                          user={u}
+                          onEdit={() => setEditing(u)}
+                          onResetDone={(password) =>
+                            setResetResult({ name: u.name, password })
+                          }
+                          onChanged={() => router.refresh()}
+                        />
+                      ) : (
+                        <span className="text-xs text-ink-300">—</span>
+                      )}
                     </td>
                   </tr>
                 ))
@@ -182,6 +219,158 @@ export function UsersClient({
               router.refresh();
             }}
           />
+        )}
+        {editing && (
+          <EditUserModal
+            key="edit"
+            user={editing}
+            assignableRoles={assignableRoles}
+            departments={departments}
+            onClose={() => setEditing(null)}
+            onSaved={() => {
+              setEditing(null);
+              router.refresh();
+            }}
+          />
+        )}
+        {resetResult && (
+          <ResetPasswordModal
+            key="reset"
+            name={resetResult.name}
+            password={resetResult.password}
+            onClose={() => setResetResult(null)}
+          />
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+// ── Row action menu ──────────────────────────────────────────────────────────
+// A "⋯" button opening Edit / Disable-Enable / Reset password. Disable and reset
+// run inline (with a tiny busy state); edit opens a modal owned by the parent.
+function RowActions({
+  user,
+  onEdit,
+  onResetDone,
+  onChanged,
+}: {
+  user: AdminUserRow;
+  onEdit: () => void;
+  onResetDone: (password: string) => void;
+  onChanged: () => void;
+}) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [busy, setBusy] = useState<null | "disable" | "reset">(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function toggleDisabled() {
+    setBusy("disable");
+    setError(null);
+    try {
+      const res = await fetch(`/api/admin/users/${user.id}/disable`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ disabled: !user.disabled }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error ?? "Could not update access.");
+      setMenuOpen(false);
+      onChanged();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Something went wrong.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function resetPassword() {
+    setBusy("reset");
+    setError(null);
+    try {
+      const res = await fetch(`/api/admin/users/${user.id}/reset-password`, {
+        method: "POST",
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error ?? "Could not reset password.");
+      setMenuOpen(false);
+      onResetDone(data.password as string);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Something went wrong.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  return (
+    <div className="relative inline-block text-left">
+      <button
+        onClick={() => setMenuOpen((o) => !o)}
+        aria-label={`Actions for ${user.name}`}
+        aria-expanded={menuOpen}
+        className="hover-surface grid h-8 w-8 place-items-center rounded-lg border border-line text-ink-400 hover:text-ink"
+      >
+        {busy ? (
+          <Loader2 className="h-4 w-4 animate-spin" />
+        ) : (
+          <MoreHorizontal className="h-4 w-4" />
+        )}
+      </button>
+
+      <AnimatePresence>
+        {menuOpen && (
+          <>
+            <div
+              className="fixed inset-0 z-30"
+              onClick={() => setMenuOpen(false)}
+            />
+            <motion.div
+              initial={{ opacity: 0, y: -6, scale: 0.97 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: -6, scale: 0.97 }}
+              transition={{ duration: 0.14 }}
+              className="glass-strong absolute right-0 z-40 mt-1.5 w-48 overflow-hidden p-1.5 text-left shadow-pop"
+            >
+              <button
+                onClick={() => {
+                  setMenuOpen(false);
+                  onEdit();
+                }}
+                className="hover-surface flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-ink-500 hover:text-ink"
+              >
+                <Pencil className="h-4 w-4" />
+                Edit
+              </button>
+              <button
+                onClick={toggleDisabled}
+                disabled={busy !== null}
+                className="hover-surface flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-ink-500 hover:text-ink disabled:opacity-50"
+              >
+                {user.disabled ? (
+                  <>
+                    <CircleCheck className="h-4 w-4 text-success" />
+                    Enable
+                  </>
+                ) : (
+                  <>
+                    <Ban className="h-4 w-4 text-danger-ink" />
+                    Disable
+                  </>
+                )}
+              </button>
+              <button
+                onClick={resetPassword}
+                disabled={busy !== null}
+                className="hover-surface flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-ink-500 hover:text-ink disabled:opacity-50"
+              >
+                <KeyRound className="h-4 w-4" />
+                Reset password
+              </button>
+              {error && (
+                <p className="px-3 py-1.5 text-[11px] text-danger-ink">{error}</p>
+              )}
+            </motion.div>
+          </>
         )}
       </AnimatePresence>
     </div>
@@ -435,5 +624,285 @@ function Field({
       <span className="mb-1.5 block text-xs font-medium text-ink-500">{label}</span>
       {children}
     </label>
+  );
+}
+
+// ── Shared modal shell ───────────────────────────────────────────────────────
+function ModalShell({
+  icon,
+  title,
+  subtitle,
+  onClose,
+  children,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  subtitle: string;
+  onClose: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <>
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        className="fixed inset-0 z-40 bg-black/55 backdrop-blur-sm"
+        onClick={onClose}
+      />
+      <div className="fixed inset-0 z-50 grid place-items-center p-4">
+        <motion.div
+          initial={{ opacity: 0, y: 16, scale: 0.98 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          exit={{ opacity: 0, y: 16, scale: 0.98 }}
+          transition={{ type: "spring", stiffness: 320, damping: 30 }}
+          className="glass-strong w-full max-w-lg overflow-hidden p-0"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="flex items-center justify-between border-b border-line px-5 py-4">
+            <div className="flex items-center gap-2.5">
+              <span className="grid h-9 w-9 place-items-center rounded-lg bg-accent-soft text-accent-ink">
+                {icon}
+              </span>
+              <div>
+                <h2 className="font-display text-[15px] font-semibold text-ink">
+                  {title}
+                </h2>
+                <p className="text-xs text-ink-400">{subtitle}</p>
+              </div>
+            </div>
+            <button
+              onClick={onClose}
+              aria-label="Close"
+              className="hover-surface grid h-8 w-8 place-items-center rounded-lg text-ink-400 hover:text-ink"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+          {children}
+        </motion.div>
+      </div>
+    </>
+  );
+}
+
+// ── Edit user ────────────────────────────────────────────────────────────────
+function EditUserModal({
+  user,
+  assignableRoles,
+  departments,
+  onClose,
+  onSaved,
+}: {
+  user: AdminUserRow;
+  assignableRoles: Role[];
+  departments: string[];
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [name, setName] = useState(user.name);
+  const [title, setTitle] = useState(user.title);
+  const [department, setDepartment] = useState(user.department);
+  const [role, setRole] = useState<Role>(user.role as Role);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // The current role should always be visible even if the actor can't assign it
+  // (e.g. it was set by a higher admin); it just isn't selectable in that case.
+  const roleOptions: Role[] = assignableRoles.includes(user.role as Role)
+    ? assignableRoles
+    : [user.role as Role, ...assignableRoles];
+
+  // A department not in the standard list (legacy data) is still selectable.
+  const departmentOptions = departments.includes(department)
+    ? departments
+    : [department, ...departments];
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    setSubmitting(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/admin/users/${user.id}/update`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name, title, department, role }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(data.error ?? "Could not save changes.");
+        setSubmitting(false);
+        return;
+      }
+      onSaved();
+    } catch {
+      setError("Network error — please try again.");
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <ModalShell
+      icon={<Pencil className="h-[18px] w-[18px]" />}
+      title="Edit user"
+      subtitle={user.email}
+      onClose={onClose}
+    >
+      <form onSubmit={submit} className="space-y-4 p-5">
+        <Field label="Full name">
+          <input
+            required
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            className="input"
+          />
+        </Field>
+
+        <Field label="Role">
+          <div className="grid gap-2 sm:grid-cols-2">
+            {roleOptions.map((r) => {
+              const on = role === r;
+              const assignable = assignableRoles.includes(r);
+              return (
+                <button
+                  type="button"
+                  key={r}
+                  disabled={!assignable}
+                  onClick={() => assignable && setRole(r)}
+                  className={
+                    "rounded-xl border px-3 py-2.5 text-left transition " +
+                    (on
+                      ? "border-accent bg-accent-soft"
+                      : "border-line hover:border-line-strong") +
+                    (!assignable ? " cursor-not-allowed opacity-50" : "")
+                  }
+                >
+                  <span className="flex items-center gap-1.5 text-sm font-medium text-ink">
+                    {ROLE_LABELS[r]}
+                    {on && <Check className="h-3.5 w-3.5 text-accent-ink" />}
+                  </span>
+                  <span className="mt-0.5 block text-[11px] leading-snug text-ink-400">
+                    {ROLE_DESCRIPTIONS[r]}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </Field>
+
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label="Department">
+            <select
+              value={department}
+              onChange={(e) => setDepartment(e.target.value)}
+              className="input"
+            >
+              {departmentOptions.map((d) => (
+                <option key={d} value={d}>
+                  {d}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Job title">
+            <input
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="e.g. Senior Engineer"
+              className="input"
+            />
+          </Field>
+        </div>
+
+        {error && (
+          <p className="rounded-lg border border-danger/20 bg-danger-soft px-3 py-2 text-xs text-danger-ink">
+            {error}
+          </p>
+        )}
+
+        <div className="flex justify-end gap-2 pt-1">
+          <Button type="button" variant="glass" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button type="submit" disabled={submitting}>
+            {submitting ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Check className="h-4 w-4" />
+            )}
+            Save changes
+          </Button>
+        </div>
+      </form>
+    </ModalShell>
+  );
+}
+
+// ── Reset password result ────────────────────────────────────────────────────
+// Shows the freshly-generated temporary password ONCE for the admin to copy.
+function ResetPasswordModal({
+  name,
+  password,
+  onClose,
+}: {
+  name: string;
+  password: string;
+  onClose: () => void;
+}) {
+  const [copied, setCopied] = useState(false);
+
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(password);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      /* clipboard may be blocked — non-fatal */
+    }
+  }
+
+  return (
+    <ModalShell
+      icon={<KeyRound className="h-[18px] w-[18px]" />}
+      title="Password reset"
+      subtitle={`A new temporary password for ${name}`}
+      onClose={onClose}
+    >
+      <div className="space-y-4 p-5">
+        <p className="text-sm text-ink-500">
+          Share this with {name}. They&apos;ll use it to sign in, then should
+          change it. Their existing sessions have been signed out.
+        </p>
+        <div className="flex items-center gap-2">
+          <input
+            readOnly
+            value={password}
+            className="input font-mono"
+            onFocus={(e) => e.currentTarget.select()}
+          />
+          <button
+            type="button"
+            onClick={copy}
+            aria-label="Copy"
+            title="Copy"
+            className="hover-surface grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-line text-ink-400 hover:text-ink"
+          >
+            {copied ? (
+              <Check className="h-4 w-4 text-success" />
+            ) : (
+              <Copy className="h-4 w-4" />
+            )}
+          </button>
+        </div>
+        <p className="text-[11px] text-ink-400">
+          For security, this password won&apos;t be shown again.
+        </p>
+        <div className="flex justify-end pt-1">
+          <Button type="button" onClick={onClose}>
+            Done
+          </Button>
+        </div>
+      </div>
+    </ModalShell>
   );
 }

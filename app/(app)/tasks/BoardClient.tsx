@@ -2,7 +2,7 @@
 
 import { useCallback, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { KanbanSquare, User } from "lucide-react";
+import { GripVertical, KanbanSquare, User } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { type TaskPriority } from "@/lib/constants";
 import { EmptyState } from "@/components/ui/EmptyState";
@@ -29,9 +29,12 @@ export interface CommentDTO {
 export interface TaskDTO {
   id: string;
   title: string;
+  description: string | null;
   priority: string;
   position: number;
   dueDate: string | null;
+  estimateMinutes: number | null;
+  timeSpentMinutes: number;
   listId: string;
   creator: { id: string; name: string; avatarUrl: string | null };
   assignees: MemberDTO[];
@@ -65,6 +68,10 @@ export function BoardClient({
   const [lists, setLists] = useState<ListDTO[]>(initialLists);
   const [drag, setDrag] = useState<DragState | null>(null);
   const [dropHint, setDropHint] = useState<string | null>(null);
+  // Column (list) drag — separate from card drag. Holds the dragged list id and
+  // which list it's currently hovering before, for the drop indicator.
+  const [listDrag, setListDrag] = useState<string | null>(null);
+  const [listDropHint, setListDropHint] = useState<string | null>(null);
   // Which card's detail modal is open.
   const [openTaskId, setOpenTaskId] = useState<string | null>(null);
   // Which card is being edited inline (swaps the card for the edit form).
@@ -213,23 +220,82 @@ export function BoardClient({
     [findTask, members, currentUserId, patchTask, router],
   );
 
-  // ── Edit (optimistic title/priority swap, reverted on failure) ─────────────
-  const updateTask = useCallback(
+  // ── Time tracking ("time lock") ────────────────────────────────────────────
+  // `addMinutes` logs onto the card's pool (any editor); `setMinutes` is an
+  // absolute reset (manager-only, enforced server-side). Optimistic, reverted
+  // on failure.
+  const logTime = useCallback(
     async (
       taskId: string,
-      title: string,
-      priority: TaskPriority,
+      mode: "add" | "set",
+      minutes: number,
+      reason?: string,
     ): Promise<boolean> => {
       const snapshot = findTask(taskId)?.task;
       if (!snapshot) return false;
 
-      patchTask(taskId, (t) => ({ ...t, title, priority }));
+      const current = Number.isFinite(snapshot.timeSpentMinutes)
+        ? snapshot.timeSpentMinutes
+        : 0;
+      const next = mode === "add" ? current + minutes : Math.max(0, minutes);
+      patchTask(taskId, (t) => ({ ...t, timeSpentMinutes: next }));
 
       try {
         const res = await fetch("/api/tasks/update", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ taskId, title, priority }),
+          body: JSON.stringify({
+            taskId,
+            ...(mode === "add"
+              ? { addMinutes: minutes, ...(reason ? { reason } : {}) }
+              : { timeSpentMinutes: Math.max(0, minutes) }),
+          }),
+        });
+        if (!res.ok) throw new Error("time update failed");
+        const data = await res.json();
+        // A time log returns a "[time]" system comment — append it to the thread.
+        if (data.comment) {
+          patchTask(taskId, (t) => ({
+            ...t,
+            comments: [...t.comments, data.comment],
+          }));
+        }
+        router.refresh();
+        return true;
+      } catch {
+        patchTask(taskId, (t) => ({
+          ...t,
+          timeSpentMinutes: snapshot.timeSpentMinutes,
+        }));
+        return false;
+      }
+    },
+    [findTask, patchTask, router],
+  );
+
+  // ── Edit (optimistic title/description/priority swap, reverted on failure) ──
+  const updateTask = useCallback(
+    async (
+      taskId: string,
+      title: string,
+      description: string,
+      priority: TaskPriority,
+    ): Promise<boolean> => {
+      const snapshot = findTask(taskId)?.task;
+      if (!snapshot) return false;
+
+      patchTask(taskId, (t) => ({
+        ...t,
+        title,
+        description: description || null,
+        priority,
+      }));
+
+      try {
+        const res = await fetch("/api/tasks/update", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ taskId, title, description, priority }),
         });
         if (!res.ok) throw new Error("update failed");
         router.refresh();
@@ -238,6 +304,7 @@ export function BoardClient({
         patchTask(taskId, (t) => ({
           ...t,
           title: snapshot.title,
+          description: snapshot.description,
           priority: snapshot.priority,
         }));
         return false;
@@ -351,6 +418,55 @@ export function BoardClient({
     [drag, findTask, lists, initialLists, router],
   );
 
+  // ── List (column) drag & drop ──────────────────────────────────────────────
+  // Reorder whole columns. `beforeListId` is the list to drop in front of (null
+  // = drop at the right end). Optimistic, reverted on failure.
+  const moveList = useCallback(
+    async (beforeListId: string | null) => {
+      const draggedId = listDrag;
+      setListDrag(null);
+      setListDropHint(null);
+      if (!draggedId || draggedId === beforeListId) return;
+
+      const ordered = lists;
+      const from = ordered.findIndex((l) => l.id === draggedId);
+      if (from === -1) return;
+      const without = ordered.filter((l) => l.id !== draggedId);
+      const insertAt = beforeListId
+        ? without.findIndex((l) => l.id === beforeListId)
+        : without.length;
+      const at = insertAt === -1 ? without.length : insertAt;
+
+      // No-op if it lands back in the same slot.
+      const reordered = [
+        ...without.slice(0, at),
+        ordered[from],
+        ...without.slice(at),
+      ];
+      if (reordered.every((l, i) => l.id === ordered[i].id)) return;
+
+      // Neighbors in the destination order, for the fractional position.
+      const beforeId = at > 0 ? without[at - 1]?.id ?? null : null;
+      const afterId = without[at]?.id ?? null;
+
+      const snapshot = lists;
+      setLists(reordered);
+
+      try {
+        const res = await fetch("/api/projects/list/move", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ listId: draggedId, beforeId, afterId }),
+        });
+        if (!res.ok) throw new Error("list move failed");
+        router.refresh();
+      } catch {
+        setLists(snapshot); // restore on failure
+      }
+    },
+    [listDrag, lists, router],
+  );
+
   if (lists.length === 0) {
     return (
       <EmptyState
@@ -406,28 +522,55 @@ export function BoardClient({
             ? list.tasks.filter(isMine)
             : list.tasks;
           const isDropTarget = drag && dropHint?.startsWith(`${list.id}:`);
+          const isListDragging = listDrag === list.id;
+          const isListDropTarget = listDrag && listDropHint === list.id;
           return (
             <div
               key={list.id}
               className={cn(
-                "flex w-[300px] shrink-0 flex-col rounded-2xl border bg-paper/40 p-2 transition-colors",
-                isDropTarget
+                "relative flex w-[300px] shrink-0 flex-col rounded-2xl border bg-surface p-2 transition-colors",
+                isDropTarget || isListDropTarget
                   ? "border-accent/30 bg-accent-soft/20"
-                  : "border-line/60",
+                  : "border-line",
+                isListDragging && "opacity-40",
               )}
               onDragOver={(e) => {
                 e.preventDefault();
-                if (drag) setDropHint(`${list.id}:end`);
+                // A column drag in progress: mark this list as the drop-before
+                // target. Otherwise it's a card drag landing at the list's end.
+                if (listDrag) setListDropHint(list.id);
+                else if (drag) setDropHint(`${list.id}:end`);
               }}
               onDrop={(e) => {
                 e.preventDefault();
-                void drop(list.id, null);
+                if (listDrag) void moveList(list.id);
+                else void drop(list.id, null);
               }}
             >
-              <div className="mb-2 flex items-center justify-between px-1.5 pt-0.5">
-                <h2 className="text-[13px] font-semibold text-ink">
-                  {list.name}
-                </h2>
+              {/* Column drop indicator (left edge) when reordering lists. */}
+              {isListDropTarget && (
+                <div className="absolute -left-2.5 inset-y-2 w-0.5 rounded-full bg-accent" />
+              )}
+
+              {/* Header doubles as the column drag handle. */}
+              <div
+                draggable
+                onDragStart={() => {
+                  setListDrag(list.id);
+                  setDrag(null); // ensure card-drag isn't also active
+                }}
+                onDragEnd={() => {
+                  setListDrag(null);
+                  setListDropHint(null);
+                }}
+                className="group/header mb-2 flex cursor-grab items-center justify-between rounded-lg px-1.5 pt-0.5 pb-1 hover:bg-surface-2/60 active:cursor-grabbing"
+              >
+                <div className="flex min-w-0 items-center gap-1">
+                  <GripVertical className="h-3.5 w-3.5 shrink-0 text-ink-400/40 opacity-0 transition-opacity group-hover/header:opacity-100" />
+                  <h2 className="truncate text-[13px] font-semibold text-ink">
+                    {list.name}
+                  </h2>
+                </div>
                 <span className="rounded-full bg-surface-2 px-2 py-0.5 text-[11px] font-medium text-ink-400">
                   {visibleTasks.length}
                 </span>
@@ -463,11 +606,15 @@ export function BoardClient({
                         setDropHint(null);
                       }}
                       onDragOverCard={(e) => {
+                        // While reordering columns, let the event bubble to the
+                        // list so its drop-before indicator shows.
+                        if (listDrag) return;
                         e.preventDefault();
                         e.stopPropagation();
                         if (drag) setDropHint(`${list.id}:${task.id}`);
                       }}
                       onDropCard={(e) => {
+                        if (listDrag) return; // column drop handled by the list
                         e.preventDefault();
                         e.stopPropagation();
                         void drop(list.id, task.id);
@@ -497,6 +644,28 @@ export function BoardClient({
             </div>
           );
         })}
+
+        {/* End drop-zone — appears while reordering columns so a list can be
+            moved to the far right (drop before nothing). */}
+        {listDrag && (
+          <div
+            onDragOver={(e) => {
+              e.preventDefault();
+              setListDropHint("__end__");
+            }}
+            onDrop={(e) => {
+              e.preventDefault();
+              void moveList(null);
+            }}
+            className={cn(
+              "w-16 shrink-0 self-stretch rounded-2xl border-2 border-dashed transition-colors",
+              listDropHint === "__end__"
+                ? "border-accent/50 bg-accent-soft/30"
+                : "border-line/50",
+            )}
+            aria-hidden
+          />
+        )}
       </div>
 
       <TaskModal
@@ -508,6 +677,7 @@ export function BoardClient({
         onClose={() => setOpenTaskId(null)}
         onAssign={assign}
         onAddComment={addComment}
+        onLogTime={logTime}
         onEdit={(taskId) => {
           setOpenTaskId(null);
           setEditingTaskId(taskId);

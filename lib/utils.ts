@@ -31,6 +31,49 @@ export function timeAgo(date: Date | string): string {
   return "just now";
 }
 
+// Render a minute count as "2h 30m" / "45m" / "3h". 0 → "0m". A missing or
+// non-finite value (e.g. an older card serialized before this field existed)
+// reads as "0m" rather than "NaNm".
+export function formatMinutes(minutes: number | null | undefined): string {
+  const total =
+    Number.isFinite(minutes) && minutes != null
+      ? Math.max(0, Math.round(minutes))
+      : 0;
+  const h = Math.floor(total / 60);
+  const m = total % 60;
+  if (h && m) return `${h}h ${m}m`;
+  if (h) return `${h}h`;
+  return `${m}m`;
+}
+
+// Parse a free-text duration into whole minutes. Accepts forms like "2h 30m",
+// "90m", "1.5h", "2h", or a bare number (read as minutes). Returns null if the
+// input doesn't contain a recognisable duration.
+export function parseDuration(input: string): number | null {
+  const str = input.trim().toLowerCase();
+  if (!str) return null;
+
+  // Bare number → minutes (e.g. "90").
+  if (/^\d+(\.\d+)?$/.test(str)) {
+    return Math.round(parseFloat(str));
+  }
+
+  let minutes = 0;
+  let matched = false;
+  const hours = str.match(/(\d+(?:\.\d+)?)\s*h/);
+  if (hours) {
+    minutes += parseFloat(hours[1]) * 60;
+    matched = true;
+  }
+  const mins = str.match(/(\d+(?:\.\d+)?)\s*m/);
+  if (mins) {
+    minutes += parseFloat(mins[1]);
+    matched = true;
+  }
+  if (!matched) return null;
+  return Math.round(minutes);
+}
+
 export function initials(name: string): string {
   return name
     .split(" ")

@@ -113,8 +113,11 @@ export function InvoiceDocument({ invoice }: { invoice: InvoiceDTO }) {
           </div>
         </div>
 
-        {/* Line items */}
-        <table className="mt-9 w-full border-collapse text-sm">
+        {/* Line items — wrapped so the 4-column table scrolls horizontally on
+            narrow screens instead of overflowing the document. Print collapses
+            to a full page, so the scroll wrapper is inert there. */}
+        <div className="-mx-1 mt-9 overflow-x-auto px-1">
+          <table className="w-full min-w-[480px] border-collapse text-sm">
           <thead>
             <tr style={exact}>
               <th
@@ -163,7 +166,8 @@ export function InvoiceDocument({ invoice }: { invoice: InvoiceDTO }) {
               </tr>
             ))}
           </tbody>
-        </table>
+          </table>
+        </div>
 
         {/* Totals */}
         <div className="mt-6 flex justify-end">

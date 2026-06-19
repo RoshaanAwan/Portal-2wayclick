@@ -17,12 +17,19 @@ export type AuditAction =
   | "user.profile_update"
   | "user.avatar_update"
   | "user.password_change"
+  | "user.update"
+  | "user.disable"
+  | "user.enable"
+  | "user.password_reset"
   | "auth.login"
   | "auth.logout"
+  | "auth.qr_approve"
+  | "auth.qr_login"
   | "project.create"
   | "project.update"
   | "project.delete"
   | "project.list_create"
+  | "project.list_move"
   | "project.member_add"
   | "project.member_remove"
   | "project.share_regenerate"
@@ -65,7 +72,13 @@ export type AuditAction =
   | "salary.create"
   | "salary.update"
   | "salary.deactivate"
-  | "salary.delete";
+  | "salary.delete"
+  | "salary.payment_add"
+  | "salary.payment_delete"
+  | "project.income_add"
+  | "project.income_delete"
+  | "project.share_add"
+  | "project.share_delete";
 
 interface AuditInput {
   actor: SafeUser | { id?: string | null; name: string; role: string };

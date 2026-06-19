@@ -83,7 +83,7 @@ export function OrgChart({ roots }: { roots: OrgNode[] }) {
           animate={{ scale: zoom }}
           transition={{ type: "spring", stiffness: 220, damping: 26 }}
           style={{ transformOrigin: "top center" }}
-          className="flex min-w-max justify-center gap-10 pt-2"
+          className="flex min-w-max justify-center gap-4 pt-2 sm:gap-8 lg:gap-10"
         >
           {roots.map((node, i) => (
             <OrgBranch key={node.id} node={node} depth={0} index={i} />

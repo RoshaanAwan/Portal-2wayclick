@@ -2,10 +2,11 @@
 
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { Sun, Sunrise, Moon, ArrowUpRight, UserCheck, Plane, ListChecks } from "lucide-react";
+import { Sun, Sunrise, Moon, ArrowUpRight, UserCheck, Plane, ListChecks, QrCode } from "lucide-react";
 import Link from "next/link";
 import { Avatar } from "@/components/ui/Avatar";
 import { CountUp } from "@/components/ui/CountUp";
+import { DeviceLinkButton } from "@/components/DeviceLinkScanner";
 import { rise } from "@/lib/motion";
 
 interface TodayStats {
@@ -134,8 +135,20 @@ export function Hero({
           initial={{ opacity: 0, x: 10 }}
           animate={{ opacity: 1, x: 0 }}
           transition={{ delay: 0.25, duration: 0.4 }}
-          className="self-start sm:self-auto"
+          className="flex flex-col items-stretch gap-2.5 self-start sm:flex-row sm:items-center sm:self-auto"
         >
+          {/* Link a device — shows a QR to scan from a phone you're already
+              signed in on; approving it there links this browser. */}
+          <DeviceLinkButton className="group/link flex items-center gap-3 rounded-xl border border-line bg-surface-2 px-4 py-3 text-left transition hover:border-accent/40 hover:bg-accent-soft">
+            <div className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-accent-grad text-white">
+              <QrCode className="h-4.5 w-4.5" />
+            </div>
+            <div>
+              <p className="text-xs font-semibold text-ink-700">Link a device</p>
+              <p className="text-[11px] text-ink-400">Show a QR to scan</p>
+            </div>
+          </DeviceLinkButton>
+
           <Link
             href="/announcements"
             className="group/cta flex items-center gap-3 rounded-xl border border-line bg-surface-2 px-4 py-3 transition hover:border-accent/40 hover:bg-accent-soft"

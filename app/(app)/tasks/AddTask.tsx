@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import { Plus, X } from "lucide-react";
 import { Button } from "@/components/ui/Button";
-import { cn } from "@/lib/utils";
+import { cn, formatMinutes, parseDuration } from "@/lib/utils";
 import {
   priorityLabel,
   TASK_PRIORITIES,
@@ -24,14 +24,18 @@ export function AddTask({
   const [title, setTitle] = useState("");
   const [priority, setPriority] = useState<TaskPriority>("MEDIUM");
   const [assignSelf, setAssignSelf] = useState(false);
+  // Free-text time estimate the creator can give ("2h 30m"); optional.
+  const [estimate, setEstimate] = useState("");
   const [loading, setLoading] = useState(false);
 
   const canSubmit = title.trim().length > 0;
+  const parsedEstimate = parseDuration(estimate);
 
   function reset() {
     setTitle("");
     setPriority("MEDIUM");
     setAssignSelf(false);
+    setEstimate("");
     setOpen(false);
   }
 
@@ -48,6 +52,8 @@ export function AddTask({
         title: title.trim(),
         priority,
         assigneeId: assignSelf && currentUserId ? currentUserId : undefined,
+        estimateMinutes:
+          parsedEstimate && parsedEstimate > 0 ? parsedEstimate : undefined,
       }),
     });
 
@@ -112,6 +118,31 @@ export function AddTask({
               {priorityLabel[p]}
             </button>
           ))}
+        </div>
+
+        <div className="mt-2">
+          <label className="mb-1 block text-[11px] font-medium text-ink-500">
+            Time estimate (optional)
+          </label>
+          <input
+            value={estimate}
+            onChange={(e) => setEstimate(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") reset();
+            }}
+            placeholder="e.g. 2h 30m"
+            aria-label="Time estimate"
+            className="input h-9 text-sm"
+          />
+          {estimate.trim() && parsedEstimate ? (
+            <p className="mt-1 text-[11px] text-ink-400">
+              Estimated {formatMinutes(parsedEstimate)}
+            </p>
+          ) : estimate.trim() ? (
+            <p className="mt-1 text-[11px] text-danger-ink">
+              Couldn’t read that — try “2h 30m”, “90m” or “1.5h”.
+            </p>
+          ) : null}
         </div>
 
         {currentUserId && (

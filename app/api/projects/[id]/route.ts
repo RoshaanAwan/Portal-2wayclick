@@ -13,7 +13,9 @@ import { can } from "@/lib/permissions";
 
 const updateSchema = z.object({
   name: z.string().trim().min(2).max(120),
-  description: z.string().trim().max(500).optional().or(z.literal("")),
+  // Omitted entirely → leave the existing description untouched (a rename
+  // shouldn't wipe it). An empty string explicitly clears it.
+  description: z.string().trim().max(500).optional(),
 });
 
 export async function PATCH(
@@ -37,11 +39,18 @@ export async function PATCH(
       return NextResponse.json({ error: "Project not found" }, { status: 404 });
     }
 
-    // Rename the project and keep its board's name aligned.
+    // Rename the project and keep its board's name aligned. `description` is
+    // updated only when the caller sent the field: undefined leaves it as-is, an
+    // empty string clears it.
     await db.$transaction([
       db.project.update({
         where: { id },
-        data: { name, description: description ? description : null },
+        data: {
+          name,
+          ...(description !== undefined
+            ? { description: description ? description : null }
+            : {}),
+        },
       }),
       db.board.update({ where: { id: project.boardId }, data: { name } }),
     ]);

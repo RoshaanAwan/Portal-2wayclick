@@ -18,34 +18,37 @@ export default function ExpensesLoading() {
         <Skeleton className="h-8 w-32 rounded-xl" />
       </div>
 
-      {/* Table */}
-      <div className="overflow-hidden rounded-2xl border border-line" aria-hidden>
-        {/* Header row */}
-        <div className="flex items-center gap-4 bg-surface-2 px-4 py-3">
-          <Skeleton className="h-3 w-24" />
-          <Skeleton className="ml-auto h-3 w-16" />
-          <Skeleton className="h-3 w-24" />
-          <Skeleton className="h-3 w-16" />
-          <Skeleton className="h-3 w-14" />
-          <Skeleton className="h-3 w-16" />
-        </div>
-        {/* Body rows */}
-        {Array.from({ length: 8 }).map((_, i) => (
-          <div
-            key={i}
-            className="flex items-center gap-4 border-t border-line px-4 py-3"
-          >
-            <div className="flex-1 space-y-2">
-              <Skeleton className="h-3.5 w-40" />
-              <Skeleton className="h-3 w-28" />
-            </div>
-            <Skeleton className="h-3.5 w-24" />
-            <Skeleton className="h-3.5 w-20" />
-            <Skeleton className="h-3.5 w-16" />
-            <Skeleton className="h-5 w-16 rounded-full" />
-            <Skeleton className="h-7 w-16 rounded-lg" />
+      {/* Table — matches the real table's horizontal-scroll behavior on mobile
+          (min-width + overflow-x-auto) so the loading state doesn't clip. */}
+      <div className="overflow-x-auto rounded-2xl border border-line" aria-hidden>
+        <div className="min-w-[680px]">
+          {/* Header row */}
+          <div className="flex items-center gap-4 bg-surface-2 px-4 py-3">
+            <Skeleton className="h-3 w-24" />
+            <Skeleton className="ml-auto h-3 w-16" />
+            <Skeleton className="h-3 w-24" />
+            <Skeleton className="h-3 w-16" />
+            <Skeleton className="h-3 w-14" />
+            <Skeleton className="h-3 w-16" />
           </div>
-        ))}
+          {/* Body rows */}
+          {Array.from({ length: 8 }).map((_, i) => (
+            <div
+              key={i}
+              className="flex items-center gap-4 border-t border-line px-4 py-3"
+            >
+              <div className="flex-1 space-y-2">
+                <Skeleton className="h-3.5 w-40" />
+                <Skeleton className="h-3 w-28" />
+              </div>
+              <Skeleton className="h-3.5 w-24" />
+              <Skeleton className="h-3.5 w-20" />
+              <Skeleton className="h-3.5 w-16" />
+              <Skeleton className="h-5 w-16 rounded-full" />
+              <Skeleton className="h-7 w-16 rounded-lg" />
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );

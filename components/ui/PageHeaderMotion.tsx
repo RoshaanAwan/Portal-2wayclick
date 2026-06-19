@@ -18,7 +18,7 @@ export function PageHeaderMotion({
       initial={{ opacity: 0, y: -10 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.4 }}
-      className="mb-6 flex items-end justify-between gap-4"
+      className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between"
     >
       <div className="flex items-center gap-3.5">
         {icon && (

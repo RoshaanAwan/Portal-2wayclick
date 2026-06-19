@@ -112,7 +112,7 @@ export function ShareLinkPanel({
             </Button>
           </div>
         ) : (
-          <div className="flex items-center justify-between gap-3 rounded-xl border border-dashed border-line bg-surface-2 px-3 py-2.5">
+          <div className="flex flex-col gap-3 rounded-xl border border-dashed border-line bg-surface-2 px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
             <p className="text-xs text-ink-400">
               No client link. The previous one has been revoked.
             </p>

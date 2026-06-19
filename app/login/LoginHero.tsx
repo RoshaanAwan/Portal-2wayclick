@@ -1,7 +1,9 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { ShieldCheck, Zap, Users } from "lucide-react";
+import { QRCodeSVG } from "qrcode.react";
 import { Logo } from "@/components/ui/Logo";
 
 /* The branded left panel of the split login. A vibrant coral gradient with
@@ -13,6 +15,14 @@ export function LoginHero() {
     { icon: Users, label: "Built for your whole team" },
     { icon: ShieldCheck, label: "Secure, role-based access" },
   ];
+
+  // "Open on your phone" QR — encodes this site's URL so a desktop visitor can
+  // jump to the portal on their phone. Resolved client-side from the live origin
+  // (works across local/preview/prod without configuration).
+  const [siteUrl, setSiteUrl] = useState("");
+  useEffect(() => {
+    setSiteUrl(window.location.origin);
+  }, []);
 
   return (
     <div
@@ -103,15 +113,38 @@ export function LoginHero() {
         </ul>
       </motion.div>
 
-      {/* Footer line. */}
-      <motion.p
+      {/* Footer: brand QR + copyright. The QR encodes the site URL so a visitor
+          on a desktop can open the portal on their phone by scanning it. */}
+      <motion.div
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         transition={{ duration: 0.5, delay: 0.6 }}
-        className="relative z-10 text-xs text-white/60"
+        className="relative z-10 flex items-center gap-4"
       >
-        © {new Date().getFullYear()} 2WayClick. All rights reserved.
-      </motion.p>
+        <div className="grid h-[72px] w-[72px] shrink-0 place-items-center rounded-xl bg-white p-1.5 shadow-sm ring-1 ring-white/40">
+          {siteUrl ? (
+            <QRCodeSVG
+              value={siteUrl}
+              size={60}
+              level="M"
+              marginSize={0}
+              bgColor="#ffffff"
+              fgColor="#181a1f"
+            />
+          ) : (
+            <div className="h-[60px] w-[60px] animate-pulse rounded bg-zinc-100" />
+          )}
+        </div>
+        <div className="min-w-0">
+          <p className="text-sm font-medium text-white">Open on your phone</p>
+          <p className="mt-0.5 text-xs leading-relaxed text-white/70">
+            Scan to launch 2WayClick on a mobile device.
+          </p>
+          <p className="mt-2 text-[11px] text-white/50">
+            © {new Date().getFullYear()} 2WayClick. All rights reserved.
+          </p>
+        </div>
+      </motion.div>
     </div>
   );
 }

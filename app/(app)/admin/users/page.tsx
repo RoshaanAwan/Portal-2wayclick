@@ -7,6 +7,7 @@ import { PageHeader } from "@/components/ui/PageHeader";
 import {
   creatableRoles,
   canCreateUsers,
+  canManageUser,
   ROLES,
   ROLE_LABELS,
 } from "@/lib/permissions";
@@ -66,6 +67,7 @@ export default async function AdminUsersPage({
       department: true,
       avatarUrl: true,
       createdAt: true,
+      disabledAt: true,
     },
   });
 
@@ -78,6 +80,10 @@ export default async function AdminUsersPage({
     department: u.department,
     avatarUrl: u.avatarUrl,
     createdAt: u.createdAt.toISOString(),
+    disabled: u.disabledAt !== null,
+    // Whether the current actor may edit / disable / reset THIS row. Computed
+    // server-side so the client never has to re-derive authorization.
+    canManage: canManageUser(actor, { id: u.id, role: u.role }),
   }));
 
   return (

@@ -9,6 +9,7 @@ const Role = {
   LEAD: "LEAD",
   PROJECT_MANAGER: "PROJECT_MANAGER",
   EMPLOYEE: "EMPLOYEE",
+  INTERN: "INTERN",
 } as const;
 const RequestStatus = { PENDING: "PENDING", APPROVED: "APPROVED", DENIED: "DENIED" } as const;
 
@@ -60,6 +61,7 @@ async function main() {
     { name: "Grace Okoro", title: "Finance Manager", department: "Finance", role: Role.PROJECT_MANAGER, location: "London", avatar: 19 },
     { name: "Tom Becker", title: "Sales Director", department: "Sales", role: Role.PROJECT_MANAGER, location: "Boston", avatar: 11 },
     { name: "Nadia Volkov", title: "UX Researcher", department: "Design", role: Role.EMPLOYEE, location: "Berlin", avatar: 20 },
+    { name: "Leo Martin", title: "Engineering Intern", department: "Engineering", role: Role.INTERN, location: "Remote", avatar: 21 },
   ];
 
   const created: Record<string, string> = {};
