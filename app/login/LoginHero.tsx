@@ -6,8 +6,11 @@ import { ShieldCheck, Zap, Users } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import { Logo } from "@/components/ui/Logo";
 
-/* The branded left panel of the split login. A vibrant coral gradient with
+/* The branded left panel of the split login. A vibrant accent gradient with
    soft floating orbs, the brand mark, a headline, and a few value props.
+   The gradient is built from the --c-accent* tokens (set on <html> by the
+   no-flash init script before paint), so it matches whatever accent the
+   visitor has saved — keeping both halves of the split login in sync.
    Hidden below the lg breakpoint — the form takes over on small screens. */
 export function LoginHero() {
   const features = [
@@ -28,11 +31,13 @@ export function LoginHero() {
     <div
       className="relative hidden overflow-hidden lg:flex lg:flex-col lg:justify-between lg:p-14"
       style={{
-        // ── Gradient base painted directly on the panel ── a rich diagonal
-        // coral run. (Painting it here, rather than in a -z child, avoids the
-        // negative-z layer rendering behind the page.)
+        // ── Gradient base painted directly on the panel ── a rich diagonal run
+        // built from the accent tokens, so it tracks the saved accent. (Painting
+        // it here, rather than in a -z child, avoids the negative-z layer
+        // rendering behind the page.) The darkest stop deepens the accent-600
+        // end so the gradient still reads with range on lighter accents.
         background:
-          "linear-gradient(135deg, #ff8159 0%, #f5683f 45%, #e8542c 78%, #c8431f 100%)",
+          "linear-gradient(135deg, rgb(var(--c-accent-400)) 0%, rgb(var(--c-accent-500)) 45%, rgb(var(--c-accent-600)) 78%, rgb(var(--c-accent-600) / 0.85) 100%)",
       }}
     >
       {/* Soft floating orbs add depth and motion over the flat gradient. */}
@@ -44,7 +49,7 @@ export function LoginHero() {
       />
       <motion.div
         aria-hidden
-        className="absolute -bottom-32 right-0 z-0 h-[28rem] w-[28rem] rounded-full bg-[#ffb38f]/30 blur-3xl"
+        className="absolute -bottom-32 right-0 z-0 h-[28rem] w-[28rem] rounded-full bg-white/15 blur-3xl"
         animate={{ y: [0, -28, 0], x: [0, -18, 0] }}
         transition={{ duration: 14, repeat: Infinity, ease: "easeInOut" }}
       />
