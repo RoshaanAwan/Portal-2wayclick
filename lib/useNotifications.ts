@@ -55,33 +55,33 @@ export function useNotifications() {
     };
   }, []);
 
-  // ── Transport: polling (serverless-safe, default) ──────────────────────────
-  usePolling(
-    async () => {
-      try {
-        const url = cursor.current
-          ? `/api/notifications/since?cursor=${encodeURIComponent(cursor.current)}`
-          : "/api/notifications/since";
-        const res = await fetch(url);
-        if (!res.ok) return;
-        const data = await res.json();
-        if (data.cursor) cursor.current = data.cursor;
-        // Server returns oldest-first; ingest in order so the newest ends on top.
-        (data.notifications ?? []).forEach((n: ClientNotification) =>
-          ingest(n),
-        );
-        // Trust the server's authoritative unread count (read-state may have
-        // changed elsewhere, e.g. another tab).
-        if (typeof data.unread === "number") setUnread(data.unread);
-      } catch {
-        // next tick retries
-      }
-    },
-    undefined,
-    REALTIME_TRANSPORT === "poll",
-  );
+  // ── Transport: polling ─────────────────────────────────────────────────────
+  // ALWAYS on. Polling is the universal transport that works on Vercel
+  // serverless (where the in-process SSE bus can't reach the recipient). SSE
+  // below is purely ADDITIVE — when it works (single long-running host) it just
+  // delivers faster; `seen` dedupes so running both is safe. We never disable
+  // polling, so a stray NEXT_PUBLIC_REALTIME_TRANSPORT value can't break live
+  // updates in production.
+  usePolling(async () => {
+    try {
+      const url = cursor.current
+        ? `/api/notifications/since?cursor=${encodeURIComponent(cursor.current)}`
+        : "/api/notifications/since";
+      const res = await fetch(url);
+      if (!res.ok) return;
+      const data = await res.json();
+      if (data.cursor) cursor.current = data.cursor;
+      // Server returns oldest-first; ingest in order so the newest ends on top.
+      (data.notifications ?? []).forEach((n: ClientNotification) => ingest(n));
+      // Trust the server's authoritative unread count (read-state may have
+      // changed elsewhere, e.g. another tab).
+      if (typeof data.unread === "number") setUnread(data.unread);
+    } catch {
+      // next tick retries
+    }
+  });
 
-  // ── Transport: SSE (single long-running host) ──────────────────────────────
+  // ── Transport: SSE (optional, additive — opt in on a long-running host) ─────
   useEffect(() => {
     if (REALTIME_TRANSPORT !== "sse") return;
     const es = new EventSource("/api/notifications/stream");

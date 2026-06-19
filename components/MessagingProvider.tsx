@@ -134,36 +134,63 @@ export function MessagingProvider({
     [markReadLocal],
   );
 
+  // Reconcile the conversation list (previews, ordering, unread, read receipts).
+  // IMPORTANT: refresh() must NOT touch the poll cursor. The message-poll owns
+  // the cursor and is the only path that delivers messages to OPEN THREADS (via
+  // ingestMessage → thread handlers). If refresh() advanced the cursor, it could
+  // skip past a just-arrived message before the poll fetched it — the list would
+  // update but the open thread would silently miss it until a reload. (That was
+  // the "only visible after refresh" bug.)
   const refresh = useCallback(async () => {
     try {
       const res = await fetch("/api/conversations/list");
       if (!res.ok) return;
       const data = await res.json();
       const list: ChatConversation[] = data.conversations ?? [];
-      list.forEach((c) => c.lastMessage && seen.current.add(c.lastMessage.id));
       setConversations(list);
-      // Seed/advance the poll cursor to the newest message we already have, so
-      // the first poll only returns genuinely new messages. Only advance it
-      // forward (a concurrent refresh shouldn't rewind a cursor the poll moved).
-      const newest = list
-        .map((c) => c.lastMessage?.createdAt)
-        .filter(Boolean)
-        .sort()
-        .pop() as string | undefined;
-      if (newest && (!cursor.current || newest > cursor.current)) {
-        cursor.current = newest;
-      }
     } catch {
-      // ignore — the bell-style reconcile happens on the next load
+      // ignore — reconciles on the next tick
     } finally {
       setLoadingConversations(false);
     }
   }, []);
 
-  // Initial load.
+  // Initial load: fetch the list AND seed the poll cursor ONCE, to the newest
+  // message we already have, so the first poll returns only genuinely new
+  // messages instead of replaying history. The cursor is never moved again
+  // except by the message-poll itself.
   useEffect(() => {
-    void refresh();
-  }, [refresh]);
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/conversations/list");
+        if (!res.ok || cancelled) return;
+        const data = await res.json();
+        const list: ChatConversation[] = data.conversations ?? [];
+        setConversations(list);
+        const newest = list
+          .map((c) => c.lastMessage?.createdAt)
+          .filter(Boolean)
+          .sort()
+          .pop() as string | undefined;
+        // Seed just BEFORE the newest message (1ms back) so an equal-millisecond
+        // message can't be skipped by the strict `>` cursor; `seen` dedupes the
+        // re-fetched boundary message.
+        if (newest) {
+          cursor.current = new Date(
+            new Date(newest).getTime() - 1,
+          ).toISOString();
+        }
+      } catch {
+        // ignore
+      } finally {
+        if (!cancelled) setLoadingConversations(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // Ingest a live message into the conversation list: update preview, bump to
   // top, and increment unread unless it's the open thread or my own message.
@@ -217,41 +244,48 @@ export function MessagingProvider({
     [ingestToList],
   );
 
-  // ── Transport: polling (serverless-safe, default) ──────────────────────────
-  // Pull every message newer than our cursor on an interval. Works across Vercel
-  // instances where the in-process SSE bus can't reach the receiver. Every other
-  // tick we also re-pull the conversation list, which carries each member's
-  // lastReadAt — that's what keeps "seen" receipts live for the sender (the
-  // recipient reading produces no new message to poll, only an advanced cursor).
+  // ── Transport: polling ─────────────────────────────────────────────────────
+  // ALWAYS on. Pull every message newer than our cursor on an interval — this is
+  // the universal transport that works on Vercel serverless (where the in-process
+  // SSE bus can't reach the receiver). SSE below is purely ADDITIVE; `seen`
+  // dedupes if both run, so a stray NEXT_PUBLIC_REALTIME_TRANSPORT value can
+  // never disable live updates. Every other tick we also re-pull the conversation
+  // list, which carries each member's lastReadAt — that keeps "seen" receipts
+  // live for the sender (the recipient reading produces no new message to poll,
+  // only an advanced cursor).
   const tick = useRef(0);
-  usePolling(
-    async () => {
-      try {
-        const url = cursor.current
-          ? `/api/messages/since?cursor=${encodeURIComponent(cursor.current)}`
-          : "/api/messages/since";
-        const res = await fetch(url);
-        if (res.ok) {
-          const data = await res.json();
-          if (data.cursor) cursor.current = data.cursor;
-          (data.messages ?? []).forEach((m: LiveChatMessage) =>
-            ingestMessage(m),
-          );
+  usePolling(async () => {
+    try {
+      const url = cursor.current
+        ? `/api/messages/since?cursor=${encodeURIComponent(cursor.current)}`
+        : "/api/messages/since";
+      const res = await fetch(url);
+      if (res.ok) {
+        const data = await res.json();
+        const msgs: LiveChatMessage[] = data.messages ?? [];
+        msgs.forEach((m) => ingestMessage(m));
+        // Advance the cursor to 1ms BEFORE the newest message we just got, so a
+        // same-millisecond sibling can never be skipped by the strict `>` filter;
+        // `seen` dedupes the boundary message we re-fetch. Only ever move
+        // forward. When the batch is empty we leave the cursor put — the next
+        // poll simply re-queries from the same point.
+        if (msgs.length > 0) {
+          const newest = msgs[msgs.length - 1].createdAt;
+          const safe = new Date(new Date(newest).getTime() - 1).toISOString();
+          if (!cursor.current || safe > cursor.current) cursor.current = safe;
         }
-      } catch {
-        // next tick retries
       }
-      // Reconcile the list (read receipts, membership, ordering) ~every 5s.
-      tick.current = (tick.current + 1) % 2;
-      if (tick.current === 0) void refresh();
-    },
-    undefined,
-    REALTIME_TRANSPORT === "poll",
-  );
+    } catch {
+      // next tick retries
+    }
+    // Reconcile the list (read receipts, membership, ordering) ~every 5s.
+    tick.current = (tick.current + 1) % 2;
+    if (tick.current === 0) void refresh();
+  });
 
-  // ── Transport: SSE (single long-running host, e.g. DigitalOcean) ───────────
-  // One EventSource for the whole app. Enabled only when the transport flag is
-  // "sse"; the route still exists for that deployment.
+  // ── Transport: SSE (optional, additive — opt in on a long-running host) ─────
+  // One EventSource for the whole app. Enabled only when the flag is "sse"; the
+  // route still exists for that deployment. Polling above always runs too.
   useEffect(() => {
     if (REALTIME_TRANSPORT !== "sse") return;
     const es = new EventSource("/api/messages/stream");

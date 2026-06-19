@@ -28,28 +28,26 @@ export function useActivityStream(initial: FeedItem[], cap = 12) {
     [cap],
   );
 
-  // ── Transport: polling (serverless-safe, default) ──────────────────────────
-  usePolling(
-    async () => {
-      try {
-        const url = cursor.current
-          ? `/api/activity/since?cursor=${encodeURIComponent(cursor.current)}`
-          : "/api/activity/since";
-        const res = await fetch(url);
-        if (!res.ok) return;
-        const data = await res.json();
-        if (data.cursor) cursor.current = data.cursor;
-        // Server returns oldest-first; ingest in order so newest ends on top.
-        (data.activities ?? []).forEach((a: FeedItem) => ingest(a));
-      } catch {
-        // next tick retries
-      }
-    },
-    undefined,
-    REALTIME_TRANSPORT === "poll",
-  );
+  // ── Transport: polling ─────────────────────────────────────────────────────
+  // ALWAYS on (works on Vercel serverless). SSE below is additive; `seen`
+  // dedupes if both run. See useNotifications for the rationale.
+  usePolling(async () => {
+    try {
+      const url = cursor.current
+        ? `/api/activity/since?cursor=${encodeURIComponent(cursor.current)}`
+        : "/api/activity/since";
+      const res = await fetch(url);
+      if (!res.ok) return;
+      const data = await res.json();
+      if (data.cursor) cursor.current = data.cursor;
+      // Server returns oldest-first; ingest in order so newest ends on top.
+      (data.activities ?? []).forEach((a: FeedItem) => ingest(a));
+    } catch {
+      // next tick retries
+    }
+  });
 
-  // ── Transport: SSE (single long-running host) ──────────────────────────────
+  // ── Transport: SSE (optional, additive) ────────────────────────────────────
   useEffect(() => {
     if (REALTIME_TRANSPORT !== "sse") return;
     const es = new EventSource("/api/activity/stream");
