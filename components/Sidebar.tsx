@@ -140,7 +140,7 @@ export function Sidebar({ role }: { role?: string | null }) {
               animate={{ x: 0 }}
               exit={{ x: "-100%" }}
               transition={{ type: "spring", stiffness: 360, damping: 38 }}
-              className="absolute inset-y-0 left-0 flex w-[min(18rem,85vw)] flex-col p-3"
+              className="absolute inset-y-0 left-0 flex w-[min(18rem,85vw)] flex-col p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] pl-[calc(0.75rem+env(safe-area-inset-left))] pt-[calc(0.75rem+env(safe-area-inset-top))]"
             >
               <SidebarBody
                 isActive={isActive}

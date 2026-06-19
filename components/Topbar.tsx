@@ -48,7 +48,7 @@ export function Topbar({ user }: { user: SafeUser }) {
   }
 
   return (
-    <header className="sticky top-0 z-20 px-3 pt-3 lg:px-6">
+    <header className="sticky top-0 z-20 px-3 pt-[calc(0.75rem+env(safe-area-inset-top))] lg:px-6 lg:pt-3">
       <div className="frost flex items-center gap-2 rounded-2xl border border-line px-3 py-2.5 shadow-card sm:gap-3">
         {/* Mobile: hamburger opens the nav drawer (the sidebar is hidden below
             lg). Paired with a compact brand mark so the bar still reads as the
@@ -114,7 +114,7 @@ export function Topbar({ user }: { user: SafeUser }) {
                   animate={{ opacity: 1, y: 0, scale: 1 }}
                   exit={{ opacity: 0, y: -8, scale: 0.97 }}
                   transition={{ duration: 0.15 }}
-                  className="glass-strong absolute right-0 z-20 mt-2 w-80 overflow-hidden p-0"
+                  className="glass-strong fixed inset-x-3 top-[calc(70px+env(safe-area-inset-top))] z-20 w-auto overflow-hidden p-0 sm:absolute sm:inset-x-auto sm:right-0 sm:top-auto sm:mt-2 sm:w-80"
                 >
                   <div className="flex items-center justify-between border-b border-line px-4 py-3">
                     <h3 className="font-display text-sm font-semibold text-ink">

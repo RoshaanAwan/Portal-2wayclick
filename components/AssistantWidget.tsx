@@ -104,7 +104,7 @@ export function AssistantWidget() {
         onClick={() => setOpen((o) => !o)}
         whileHover={{ scale: 1.05 }}
         whileTap={{ scale: 0.95 }}
-        className="fixed bottom-5 right-5 z-40 grid h-14 w-14 place-items-center rounded-full bg-accent text-white shadow-card transition hover:brightness-110"
+        className="fixed bottom-[calc(1.25rem+env(safe-area-inset-bottom))] right-[calc(1.25rem+env(safe-area-inset-right))] z-40 grid h-14 w-14 place-items-center rounded-full bg-accent text-white shadow-card transition hover:brightness-110"
       >
         <AnimatePresence mode="wait" initial={false}>
           {open ? (
@@ -137,7 +137,7 @@ export function AssistantWidget() {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 16, scale: 0.97 }}
             transition={{ duration: 0.18 }}
-            className="glass-strong fixed bottom-24 right-5 z-40 flex h-[32rem] max-h-[calc(100vh-8rem)] w-[calc(100vw-2.5rem)] max-w-sm flex-col overflow-hidden p-0"
+            className="glass-strong fixed bottom-[calc(6rem+env(safe-area-inset-bottom))] right-[calc(1.25rem+env(safe-area-inset-right))] z-40 flex h-[32rem] max-h-[calc(100vh-8rem)] w-[calc(100vw-2.5rem)] max-w-sm flex-col overflow-hidden p-0"
           >
             {/* Header */}
             <div className="flex items-center gap-2.5 border-b border-line px-4 py-3">

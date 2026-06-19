@@ -79,6 +79,16 @@ const config: Config = {
         sans: ["var(--font-sans)", "system-ui", "sans-serif"],
         display: ["var(--font-display)", "system-ui", "sans-serif"],
       },
+      // iOS/PWA safe-area insets (notch, status bar, home indicator). Used as
+      // `pt-safe-top`, `pb-safe-bottom`, etc. so chrome clears the notch when the
+      // viewport is edge-to-edge (viewport-fit=cover). max() keeps a sane minimum
+      // on devices with no inset.
+      spacing: {
+        "safe-top": "env(safe-area-inset-top)",
+        "safe-bottom": "env(safe-area-inset-bottom)",
+        "safe-left": "env(safe-area-inset-left)",
+        "safe-right": "env(safe-area-inset-right)",
+      },
       backgroundImage: {
         // Barely-there warm wash in the top corners of the canvas (per-theme).
         "paper-wash": "var(--paper-wash)",
