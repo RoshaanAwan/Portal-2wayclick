@@ -34,20 +34,45 @@ export function QrLogin() {
           Sign in with your phone
         </h2>
         <p className="mt-1.5 text-sm text-ink-500">
-          Open 2WayClick on a phone you&apos;re already signed in on, then scan
-          this code to sign in here.
+          Use a phone that&apos;s <span className="font-medium text-ink-700">already
+          signed in</span> to 2WayClick to log in here without a password.
         </p>
       </div>
 
       <div className="flex flex-col items-center gap-5">
         <QrCodeSurface phase={phase} linkUrl={linkUrl} onRestart={restart} />
 
-        <p className="flex items-center gap-1.5 text-center text-xs text-ink-400">
-          <ShieldCheck className="h-3.5 w-3.5 text-ink-300" />
-          You&apos;ll confirm the sign-in on your phone before this device is
-          allowed in.
+        {/* Explicit steps — the #1 source of confusion is scanning with a phone
+            that isn't signed in (then there's no one to approve). */}
+        <ol className="w-full space-y-1.5 text-xs text-ink-500">
+          <li className="flex gap-2">
+            <Step n={1} />
+            On your phone, open 2WayClick and make sure you&apos;re signed in.
+          </li>
+          <li className="flex gap-2">
+            <Step n={2} />
+            Scan this code with the phone&apos;s camera and tap Approve.
+          </li>
+          <li className="flex gap-2">
+            <Step n={3} />
+            This device signs in automatically.
+          </li>
+        </ol>
+
+        <p className="flex items-center gap-1.5 text-center text-[11px] text-ink-400">
+          <ShieldCheck className="h-3.5 w-3.5 shrink-0 text-ink-300" />
+          New phone? Open 2WayClick on it and sign in once with your password
+          first — then this works.
         </p>
       </div>
     </div>
+  );
+}
+
+function Step({ n }: { n: number }) {
+  return (
+    <span className="grid h-4 w-4 shrink-0 place-items-center rounded-full bg-accent-soft text-[10px] font-bold text-accent-ink">
+      {n}
+    </span>
   );
 }

@@ -678,6 +678,16 @@ export function BoardClient({
         onAssign={assign}
         onAddComment={addComment}
         onLogTime={logTime}
+        onSaveDescription={(taskId, description) =>
+          openTask
+            ? updateTask(
+                taskId,
+                openTask.title,
+                description,
+                openTask.priority as TaskPriority,
+              )
+            : Promise.resolve(false)
+        }
         onEdit={(taskId) => {
           setOpenTaskId(null);
           setEditingTaskId(taskId);
