@@ -92,8 +92,10 @@ const config: Config = {
       backgroundImage: {
         // Barely-there warm wash in the top corners of the canvas (per-theme).
         "paper-wash": "var(--paper-wash)",
-        // Brand gradient for the logo mark / primary buttons.
-        "accent-grad": "linear-gradient(135deg, #ff8159 0%, #f5683f 55%, #e8542c 100%)",
+        // Brand gradient for the logo mark / primary buttons. Built from the
+        // accent tokens so it re-tints when the user picks a different accent.
+        "accent-grad":
+          "linear-gradient(135deg, rgb(var(--c-accent-400)) 0%, rgb(var(--c-accent-500)) 55%, rgb(var(--c-accent-600)) 100%)",
       },
       boxShadow: {
         // Flat design: depth tokens resolve to `none` via the CSS vars; only
@@ -106,7 +108,7 @@ const config: Config = {
         // Accent glow removed — kept as a no-op so `shadow-accent-glow` usages
         // render flat instead of breaking.
         "accent-glow": "none",
-        "focus-ring": "0 0 0 3px rgba(245,104,63,0.25)",
+        "focus-ring": "0 0 0 3px rgb(var(--c-accent) / 0.25)",
       },
       keyframes: {
         float: {

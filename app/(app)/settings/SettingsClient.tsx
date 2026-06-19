@@ -25,7 +25,7 @@ import { GlassCard } from "@/components/ui/GlassCard";
 import { Button } from "@/components/ui/Button";
 import { Avatar } from "@/components/ui/Avatar";
 import { Reveal, RevealItem } from "@/components/ui/Reveal";
-import { useTheme, type Theme } from "@/components/ThemeProvider";
+import { useTheme, type Theme, type Accent } from "@/components/ThemeProvider";
 import { usePushSubscription } from "@/lib/usePushSubscription";
 import { cn } from "@/lib/utils";
 
@@ -53,7 +53,7 @@ const SECTIONS = [
   { id: "account", label: "Account", Icon: ShieldCheck },
 ] as const;
 
-const ACCENTS = [
+const ACCENTS: { key: Accent; label: string; color: string }[] = [
   { key: "orange", label: "Coral", color: "#f5683f" },
   { key: "violet", label: "Violet", color: "#8b5cf6" },
   { key: "blue", label: "Azure", color: "#3b82f6" },
@@ -119,18 +119,17 @@ export function SettingsClient({
   canViewProfile?: boolean;
 }) {
   const router = useRouter();
-  const { theme, setTheme } = useTheme();
+  const { theme, setTheme, accent, setAccent, reducedMotion, setReducedMotion } =
+    useTheme();
   const [active, setActive] = useState<(typeof SECTIONS)[number]["id"]>("profile");
 
-  // Local preference state. There's no preferences model yet, so these persist
-  // for the session only — clearly a UI-level demo of the controls.
-  const [accent, setAccent] = useState("orange");
+  // Notification prefs are still a UI-level demo (no preferences model yet);
+  // appearance prefs (theme/accent/reduced-motion) are persisted via ThemeProvider.
   const [prefs, setPrefs] = useState({
     announcements: true,
     mentions: true,
     approvals: true,
     weeklyDigest: false,
-    reducedMotion: false,
   });
 
   // ── Profile editing ───────────────────────────────────────────────────────
@@ -544,8 +543,8 @@ export function SettingsClient({
                       desc="Minimize animations and transitions across the app."
                     >
                       <Toggle
-                        on={prefs.reducedMotion}
-                        onChange={(v) => setPrefs((p) => ({ ...p, reducedMotion: v }))}
+                        on={reducedMotion}
+                        onChange={setReducedMotion}
                       />
                     </Row>
                   </div>

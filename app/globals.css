@@ -153,6 +153,50 @@
   color-scheme: light;
 }
 
+/* ── Accent palettes ───────────────────────────────────────────────────────
+   The default accent (coral) lives in the theme blocks above. Selecting a
+   different accent in Settings sets <html data-accent="…">, and these rules
+   override the --c-accent* tokens so the whole app re-tints at once. They sit
+   after the theme blocks so they win regardless of dark/light. */
+[data-accent="violet"] {
+  --c-accent: 139 92 246; /* #8b5cf6 */
+  --c-accent-600: 124 58 237; /* #7c3aed */
+  --c-accent-500: 139 92 246; /* #8b5cf6 */
+  --c-accent-400: 167 139 250; /* #a78bfa */
+  --c-accent-soft: 30 23 50; /* deep violet tint */
+  --c-accent-ink: 167 139 250; /* #a78bfa */
+}
+[data-theme="light"][data-accent="violet"] {
+  --c-accent-soft: 237 233 254; /* #ede9fe */
+  --c-accent-ink: 109 40 217; /* #6d28d9 */
+}
+
+[data-accent="blue"] {
+  --c-accent: 59 130 246; /* #3b82f6 */
+  --c-accent-600: 37 99 235; /* #2563eb */
+  --c-accent-500: 59 130 246; /* #3b82f6 */
+  --c-accent-400: 96 165 250; /* #60a5fa */
+  --c-accent-soft: 18 29 50; /* deep blue tint */
+  --c-accent-ink: 96 165 250; /* #60a5fa */
+}
+[data-theme="light"][data-accent="blue"] {
+  --c-accent-soft: 219 234 254; /* #dbeafe */
+  --c-accent-ink: 29 78 216; /* #1d4ed8 */
+}
+
+[data-accent="emerald"] {
+  --c-accent: 16 185 129; /* #10b981 */
+  --c-accent-600: 5 150 105; /* #059669 */
+  --c-accent-500: 16 185 129; /* #10b981 */
+  --c-accent-400: 52 211 153; /* #34d399 */
+  --c-accent-soft: 16 38 31; /* deep emerald tint */
+  --c-accent-ink: 52 211 153; /* #34d399 */
+}
+[data-theme="light"][data-accent="emerald"] {
+  --c-accent-soft: 209 250 229; /* #d1fae5 */
+  --c-accent-ink: 4 120 87; /* #047857 */
+}
+
 * {
   box-sizing: border-box;
 }
@@ -191,14 +235,14 @@ body {
 
 /* Selection — tinted with the brand accent. */
 ::selection {
-  background: rgba(245, 104, 63, 0.3);
+  background: rgb(var(--c-accent) / 0.3);
   color: rgb(var(--selection));
 }
 
 /* Focus — visible, branded, never on mouse clicks. */
 :focus-visible {
   outline: none;
-  box-shadow: 0 0 0 2px rgb(var(--focus-bg)), 0 0 0 4px rgba(245, 104, 63, 0.55);
+  box-shadow: 0 0 0 2px rgb(var(--focus-bg)), 0 0 0 4px rgb(var(--c-accent) / 0.55);
   border-radius: 6px;
 }
 
@@ -359,7 +403,9 @@ body {
   animation: breathe 8s ease-in-out infinite;
 }
 
-/* Honor reduced-motion globally — kill transforms/animations for a11y. */
+/* Honor reduced-motion globally — kill transforms/animations for a11y. The
+   media query respects the OS preference; the [data-reduce-motion] selector is
+   the in-app toggle (Settings → Appearance → Motion). Same effect, two sources. */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -369,6 +415,14 @@ body {
     transition-duration: 0.001ms !important;
     scroll-behavior: auto !important;
   }
+}
+[data-reduce-motion="1"] *,
+[data-reduce-motion="1"] *::before,
+[data-reduce-motion="1"] *::after {
+  animation-duration: 0.001ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.001ms !important;
+  scroll-behavior: auto !important;
 }
 
 /* ── Print: invoice download ───────────────────────────────────────────────

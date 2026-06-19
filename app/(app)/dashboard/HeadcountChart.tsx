@@ -12,7 +12,7 @@ import {
   type TooltipProps,
 } from "recharts";
 import { GlassCard } from "@/components/ui/GlassCard";
-import { useTheme } from "@/components/ThemeProvider";
+import { useTheme, useAccentColor } from "@/components/ThemeProvider";
 
 interface DeptCount {
   department: string;
@@ -50,6 +50,11 @@ export function HeadcountChart({
   const peak = data.length ? Math.max(...data.map((d) => d.count)) : 0;
   const { theme } = useTheme();
   const c = AXIS[theme];
+  // Concrete accent colors for the SVG chart (recharts can't use Tailwind
+  // classes). These re-resolve when the user changes the accent.
+  const accentColor = useAccentColor();
+  const accentSoft = useAccentColor("--c-accent", 0.3);
+  const accentCursor = useAccentColor("--c-accent", 0.4);
 
   return (
     <GlassCard
@@ -91,9 +96,9 @@ export function HeadcountChart({
           >
             <defs>
               <linearGradient id="headcountFill" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="#f5683f" stopOpacity={0.35} />
-                <stop offset="60%" stopColor="#f5683f" stopOpacity={0.1} />
-                <stop offset="100%" stopColor="#f5683f" stopOpacity={0} />
+                <stop offset="0%" stopColor={accentColor} stopOpacity={0.35} />
+                <stop offset="60%" stopColor={accentColor} stopOpacity={0.1} />
+                <stop offset="100%" stopColor={accentColor} stopOpacity={0} />
               </linearGradient>
             </defs>
             <XAxis
@@ -113,19 +118,19 @@ export function HeadcountChart({
             />
             <Tooltip
               content={<CustomTooltip />}
-              cursor={{ stroke: "rgba(245,104,63,0.4)", strokeWidth: 1 }}
+              cursor={{ stroke: accentCursor, strokeWidth: 1 }}
             />
             <Area
               type="monotone"
               dataKey="count"
-              stroke="#f5683f"
+              stroke={accentColor}
               strokeWidth={2.5}
               fill="url(#headcountFill)"
-              dot={{ r: 3, fill: "#f5683f", strokeWidth: 0 }}
+              dot={{ r: 3, fill: accentColor, strokeWidth: 0 }}
               activeDot={{
                 r: 5,
-                fill: "#f5683f",
-                stroke: "rgba(245,104,63,0.3)",
+                fill: accentColor,
+                stroke: accentSoft,
                 strokeWidth: 4,
               }}
               animationDuration={900}

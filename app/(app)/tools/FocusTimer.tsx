@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Play, Pause, RotateCcw, Timer, Coffee, Brain } from "lucide-react";
 import { GlassCard } from "@/components/ui/GlassCard";
+import { useAccentColor } from "@/components/ThemeProvider";
 import { cn } from "@/lib/utils";
 
 type Mode = "focus" | "break";
@@ -71,7 +72,9 @@ export function FocusTimer() {
   const progress = 1 - remaining / total;
   const dashOffset = CIRCUMFERENCE * (1 - progress);
   const isFocus = mode === "focus";
-  const ringColor = isFocus ? "#f5683f" : "#34d399";
+  // Focus ring follows the workspace accent; break keeps its calm green.
+  const accentColor = useAccentColor();
+  const ringColor = isFocus ? accentColor : "#34d399";
 
   return (
     <GlassCard glow strong hover={false} className="p-5">

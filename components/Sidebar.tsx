@@ -16,6 +16,7 @@ import {
   ShieldCheck,
   ScrollText,
   Activity,
+  Gauge,
   Clock,
   Receipt,
   Wallet,
@@ -73,9 +74,12 @@ export function Sidebar({ role }: { role?: string | null }) {
     startTransition(() => router.push(href));
   }
 
-  // Team Pulse — manager tier and up (they manage people / can decide leave).
+  // Team Pulse + Performance — manager tier and up (they manage people).
   const managerNav = isManagerTier(role)
-    ? [{ href: "/pulse", label: "Team Pulse", icon: Activity }]
+    ? [
+        { href: "/pulse", label: "Team Pulse", icon: Activity },
+        { href: "/performance", label: "Performance", icon: Gauge },
+      ]
     : [];
 
   // Directory (the people list + org chart) — admin tier only (Super Admin /
