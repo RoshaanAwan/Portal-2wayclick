@@ -54,6 +54,7 @@ model User {
   activities         Activity[]
   readReceipts       AnnouncementRead[]
   createdTasks       Task[]             @relation("TaskCreator")
+  reportedTasks      Task[]             @relation("TaskReporter")
   taskAssignments    TaskAssignee[]
   taskComments       TaskComment[]
   ownedProjects      Project[]          @relation("ProjectOwner")
@@ -319,13 +320,52 @@ model Board {
   name      String
   createdAt DateTime @default(now())
 
+  // ── JIRA-like issue keys ────────────────────────────────────────────────────
+  // Every board has a short uppercase project key (e.g. "PORTAL", "WEB"). Each
+  // card (issue) on the board gets a stable human id of `<keyPrefix>-<number>`,
+  // where the number is drawn from `issueSeq` — a per-board monotonic counter
+  // bumped atomically when a card is created (see lib/issues.ts → nextIssueKey).
+  // keyPrefix defaults to a slug of the board/project name; issueSeq starts at 0
+  // so the first issue is <prefix>-1.
+  keyPrefix String @default("TASK")
+  issueSeq  Int    @default(0)
+
   lists   BoardList[]
+  sprints Sprint[]
   // A board may belong to a project (every project gets its own board). The
   // standalone /tasks board has no project.
   project Project?
 
   // The /tasks page loads the oldest board first.
   @@index([createdAt])
+}
+
+// ── Sprints ─────────────────────────────────────────────────────────────────
+// A named, time-boxed iteration on a board (JIRA-style). Cards are planned into
+// a sprint via Task.sprintId; the Backlog is simply cards with no sprint. A
+// board has at most one ACTIVE sprint at a time (enforced in lib/issues.ts);
+// completing a sprint moves its still-open cards back to the backlog.
+model Sprint {
+  id        String   @id @default(cuid())
+  boardId   String
+  board     Board    @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  name      String
+  goal      String?
+  // PLANNED (in the backlog planner) | ACTIVE (started, drives the board) |
+  // COMPLETED (closed). See SPRINT_STATUSES in lib/constants.ts.
+  status    String   @default("PLANNED")
+  startDate DateTime?
+  endDate   DateTime?
+  // Set when the sprint is started / completed, for the timeline.
+  startedAt   DateTime?
+  completedAt DateTime?
+  // Ordering of sprints within the backlog planner (top → bottom).
+  position  Float    @default(0)
+  createdAt DateTime @default(now())
+
+  tasks Task[]
+
+  @@index([boardId, status])
 }
 
 // ── Projects ────────────────────────────────────────────────────────────────
@@ -537,6 +577,37 @@ model Task {
   // Priority: LOW | MEDIUM | HIGH
   priority    String    @default("MEDIUM")
   dueDate     DateTime?
+
+  // ── JIRA-like issue fields ──────────────────────────────────────────────────
+  // Per-board sequence number (drawn from Board.issueSeq). Combined with the
+  // board's keyPrefix this renders the stable human key `<PREFIX>-<issueNumber>`
+  // (e.g. PORTAL-42). Unique per board so the key is unambiguous. Nullable only
+  // for the brief window before the create transaction assigns it / for legacy
+  // rows the backfill hasn't reached.
+  issueNumber Int?
+  // Issue type: STORY | BUG | TASK | EPIC | SUBTASK. See ISSUE_TYPES.
+  issueType   String  @default("TASK")
+  // Workflow status: TODO | IN_PROGRESS | IN_REVIEW | DONE. This is the JIRA
+  // lifecycle, kept in lock-step with the card's list (the Kanban column) — both
+  // are written together so the board reads from the list and filters read from
+  // status. See WORKFLOW_STATUSES + statusForList in lib/issues.ts.
+  status      String  @default("TODO")
+  // Agile estimate in story points (Fibonacci-ish). Distinct from
+  // estimateMinutes (time). Null when unestimated.
+  storyPoints Int?
+  // Comma-free free-text labels, stored as a string array (Postgres text[]).
+  labels      String[] @default([])
+
+  // The person accountable for the issue (JIRA "reporter"), distinct from the
+  // creator (who happens to have typed it in) and the assignees (who do it).
+  // Defaults to the creator at create time; re-assignable by managers.
+  reporterId String?
+  reporter   User?   @relation("TaskReporter", fields: [reporterId], references: [id], onDelete: SetNull)
+
+  // Optional sprint this issue is planned into. Null = backlog. SetNull so
+  // deleting a sprint drops its cards back to the backlog rather than the cards.
+  sprintId String?
+  sprint   Sprint? @relation(fields: [sprintId], references: [id], onDelete: SetNull)
   // Time estimate (minutes) set by whoever creates the card — the planned
   // effort, distinct from `timeSpentMinutes` (the actual logged time). Null
   // when no estimate was given.
@@ -556,9 +627,40 @@ model Task {
   // or comments left on it via the public link).
   clientSubmissions ClientSubmission[]
 
+  // Issue links where this card is the source / the target. A link is directed
+  // (BLOCKS, RELATES, DUPLICATES, PARENT) and rendered from both ends with the
+  // inverse phrasing (see ISSUE_LINK_TYPES in lib/constants.ts).
+  outgoingLinks IssueLink[] @relation("LinkSource")
+  incomingLinks IssueLink[] @relation("LinkTarget")
+
   // Cards are read per-list ordered by position; creator FK for joins.
   @@index([listId, position])
   @@index([creatorId])
+  @@index([sprintId])
+  @@index([reporterId])
+  @@index([status])
+  // The issue-key route resolves a card by its number; uniqueness within a board
+  // is guaranteed by the atomic Board.issueSeq counter (lib/issues.ts), so this
+  // is a plain lookup index, not a constraint.
+  @@index([issueNumber])
+}
+
+// ── Issue links ─────────────────────────────────────────────────────────────
+// A directed relationship between two cards (JIRA "issue links"). `type` is one
+// of ISSUE_LINK_TYPES. The same pair can be linked at most once per type+
+// direction. Deleting either card removes the link (Cascade).
+model IssueLink {
+  id       String @id @default(cuid())
+  // BLOCKS | RELATES | DUPLICATES | PARENT. See ISSUE_LINK_TYPES.
+  type     String
+  sourceId String
+  source   Task   @relation("LinkSource", fields: [sourceId], references: [id], onDelete: Cascade)
+  targetId String
+  target   Task   @relation("LinkTarget", fields: [targetId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([sourceId, targetId, type])
+  @@index([targetId])
 }
 
 model TaskComment {

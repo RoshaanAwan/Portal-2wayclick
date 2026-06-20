@@ -7,22 +7,32 @@ import { Plus, X } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { cn, formatMinutes, parseDuration } from "@/lib/utils";
 import {
+  ISSUE_TYPES,
+  STORY_POINT_OPTIONS,
+  issueTypeLabel,
   priorityLabel,
   TASK_PRIORITIES,
+  type IssueType,
   type TaskPriority,
 } from "@/lib/constants";
+import { IssueTypeIcon } from "./issueUi";
 
 export function AddTask({
   listId,
   currentUserId,
+  defaultSprintId = null,
 }: {
   listId: string;
   currentUserId: string | null;
+  // When a sprint is active, new board cards join it by default (JIRA-style).
+  defaultSprintId?: string | null;
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [title, setTitle] = useState("");
+  const [issueType, setIssueType] = useState<IssueType>("TASK");
   const [priority, setPriority] = useState<TaskPriority>("MEDIUM");
+  const [storyPoints, setStoryPoints] = useState<number | null>(null);
   const [assignSelf, setAssignSelf] = useState(false);
   // Free-text time estimate the creator can give ("2h 30m"); optional.
   const [estimate, setEstimate] = useState("");
@@ -33,7 +43,9 @@ export function AddTask({
 
   function reset() {
     setTitle("");
+    setIssueType("TASK");
     setPriority("MEDIUM");
+    setStoryPoints(null);
     setAssignSelf(false);
     setEstimate("");
     setOpen(false);
@@ -51,6 +63,9 @@ export function AddTask({
         listId,
         title: title.trim(),
         priority,
+        issueType,
+        storyPoints: storyPoints ?? undefined,
+        sprintId: defaultSprintId ?? undefined,
         assigneeId: assignSelf && currentUserId ? currentUserId : undefined,
         estimateMinutes:
           parsedEstimate && parsedEstimate > 0 ? parsedEstimate : undefined,
@@ -102,6 +117,27 @@ export function AddTask({
           className="input resize-none text-sm"
         />
 
+        {/* Issue type */}
+        <div className="mt-2 flex flex-wrap items-center gap-1.5">
+          {ISSUE_TYPES.filter((t) => t !== "SUBTASK").map((t) => (
+            <button
+              key={t}
+              type="button"
+              onClick={() => setIssueType(t)}
+              title={issueTypeLabel[t]}
+              className={cn(
+                "inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[11px] font-medium transition-colors",
+                issueType === t
+                  ? "border-accent/30 bg-accent-soft text-accent-ink"
+                  : "border-line bg-surface-2 text-ink-500 hover:text-ink",
+              )}
+            >
+              <IssueTypeIcon type={t} />
+              {issueTypeLabel[t]}
+            </button>
+          ))}
+        </div>
+
         <div className="mt-2 flex flex-wrap items-center gap-1.5">
           {TASK_PRIORITIES.map((p) => (
             <button
@@ -118,6 +154,30 @@ export function AddTask({
               {priorityLabel[p]}
             </button>
           ))}
+        </div>
+
+        {/* Story points */}
+        <div className="mt-2">
+          <label className="mb-1 block text-[11px] font-medium text-ink-500">
+            Story points (optional)
+          </label>
+          <div className="flex flex-wrap items-center gap-1.5">
+            {STORY_POINT_OPTIONS.map((p) => (
+              <button
+                key={p}
+                type="button"
+                onClick={() => setStoryPoints((cur) => (cur === p ? null : p))}
+                className={cn(
+                  "grid h-7 w-7 place-items-center rounded-full border text-[11px] font-semibold transition-colors",
+                  storyPoints === p
+                    ? "border-accent/30 bg-accent-soft text-accent-ink"
+                    : "border-line bg-surface-2 text-ink-500 hover:text-ink",
+                )}
+              >
+                {p}
+              </button>
+            ))}
+          </div>
         </div>
 
         <div className="mt-2">

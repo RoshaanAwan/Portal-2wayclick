@@ -7,10 +7,13 @@ import { can, isManagerTier } from "@/lib/permissions";
 import { shareUrl } from "@/lib/share";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Avatar } from "@/components/ui/Avatar";
+import { issueKey } from "@/lib/issues";
 import {
   BoardClient,
   type ListDTO,
   type MemberDTO,
+  type SprintDTO,
+  type IssueLinkDTO,
 } from "../../tasks/BoardClient";
 import { AddList } from "./AddList";
 import { ShareLinkPanel } from "./ShareLinkPanel";
@@ -37,6 +40,7 @@ export default async function ProjectBoardPage({
       },
       board: {
         include: {
+          sprints: { orderBy: [{ status: "asc" }, { position: "asc" }] },
           lists: {
             orderBy: { position: "asc" },
             include: {
@@ -44,6 +48,9 @@ export default async function ProjectBoardPage({
                 orderBy: { position: "asc" },
                 include: {
                   creator: {
+                    select: { id: true, name: true, avatarUrl: true },
+                  },
+                  reporter: {
                     select: { id: true, name: true, avatarUrl: true },
                   },
                   assignees: {
@@ -66,6 +73,20 @@ export default async function ProjectBoardPage({
                       },
                     },
                   },
+                  outgoingLinks: {
+                    include: {
+                      target: {
+                        select: { id: true, title: true, status: true, issueType: true, issueNumber: true },
+                      },
+                    },
+                  },
+                  incomingLinks: {
+                    include: {
+                      source: {
+                        select: { id: true, title: true, status: true, issueType: true, issueNumber: true },
+                      },
+                    },
+                  },
                 },
               },
             },
@@ -81,42 +102,80 @@ export default async function ProjectBoardPage({
   const isMember = project.members.some((m) => m.userId === user?.id);
   if (!isAdmin && !isMember) notFound();
 
+  const keyPrefix = project.board.keyPrefix;
+
   const lists: ListDTO[] = project.board.lists.map((list) => ({
     id: list.id,
     name: list.name,
     position: list.position,
-    tasks: list.tasks.map((t) => ({
-      id: t.id,
-      title: t.title,
-      description: t.description,
-      priority: t.priority,
-      position: t.position,
-      dueDate: t.dueDate ? t.dueDate.toISOString() : null,
-      estimateMinutes: t.estimateMinutes,
-      timeSpentMinutes: t.timeSpentMinutes,
-      listId: t.listId,
-      creator: {
-        id: t.creator.id,
-        name: t.creator.name,
-        avatarUrl: t.creator.avatarUrl,
-      },
-      assignees: t.assignees.map((a) => ({
-        id: a.user.id,
-        name: a.user.name,
-        avatarUrl: a.user.avatarUrl,
-        title: a.user.title,
-      })),
-      comments: t.comments.map((c) => ({
-        id: c.id,
-        body: c.body,
-        createdAt: c.createdAt.toISOString(),
-        author: {
-          id: c.author.id,
-          name: c.author.name,
-          avatarUrl: c.author.avatarUrl,
+    tasks: list.tasks.map((t) => {
+      const links: IssueLinkDTO[] = [
+        ...t.outgoingLinks.map((l) => ({
+          id: l.id,
+          type: l.type,
+          direction: "outward" as const,
+          issueKey: issueKey(keyPrefix, l.target.issueNumber),
+          taskId: l.target.id,
+          title: l.target.title,
+          status: l.target.status,
+          issueType: l.target.issueType,
+        })),
+        ...t.incomingLinks.map((l) => ({
+          id: l.id,
+          type: l.type,
+          direction: "inward" as const,
+          issueKey: issueKey(keyPrefix, l.source.issueNumber),
+          taskId: l.source.id,
+          title: l.source.title,
+          status: l.source.status,
+          issueType: l.source.issueType,
+        })),
+      ];
+
+      return {
+        id: t.id,
+        title: t.title,
+        description: t.description,
+        priority: t.priority,
+        position: t.position,
+        dueDate: t.dueDate ? t.dueDate.toISOString() : null,
+        estimateMinutes: t.estimateMinutes,
+        timeSpentMinutes: t.timeSpentMinutes,
+        listId: t.listId,
+        issueNumber: t.issueNumber,
+        issueKey: issueKey(keyPrefix, t.issueNumber),
+        issueType: t.issueType,
+        status: t.status,
+        storyPoints: t.storyPoints,
+        labels: t.labels,
+        reporter: t.reporter
+          ? { id: t.reporter.id, name: t.reporter.name, avatarUrl: t.reporter.avatarUrl }
+          : null,
+        sprintId: t.sprintId,
+        links,
+        creator: {
+          id: t.creator.id,
+          name: t.creator.name,
+          avatarUrl: t.creator.avatarUrl,
         },
-      })),
-    })),
+        assignees: t.assignees.map((a) => ({
+          id: a.user.id,
+          name: a.user.name,
+          avatarUrl: a.user.avatarUrl,
+          title: a.user.title,
+        })),
+        comments: t.comments.map((c) => ({
+          id: c.id,
+          body: c.body,
+          createdAt: c.createdAt.toISOString(),
+          author: {
+            id: c.author.id,
+            name: c.author.name,
+            avatarUrl: c.author.avatarUrl,
+          },
+        })),
+      };
+    }),
   }));
 
   // Assignment is scoped to the project's own roster.
@@ -125,6 +184,15 @@ export default async function ProjectBoardPage({
     name: m.user.name,
     avatarUrl: m.user.avatarUrl,
     title: m.user.title,
+  }));
+
+  const sprints: SprintDTO[] = project.board.sprints.map((s) => ({
+    id: s.id,
+    name: s.name,
+    goal: s.goal,
+    status: s.status,
+    startDate: s.startDate ? s.startDate.toISOString() : null,
+    endDate: s.endDate ? s.endDate.toISOString() : null,
   }));
 
   return (
@@ -177,6 +245,9 @@ export default async function ProjectBoardPage({
       <BoardClient
         lists={lists}
         members={members}
+        sprints={sprints}
+        boardId={project.board.id}
+        keyPrefix={keyPrefix}
         currentUserId={user?.id ?? null}
         isManager={isManagerTier(user?.role)}
       />

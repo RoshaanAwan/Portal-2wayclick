@@ -2,15 +2,26 @@
 
 import { useCallback, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { GripVertical, KanbanSquare, User } from "lucide-react";
+import { GripVertical, KanbanSquare, ListFilter, User, X } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { type TaskPriority } from "@/lib/constants";
+import {
+  ISSUE_TYPES,
+  WORKFLOW_STATUSES,
+  issueTypeLabel,
+  statusLabel,
+  type TaskPriority,
+  type WorkflowStatus,
+} from "@/lib/constants";
+import { Avatar } from "@/components/ui/Avatar";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { IssueTypeIcon } from "./issueUi";
+import { statusForListName } from "./statusMap";
 import { TaskCard } from "./TaskCard";
 import { EditTaskForm } from "./EditTaskForm";
 import { AddTask } from "./AddTask";
 import { TaskModal } from "./TaskModal";
+import { BacklogView } from "./BacklogView";
 
 export interface MemberDTO {
   id: string;
@@ -26,6 +37,21 @@ export interface CommentDTO {
   author: { id: string; name: string; avatarUrl: string | null };
 }
 
+// A linked issue, as rendered from one card's perspective. `direction` is
+// "outward" when this card is the link's source, "inward" when it's the target —
+// it picks the phrasing (issueLinkPhrasing).
+export interface IssueLinkDTO {
+  id: string;
+  type: string;
+  direction: "outward" | "inward";
+  // The card on the other end of the link.
+  issueKey: string;
+  taskId: string;
+  title: string;
+  status: string;
+  issueType: string;
+}
+
 export interface TaskDTO {
   id: string;
   title: string;
@@ -36,6 +62,16 @@ export interface TaskDTO {
   estimateMinutes: number | null;
   timeSpentMinutes: number;
   listId: string;
+  // JIRA fields.
+  issueNumber: number | null;
+  issueKey: string;
+  issueType: string;
+  status: string;
+  storyPoints: number | null;
+  labels: string[];
+  reporter: { id: string; name: string; avatarUrl: string | null } | null;
+  sprintId: string | null;
+  links: IssueLinkDTO[];
   creator: { id: string; name: string; avatarUrl: string | null };
   assignees: MemberDTO[];
   comments: CommentDTO[];
@@ -48,6 +84,15 @@ export interface ListDTO {
   tasks: TaskDTO[];
 }
 
+export interface SprintDTO {
+  id: string;
+  name: string;
+  goal: string | null;
+  status: string;
+  startDate: string | null;
+  endDate: string | null;
+}
+
 interface DragState {
   taskId: string;
   fromListId: string;
@@ -56,16 +101,30 @@ interface DragState {
 export function BoardClient({
   lists: initialLists,
   members,
+  sprints,
+  boardId,
+  keyPrefix,
   currentUserId,
   isManager,
 }: {
   lists: ListDTO[];
   members: MemberDTO[];
+  sprints: SprintDTO[];
+  boardId: string | null;
+  keyPrefix: string;
   currentUserId: string | null;
   isManager: boolean;
 }) {
   const router = useRouter();
   const [lists, setLists] = useState<ListDTO[]>(initialLists);
+  // Board (Kanban columns) vs Backlog (sprint planner) view.
+  const [view, setView] = useState<"board" | "backlog">("board");
+  // JIRA-style filters. Empty = no constraint.
+  const [filterText, setFilterText] = useState("");
+  const [filterTypes, setFilterTypes] = useState<Set<string>>(new Set());
+  const [filterStatuses, setFilterStatuses] = useState<Set<string>>(new Set());
+  const [filterAssignee, setFilterAssignee] = useState<string | null>(null);
+  const [filterLabel, setFilterLabel] = useState<string | null>(null);
   const [drag, setDrag] = useState<DragState | null>(null);
   const [dropHint, setDropHint] = useState<string | null>(null);
   // Column (list) drag — separate from card drag. Holds the dragged list id and
@@ -103,7 +162,7 @@ export function BoardClient({
             `${l.id}:${l.tasks
               .map(
                 (t) =>
-                  `${t.id}#${t.assignees.map((a) => a.id).join("+")}#${t.comments.length}`,
+                  `${t.id}#${t.assignees.map((a) => a.id).join("+")}#${t.comments.length}#${t.status}#${t.storyPoints}#${t.issueType}#${t.sprintId}#${t.labels.join(".")}#${t.links.length}`,
               )
               .join(",")}`,
         )
@@ -313,6 +372,169 @@ export function BoardClient({
     [findTask, patchTask, router],
   );
 
+  // ── JIRA issue fields (type / points / reporter / sprint / labels) ─────────
+  // A general partial patch over /api/tasks/update. Applies the supplied keys
+  // optimistically and reverts the touched keys on failure.
+  const patchIssue = useCallback(
+    async (
+      taskId: string,
+      payload: {
+        issueType?: string;
+        storyPoints?: number | null;
+        reporterId?: string | null;
+        sprintId?: string | null;
+        labels?: string[];
+      },
+    ): Promise<boolean> => {
+      const snapshot = findTask(taskId)?.task;
+      if (!snapshot) return false;
+
+      patchTask(taskId, (t) => ({
+        ...t,
+        ...(payload.issueType !== undefined ? { issueType: payload.issueType } : {}),
+        ...(payload.storyPoints !== undefined
+          ? { storyPoints: payload.storyPoints }
+          : {}),
+        ...(payload.reporterId !== undefined
+          ? {
+              reporter:
+                payload.reporterId === null
+                  ? null
+                  : members.find((m) => m.id === payload.reporterId)
+                    ? {
+                        id: payload.reporterId,
+                        name: members.find((m) => m.id === payload.reporterId)!.name,
+                        avatarUrl: members.find((m) => m.id === payload.reporterId)!
+                          .avatarUrl,
+                      }
+                    : t.reporter,
+            }
+          : {}),
+        ...(payload.sprintId !== undefined ? { sprintId: payload.sprintId } : {}),
+        ...(payload.labels !== undefined ? { labels: payload.labels } : {}),
+      }));
+
+      try {
+        const res = await fetch("/api/tasks/update", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ taskId, ...payload }),
+        });
+        if (!res.ok) throw new Error("issue update failed");
+        router.refresh();
+        return true;
+      } catch {
+        patchTask(taskId, (t) => ({
+          ...t,
+          issueType: snapshot.issueType,
+          storyPoints: snapshot.storyPoints,
+          reporter: snapshot.reporter,
+          sprintId: snapshot.sprintId,
+          labels: snapshot.labels,
+        }));
+        return false;
+      }
+    },
+    [findTask, patchTask, members, router],
+  );
+
+  // ── Status workflow change (relocates the card to the matching column) ─────
+  const changeStatus = useCallback(
+    async (taskId: string, status: WorkflowStatus): Promise<boolean> => {
+      const found = findTask(taskId);
+      if (!found) return false;
+      const snapshot = lists;
+
+      // Optimistically move the card to the first column whose name maps to the
+      // chosen status, mirroring the server. If none matches, just stamp status.
+      const destList =
+        lists.find((l) => statusForListName(l.name) === status) ?? null;
+
+      setLists((prev) => {
+        const moved: TaskDTO = { ...found.task, status };
+        if (!destList || destList.id === found.task.listId) {
+          return prev.map((l) => ({
+            ...l,
+            tasks: l.tasks.map((t) => (t.id === taskId ? moved : t)),
+          }));
+        }
+        return prev.map((l) => {
+          if (l.id === found.task.listId) {
+            return { ...l, tasks: l.tasks.filter((t) => t.id !== taskId) };
+          }
+          if (l.id === destList.id) {
+            return { ...l, tasks: [...l.tasks, { ...moved, listId: destList.id }] };
+          }
+          return l;
+        });
+      });
+
+      try {
+        const res = await fetch("/api/tasks/update", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ taskId, status }),
+        });
+        if (!res.ok) throw new Error("status change failed");
+        router.refresh();
+        return true;
+      } catch {
+        setLists(snapshot);
+        return false;
+      }
+    },
+    [findTask, lists, router],
+  );
+
+  // ── Issue links ────────────────────────────────────────────────────────────
+  const addLink = useCallback(
+    async (
+      taskId: string,
+      targetKey: string,
+      type: string,
+    ): Promise<string | null> => {
+      try {
+        const res = await fetch("/api/tasks/link", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ sourceId: taskId, targetKey, type }),
+        });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          return data.error ?? "Couldn’t add link";
+        }
+        router.refresh();
+        return null;
+      } catch {
+        return "Couldn’t add link";
+      }
+    },
+    [router],
+  );
+
+  const removeLink = useCallback(
+    async (taskId: string, linkId: string): Promise<boolean> => {
+      patchTask(taskId, (t) => ({
+        ...t,
+        links: t.links.filter((l) => l.id !== linkId),
+      }));
+      try {
+        const res = await fetch("/api/tasks/unlink", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ linkId }),
+        });
+        if (!res.ok) throw new Error("unlink failed");
+        router.refresh();
+        return true;
+      } catch {
+        router.refresh(); // pull the link back from the server
+        return false;
+      }
+    },
+    [patchTask, router],
+  );
+
   // ── Delete ─────────────────────────────────────────────────────────────────
   // A delete request from a card or the modal opens an in-app confirm dialog
   // (styled to match the board, replacing the OS window.confirm). `deleteTarget`
@@ -487,10 +709,82 @@ export function BoardClient({
     0,
   );
 
+  // Every label currently in use, for the label filter dropdown.
+  const allLabels = Array.from(
+    new Set(lists.flatMap((l) => l.tasks.flatMap((t) => t.labels))),
+  ).sort();
+
+  // The active sprint drives the board view (JIRA shows the active sprint's
+  // issues on the board; everything else lives in the backlog).
+  const activeSprint = sprints.find((s) => s.status === "ACTIVE") ?? null;
+
+  // The combined filter predicate (text + type + status + assignee + label).
+  const text = filterText.trim().toLowerCase();
+  const matchesFilters = (t: TaskDTO): boolean => {
+    if (onlyMine && !isMine(t)) return false;
+    if (filterTypes.size && !filterTypes.has(t.issueType)) return false;
+    if (filterStatuses.size && !filterStatuses.has(t.status)) return false;
+    if (filterAssignee && !t.assignees.some((a) => a.id === filterAssignee))
+      return false;
+    if (filterLabel && !t.labels.includes(filterLabel)) return false;
+    if (text) {
+      const hay = `${t.issueKey} ${t.title} ${t.description ?? ""} ${t.labels.join(" ")}`.toLowerCase();
+      if (!hay.includes(text)) return false;
+    }
+    return true;
+  };
+
+  const filterActive =
+    onlyMine ||
+    !!text ||
+    filterTypes.size > 0 ||
+    filterStatuses.size > 0 ||
+    !!filterAssignee ||
+    !!filterLabel;
+
+  const clearFilters = () => {
+    setOnlyMine(false);
+    setFilterText("");
+    setFilterTypes(new Set());
+    setFilterStatuses(new Set());
+    setFilterAssignee(null);
+    setFilterLabel(null);
+  };
+
+  const toggleIn = (
+    set: Set<string>,
+    value: string,
+    setter: (s: Set<string>) => void,
+  ) => {
+    const next = new Set(set);
+    if (next.has(value)) next.delete(value);
+    else next.add(value);
+    setter(next);
+  };
+
   return (
     <>
-      {/* Board toolbar */}
-      <div className="mb-4 flex items-center justify-end">
+      {/* View toggle + "only mine" */}
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+        <div className="inline-flex rounded-full border border-line bg-surface-2 p-0.5 text-xs font-medium">
+          {(["board", "backlog"] as const).map((v) => (
+            <button
+              key={v}
+              type="button"
+              onClick={() => setView(v)}
+              aria-pressed={view === v}
+              className={cn(
+                "rounded-full px-3.5 py-1.5 capitalize transition-colors",
+                view === v
+                  ? "bg-surface text-ink shadow-xs"
+                  : "text-ink-400 hover:text-ink",
+              )}
+            >
+              {v}
+            </button>
+          ))}
+        </div>
+
         <button
           type="button"
           onClick={() => setOnlyMine((v) => !v)}
@@ -504,7 +798,7 @@ export function BoardClient({
           )}
         >
           <User className="h-3.5 w-3.5" />
-          Only my cards
+          Only my issues
           <span
             className={cn(
               "rounded-full px-1.5 py-0.5 text-[10px] font-semibold",
@@ -516,11 +810,143 @@ export function BoardClient({
         </button>
       </div>
 
+      {/* Filter bar — search + type + status + assignee + label */}
+      <div className="mb-4 flex flex-wrap items-center gap-2">
+        <div className="relative">
+          <ListFilter className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-ink-400" />
+          <input
+            value={filterText}
+            onChange={(e) => setFilterText(e.target.value)}
+            placeholder="Search issues…"
+            className="h-8 w-52 rounded-lg border border-line bg-surface-2 pl-8 pr-2 text-xs text-ink placeholder:text-ink-400 focus:border-accent/40 focus:outline-none"
+          />
+        </div>
+
+        {/* Type chips */}
+        <div className="flex items-center gap-1">
+          {ISSUE_TYPES.map((ty) => (
+            <button
+              key={ty}
+              type="button"
+              onClick={() => toggleIn(filterTypes, ty, setFilterTypes)}
+              aria-pressed={filterTypes.has(ty)}
+              title={issueTypeLabel[ty]}
+              className={cn(
+                "inline-flex items-center gap-1 rounded-md border px-1.5 py-1 text-[11px] font-medium transition-colors",
+                filterTypes.has(ty)
+                  ? "border-accent/40 bg-accent-soft text-accent-ink"
+                  : "border-line bg-surface-2 text-ink-500 hover:text-ink",
+              )}
+            >
+              <IssueTypeIcon type={ty} />
+            </button>
+          ))}
+        </div>
+
+        {/* Status select */}
+        <select
+          value=""
+          onChange={(e) => {
+            if (e.target.value)
+              toggleIn(filterStatuses, e.target.value, setFilterStatuses);
+          }}
+          className="h-8 rounded-lg border border-line bg-surface-2 px-2 text-xs text-ink-500 focus:border-accent/40 focus:outline-none"
+        >
+          <option value="">
+            Status{filterStatuses.size ? ` (${filterStatuses.size})` : ""}
+          </option>
+          {WORKFLOW_STATUSES.map((s) => (
+            <option key={s} value={s}>
+              {filterStatuses.has(s) ? "✓ " : ""}
+              {statusLabel[s]}
+            </option>
+          ))}
+        </select>
+
+        {/* Assignee select */}
+        <select
+          value={filterAssignee ?? ""}
+          onChange={(e) => setFilterAssignee(e.target.value || null)}
+          className="h-8 max-w-[160px] rounded-lg border border-line bg-surface-2 px-2 text-xs text-ink-500 focus:border-accent/40 focus:outline-none"
+        >
+          <option value="">Any assignee</option>
+          {members.map((m) => (
+            <option key={m.id} value={m.id}>
+              {m.name}
+            </option>
+          ))}
+        </select>
+
+        {/* Label select (only when labels exist) */}
+        {allLabels.length > 0 && (
+          <select
+            value={filterLabel ?? ""}
+            onChange={(e) => setFilterLabel(e.target.value || null)}
+            className="h-8 max-w-[160px] rounded-lg border border-line bg-surface-2 px-2 text-xs text-ink-500 focus:border-accent/40 focus:outline-none"
+          >
+            <option value="">Any label</option>
+            {allLabels.map((l) => (
+              <option key={l} value={l}>
+                {l}
+              </option>
+            ))}
+          </select>
+        )}
+
+        {filterActive && (
+          <button
+            type="button"
+            onClick={clearFilters}
+            className="inline-flex items-center gap-1 rounded-lg border border-line bg-surface px-2 py-1.5 text-[11px] font-medium text-ink-500 hover:text-ink"
+          >
+            <X className="h-3 w-3" />
+            Clear
+          </button>
+        )}
+      </div>
+
+      {/* Active filter pills (status set is multi-select, so surface them) */}
+      {filterStatuses.size > 0 && (
+        <div className="mb-3 flex flex-wrap items-center gap-1.5">
+          {Array.from(filterStatuses).map((s) => (
+            <button
+              key={s}
+              type="button"
+              onClick={() => toggleIn(filterStatuses, s, setFilterStatuses)}
+              className="inline-flex items-center gap-1 rounded-full bg-accent-soft px-2 py-0.5 text-[10px] font-semibold text-accent-ink"
+            >
+              {statusLabel[s as WorkflowStatus]}
+              <X className="h-2.5 w-2.5" />
+            </button>
+          ))}
+        </div>
+      )}
+
+      {view === "backlog" ? (
+        <BacklogView
+          lists={lists}
+          sprints={sprints}
+          members={members}
+          keyPrefix={keyPrefix}
+          boardId={boardId}
+          isManager={isManager}
+          matchesFilters={matchesFilters}
+          onOpenTask={(id) => setOpenTaskId(id)}
+          onMoveToSprint={(taskId, sprintId) =>
+            patchIssue(taskId, { sprintId })
+          }
+        />
+      ) : (
       <div className="-mx-1 flex gap-5 overflow-x-auto px-1 pb-4">
         {lists.map((list) => {
-          const visibleTasks = onlyMine
-            ? list.tasks.filter(isMine)
-            : list.tasks;
+          // On the board, show the active sprint's issues (plus anything not in
+          // any sprint) so a running sprint focuses the board; with no active
+          // sprint, show everything. Then apply the filter bar.
+          const inScope = (t: TaskDTO) =>
+            !activeSprint || t.sprintId === activeSprint.id || t.sprintId === null;
+          const visibleTasks = list.tasks.filter(
+            (t) => inScope(t) && matchesFilters(t),
+          );
           const isDropTarget = drag && dropHint?.startsWith(`${list.id}:`);
           const isListDragging = listDrag === list.id;
           const isListDropTarget = listDrag && listDropHint === list.id;
@@ -637,8 +1063,12 @@ export function BoardClient({
                   }
                 />
 
-                {!onlyMine && (
-                  <AddTask listId={list.id} currentUserId={currentUserId} />
+                {!filterActive && (
+                  <AddTask
+                    listId={list.id}
+                    currentUserId={currentUserId}
+                    defaultSprintId={activeSprint?.id ?? null}
+                  />
                 )}
               </div>
             </div>
@@ -667,17 +1097,23 @@ export function BoardClient({
           />
         )}
       </div>
+      )}
 
       <TaskModal
         task={openTask}
         listName={openTaskList?.name ?? ""}
         members={members}
+        sprints={sprints}
         currentUserId={currentUserId}
         canManage={!!openTask && canManage(openTask)}
         onClose={() => setOpenTaskId(null)}
         onAssign={assign}
         onAddComment={addComment}
         onLogTime={logTime}
+        onChangeStatus={changeStatus}
+        onPatchIssue={patchIssue}
+        onAddLink={addLink}
+        onRemoveLink={removeLink}
         onSaveDescription={(taskId, description) =>
           openTask
             ? updateTask(

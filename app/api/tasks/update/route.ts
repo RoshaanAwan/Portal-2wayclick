@@ -5,21 +5,34 @@ import { audit } from "@/lib/audit";
 import { notifyMany } from "@/lib/notifications";
 import { isManagerTier } from "@/lib/permissions";
 import { formatMinutes } from "@/lib/utils";
+import { statusForList } from "@/lib/issues";
 import { z } from "zod";
-import { TASK_PRIORITIES } from "@/lib/constants";
+import { ISSUE_TYPES, TASK_PRIORITIES, WORKFLOW_STATUSES } from "@/lib/constants";
 
-// Edit a card's title, description, priority and/or logged time. At least one
-// field must be supplied. An empty description clears it (stored as null).
+// Edit a card's title, description, priority, JIRA fields and/or logged time. At
+// least one field must be supplied. An empty description clears it (null).
 //
 // Time tracking ("time lock") has two modes:
 //   • addMinutes        — add to the card's time pool. Any editor may log time.
 //   • timeSpentMinutes  — set the pool to an absolute value (manager-only reset).
+//
+// Setting `status` from the modal also relocates the card to the matching board
+// column (and vice-versa via /api/tasks/move), keeping board and status in sync.
 const schema = z
   .object({
     taskId: z.string().min(1),
     title: z.string().trim().min(1).max(200).optional(),
     description: z.string().trim().max(2000).optional(),
     priority: z.enum(TASK_PRIORITIES).optional(),
+    // JIRA fields.
+    issueType: z.enum(ISSUE_TYPES).optional(),
+    status: z.enum(WORKFLOW_STATUSES).optional(),
+    // storyPoints: null clears the estimate.
+    storyPoints: z.number().int().min(0).max(999).nullable().optional(),
+    labels: z.array(z.string().trim().min(1).max(40)).max(20).optional(),
+    reporterId: z.string().nullable().optional(),
+    // sprintId: null moves the card to the backlog.
+    sprintId: z.string().nullable().optional(),
     // Minutes to add to the logged total. Capped at one week per entry.
     addMinutes: z.number().int().positive().max(10080).optional(),
     // Absolute logged total (manager override / reset). 0 clears it.
@@ -33,6 +46,12 @@ const schema = z
       v.title !== undefined ||
       v.description !== undefined ||
       v.priority !== undefined ||
+      v.issueType !== undefined ||
+      v.status !== undefined ||
+      v.storyPoints !== undefined ||
+      v.labels !== undefined ||
+      v.reporterId !== undefined ||
+      v.sprintId !== undefined ||
       v.addMinutes !== undefined ||
       v.timeSpentMinutes !== undefined,
     { message: "Nothing to update" },
@@ -46,6 +65,12 @@ export async function POST(req: Request) {
       title,
       description,
       priority,
+      issueType,
+      status,
+      storyPoints,
+      labels,
+      reporterId,
+      sprintId,
       addMinutes,
       timeSpentMinutes,
       reason,
@@ -59,7 +84,9 @@ export async function POST(req: Request) {
         creatorId: true,
         timeSpentMinutes: true,
         estimateMinutes: true,
+        listId: true,
         assignees: { select: { userId: true } },
+        list: { select: { boardId: true, board: { select: { keyPrefix: true } } } },
       },
     });
     if (!task) {
@@ -72,20 +99,44 @@ export async function POST(req: Request) {
 
     // Whether this request only logs time (no content edits). Logging time is
     // open to anyone working the card — its assignees, creator, or a manager —
-    // whereas editing title/description/priority stays creator-or-manager.
+    // whereas editing content/JIRA fields stays creator-or-manager. A status
+    // change is the one JIRA edit assignees may also make (they work the issue).
     const onlyLogsTime =
       addMinutes !== undefined &&
       title === undefined &&
       description === undefined &&
       priority === undefined &&
+      issueType === undefined &&
+      status === undefined &&
+      storyPoints === undefined &&
+      labels === undefined &&
+      reporterId === undefined &&
+      sprintId === undefined &&
       timeSpentMinutes === undefined;
 
-    if (onlyLogsTime) {
+    // A status-only transition (drag-equivalent from the modal) is allowed for
+    // assignees too, mirroring who can move the card on the board.
+    const onlyStatus =
+      status !== undefined &&
+      title === undefined &&
+      description === undefined &&
+      priority === undefined &&
+      issueType === undefined &&
+      storyPoints === undefined &&
+      labels === undefined &&
+      reporterId === undefined &&
+      sprintId === undefined &&
+      addMinutes === undefined &&
+      timeSpentMinutes === undefined;
+
+    if (onlyLogsTime || onlyStatus) {
+      // Logging time / advancing status — anyone working the card.
       if (!isCreator && !isManager && !isAssignee) {
         return NextResponse.json({ error: "Forbidden" }, { status: 403 });
       }
     } else if (!isCreator && !isManager) {
-      // Content edits (and any absolute-time reset below) — creator or manager.
+      // Content / JIRA-field edits (and any absolute-time reset) — creator or
+      // manager.
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
@@ -98,6 +149,35 @@ export async function POST(req: Request) {
       );
     }
 
+    // A sprint, if given, must belong to this card's board.
+    if (sprintId) {
+      const sprint = await db.sprint.findUnique({
+        where: { id: sprintId },
+        select: { boardId: true },
+      });
+      if (!sprint || sprint.boardId !== task.list.boardId) {
+        return NextResponse.json({ error: "Invalid sprint" }, { status: 400 });
+      }
+    }
+
+    // A status change from the modal also relocates the card to the board column
+    // whose name maps to that status, so the board reflects the new state. If no
+    // column matches (custom board), the status still updates in place.
+    let relocateListId: string | undefined;
+    if (status !== undefined) {
+      const lists = await db.boardList.findMany({
+        where: { boardId: task.list.boardId },
+        select: { id: true, name: true, position: true },
+        orderBy: { position: "asc" },
+      });
+      const target = lists.find(
+        (l) => statusForList(l.name) === status && l.id !== task.listId,
+      );
+      if (target) {
+        relocateListId = target.id;
+      }
+    }
+
     // Resolve the new time pool: an absolute set wins; otherwise add to it.
     const nextTime =
       timeSpentMinutes !== undefined
@@ -105,6 +185,18 @@ export async function POST(req: Request) {
         : addMinutes !== undefined
           ? task.timeSpentMinutes + addMinutes
           : undefined;
+
+    // When relocating for a status change, drop the card at the bottom of the
+    // destination column.
+    let relocatePosition: number | undefined;
+    if (relocateListId) {
+      const last = await db.task.findFirst({
+        where: { listId: relocateListId },
+        orderBy: { position: "desc" },
+        select: { position: true },
+      });
+      relocatePosition = (last?.position ?? 0) + 1000;
+    }
 
     const updated = await db.task.update({
       where: { id: taskId },
@@ -114,6 +206,15 @@ export async function POST(req: Request) {
           ? { description: description || null }
           : {}),
         ...(priority !== undefined ? { priority } : {}),
+        ...(issueType !== undefined ? { issueType } : {}),
+        ...(status !== undefined ? { status } : {}),
+        ...(relocateListId
+          ? { listId: relocateListId, position: relocatePosition }
+          : {}),
+        ...(storyPoints !== undefined ? { storyPoints } : {}),
+        ...(labels !== undefined ? { labels } : {}),
+        ...(reporterId !== undefined ? { reporterId } : {}),
+        ...(sprintId !== undefined ? { sprintId } : {}),
         ...(nextTime !== undefined ? { timeSpentMinutes: nextTime } : {}),
       },
       select: {
@@ -121,6 +222,14 @@ export async function POST(req: Request) {
         title: true,
         description: true,
         priority: true,
+        issueType: true,
+        status: true,
+        storyPoints: true,
+        labels: true,
+        reporterId: true,
+        sprintId: true,
+        listId: true,
+        position: true,
         timeSpentMinutes: true,
       },
     });
@@ -188,6 +297,12 @@ export async function POST(req: Request) {
         title,
         priority,
         previousTitle: task.title,
+        ...(issueType !== undefined ? { issueType } : {}),
+        ...(status !== undefined ? { status } : {}),
+        ...(storyPoints !== undefined ? { storyPoints } : {}),
+        ...(labels !== undefined ? { labels } : {}),
+        ...(reporterId !== undefined ? { reporterId } : {}),
+        ...(sprintId !== undefined ? { sprintId } : {}),
         ...(addMinutes !== undefined ? { addMinutes } : {}),
         ...(timeSpentMinutes !== undefined ? { timeSpentMinutes } : {}),
         ...(reason ? { reason } : {}),
