@@ -1,0 +1,30 @@
+name: Deploy to DigitalOcean
+
+# Auto-deploy on push to main, plus a manual "Run workflow" button.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Cancel an in-flight deploy if a newer commit lands — avoids two slow
+# 512MB builds stomping on each other.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: SSH into droplet and deploy
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.DROPLET_HOST }}
+          username: ${{ secrets.DROPLET_USER }}
+          key: ${{ secrets.DROPLET_SSH_KEY }}
+          # Generous timeout: the 512MB build is slow (swap-backed).
+          command_timeout: 20m
+          script: |
+            set -e
+            cd /var/www/portal
+            bash deploy-update.sh
