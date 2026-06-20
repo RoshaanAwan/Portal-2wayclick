@@ -3,13 +3,15 @@ import { z } from "zod";
 import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { audit } from "@/lib/audit";
+import { can } from "@/lib/permissions";
 import { DOC_CATEGORIES } from "@/lib/constants";
 
 // ── Edit / delete a document ────────────────────────────────────────────────
-// The document library is a shared company resource: any authenticated user may
-// edit or delete any document. Every change is still written to the audit log so
-// there's a trail of who touched what. Only the metadata is editable here;
-// replacing the file itself goes back through the upload flow.
+// Editing or deleting a library document is an ADMIN-TIER action (can.manage
+// Documents) — the company library is shared, but only admins may rename,
+// recategorize, or remove an entry. Every change is also written to the audit log
+// for a trail of who touched what. Only the metadata is editable here; replacing
+// the file itself goes back through the upload flow.
 
 const updateSchema = z.object({
   title: z.string().trim().min(1, "Title is required").max(120),
@@ -23,6 +25,9 @@ export async function PATCH(
 ) {
   try {
     const user = await requireUser();
+    if (!can.manageDocuments(user.role)) {
+      return NextResponse.json({ error: "Admins only" }, { status: 403 });
+    }
     const { id } = await params;
 
     const existing = await db.document.findUnique({
@@ -69,6 +74,9 @@ export async function DELETE(
 ) {
   try {
     const user = await requireUser();
+    if (!can.manageDocuments(user.role)) {
+      return NextResponse.json({ error: "Admins only" }, { status: 403 });
+    }
     const { id } = await params;
 
     const existing = await db.document.findUnique({

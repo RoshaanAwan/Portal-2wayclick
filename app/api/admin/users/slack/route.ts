@@ -3,7 +3,7 @@ import { z } from "zod";
 import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { audit } from "@/lib/audit";
-import { isAdminTier } from "@/lib/permissions";
+import { isAdminTier, canManageUser } from "@/lib/permissions";
 
 // Admin-only: link (or clear) a user's Slack identity so the attendance webhook
 // (POST /api/attendance/slack) can attribute Slack check-in/out events to the
@@ -33,10 +33,21 @@ export async function POST(req: Request) {
 
     const target = await db.user.findUnique({
       where: { id: userId },
-      select: { id: true, name: true, slackUserId: true },
+      select: { id: true, name: true, role: true, slackUserId: true },
     });
     if (!target) {
       return NextResponse.json({ error: "Not found" }, { status: 404 });
+    }
+
+    // Enforce the same authority hierarchy as the other admin/users routes: an
+    // admin may only manage users STRICTLY BELOW their own authority, and never
+    // themselves. Previously this route checked only isAdminTier, letting a plain
+    // ADMIN rewrite a SUPER_ADMIN's (or their own) Slack identity.
+    if (!canManageUser(actor, target)) {
+      return NextResponse.json(
+        { error: "You do not have permission to manage this user." },
+        { status: 403 },
+      );
     }
 
     // The slackUserId column is unique — guard against linking an ID that's

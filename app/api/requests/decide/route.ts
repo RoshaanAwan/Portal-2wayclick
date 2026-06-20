@@ -5,7 +5,7 @@ import { db } from "@/lib/db";
 import { audit } from "@/lib/audit";
 import { notify } from "@/lib/notifications";
 import { recordActivity } from "@/lib/activityFeed";
-import { can } from "@/lib/permissions";
+import { can, isAdminTier } from "@/lib/permissions";
 
 const schema = z.object({
   id: z.string().min(1),
@@ -25,7 +25,7 @@ export async function POST(req: Request) {
 
     const request = await db.leaveRequest.findUnique({
       where: { id },
-      include: { owner: { select: { name: true } } },
+      include: { owner: { select: { name: true, managerId: true } } },
     });
 
     if (!request || request.status !== "PENDING") {
@@ -34,6 +34,19 @@ export async function POST(req: Request) {
 
     // Owners can't decide on their own requests.
     if (request.ownerId === user.id) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
+    // Reviewer scoping (closes the IDOR): a non-admin decider may only act on
+    // requests actually routed to them — where they are the assigned reviewer OR
+    // the owner's manager. Admin tier may decide any request. This mirrors the
+    // scope the /requests page uses to list a non-admin's pending queue, which
+    // the API previously did NOT enforce (UI-only access control).
+    const inScope =
+      isAdminTier(user.role) ||
+      request.reviewerId === user.id ||
+      request.owner.managerId === user.id;
+    if (!inScope) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 

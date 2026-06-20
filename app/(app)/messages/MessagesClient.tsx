@@ -44,11 +44,26 @@ export function conversationLabel(
 }
 
 export function MessagesClient() {
-  const { me, conversations, loadingConversations, activeId, setActiveId, refresh } =
-    useMessaging();
+  const {
+    me,
+    conversations,
+    loadingConversations,
+    activeId,
+    setActiveId,
+    refresh,
+    setMessagingViewOpen,
+  } = useMessaging();
   const router = useRouter();
   const params = useSearchParams();
   const [showNew, setShowNew] = useState(false);
+
+  // While this page is mounted, let the provider run the periodic conversation
+  // -list reconcile (read receipts / ordering). Off-page that reconcile is paused
+  // to cut redundant DB load — the unread badge stays live via the message poll.
+  useEffect(() => {
+    setMessagingViewOpen(true);
+    return () => setMessagingViewOpen(false);
+  }, [setMessagingViewOpen]);
 
   // Deep-link support: ?c=<id> opens that conversation (from a notification).
   const urlC = params.get("c");

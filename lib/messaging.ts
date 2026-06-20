@@ -1,4 +1,5 @@
 import "server-only";
+import { Prisma } from "@prisma/client";
 import { db } from "./db";
 import {
   notifyMany,
@@ -110,24 +111,35 @@ export async function listConversationsFor(
     },
   });
 
-  const unreadCounts = await Promise.all(
-    convos.map((c) => {
-      const me = c.members.find((m) => m.userId === userId);
-      const since = me?.lastReadAt ?? new Date(0);
-      // Messages newer than my read cursor that I didn't send.
-      return db.message.count({
-        where: {
-          conversationId: c.id,
-          createdAt: { gt: since },
-          NOT: { senderId: userId },
-        },
-      });
-    }),
-  );
+  // Unread per conversation = messages newer than MY read cursor in that
+  // conversation that I didn't send. Previously this was one indexed COUNT per
+  // conversation (a Promise.all N+1, re-run every ~5s per user); collapse it to a
+  // SINGLE grouped query that joins each conversation's own ConversationMember
+  // cursor, so the per-conversation `lastReadAt` semantics are preserved exactly.
+  // Conversations with zero unread simply don't appear in the result (defaulted
+  // to 0 below), matching the old behaviour.
+  const convoIds = convos.map((c) => c.id);
+  const unreadByConvo = new Map<string, number>();
+  if (convoIds.length > 0) {
+    const rows = await db.$queryRaw<{ conversationId: string; unread: bigint }[]>(
+      Prisma.sql`
+        SELECT m."conversationId" AS "conversationId", COUNT(*)::bigint AS unread
+        FROM "Message" m
+        JOIN "ConversationMember" cm
+          ON cm."conversationId" = m."conversationId"
+         AND cm."userId" = ${userId}
+        WHERE m."conversationId" IN (${Prisma.join(convoIds)})
+          AND m."createdAt" > cm."lastReadAt"
+          AND m."senderId" <> ${userId}
+        GROUP BY m."conversationId"
+      `,
+    );
+    for (const r of rows) unreadByConvo.set(r.conversationId, Number(r.unread));
+  }
 
   let totalUnread = 0;
-  const conversations: ConversationListItem[] = convos.map((c, i) => {
-    const unread = unreadCounts[i];
+  const conversations: ConversationListItem[] = convos.map((c) => {
+    const unread = unreadByConvo.get(c.id) ?? 0;
     totalUnread += unread;
     const last = c.messages[0] ?? null;
     return {

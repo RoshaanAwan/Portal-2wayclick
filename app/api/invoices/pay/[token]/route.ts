@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { audit } from "@/lib/audit";
 import { getStripe, isStripeConfigured } from "@/lib/stripe";
 import { invoiceShareUrl } from "@/lib/invoiceQueries";
+import { rateLimit, clientIp, LIMITS } from "@/lib/rateLimit";
 
 // POST /api/invoices/pay/[token] — start a Stripe Checkout Session for the
 // invoice behind this public share token. UNAUTHENTICATED on purpose: the client
@@ -12,7 +13,7 @@ import { invoiceShareUrl } from "@/lib/invoiceQueries";
 // The webhook (POST /api/stripe/webhook) — not this route — is what actually
 // marks the invoice PAID; the redirect back to us is only a UX convenience.
 export async function POST(
-  _req: Request,
+  req: Request,
   { params }: { params: Promise<{ token: string }> },
 ) {
   try {
@@ -24,6 +25,20 @@ export async function POST(
     }
 
     const { token } = await params;
+
+    // Anonymous (token-only) and creates a Stripe Checkout Session per call;
+    // throttle per token+IP so it can't be scripted into session/API-quota abuse.
+    const limit = await rateLimit(
+      `invoice:pay:${token}:${clientIp(req)}`,
+      LIMITS.share.limit,
+      LIMITS.share.windowMs,
+    );
+    if (!limit.ok) {
+      return NextResponse.json(
+        { error: "Too many requests. Please try again later." },
+        { status: 429, headers: { "Retry-After": String(limit.retryAfter) } },
+      );
+    }
 
     const invoice = await db.invoice.findUnique({
       where: { shareToken: token },

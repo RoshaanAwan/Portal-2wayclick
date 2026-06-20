@@ -3,6 +3,7 @@ import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { audit } from "@/lib/audit";
 import { statusForList } from "@/lib/issues";
+import { assertTaskAccess, assertListAccess } from "@/lib/taskAccess";
 import { z } from "zod";
 
 // The client sends the destination list and the ids of the cards that should
@@ -24,11 +25,47 @@ export async function POST(req: Request) {
     );
 
     const [task, list] = await Promise.all([
-      db.task.findUnique({ where: { id: taskId } }),
-      db.boardList.findUnique({ where: { id: listId } }),
+      db.task.findUnique({
+        where: { id: taskId },
+        // Include the current list's board so we can reject cross-board moves.
+        include: { list: { select: { boardId: true } } },
+      }),
+      db.boardList.findUnique({
+        where: { id: listId },
+        select: { id: true, name: true, boardId: true },
+      }),
     ]);
     if (!task) return NextResponse.json({ error: "Task not found" }, { status: 404 });
     if (!list) return NextResponse.json({ error: "List not found" }, { status: 404 });
+
+    // Authorize membership on BOTH the source task's project and the destination
+    // list's project (members-only for project boards; admin tier bypasses;
+    // global board open). Closes the IDOR on both ends of the move.
+    const [srcAccess, dstAccess] = await Promise.all([
+      assertTaskAccess(taskId, user),
+      assertListAccess(listId, user),
+    ]);
+    if (!srcAccess.ok) {
+      return NextResponse.json(
+        { error: srcAccess.status === 404 ? "Task not found" : "Forbidden" },
+        { status: srcAccess.status },
+      );
+    }
+    if (!dstAccess.ok) {
+      return NextResponse.json(
+        { error: dstAccess.status === 404 ? "List not found" : "Forbidden" },
+        { status: dstAccess.status },
+      );
+    }
+
+    // Reject cross-board teleport: a card may only be reordered/recolumned within
+    // its own board, never relocated into a different board/project.
+    if (list.boardId !== task.list.boardId) {
+      return NextResponse.json(
+        { error: "Cannot move a card to a different board" },
+        { status: 400 },
+      );
+    }
 
     // Resolve neighbor positions within the destination list.
     const [before, after] = await Promise.all([
