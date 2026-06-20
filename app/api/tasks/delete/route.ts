@@ -3,6 +3,7 @@ import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { audit } from "@/lib/audit";
 import { isManagerTier } from "@/lib/permissions";
+import { assertTaskAccess } from "@/lib/taskAccess";
 import { z } from "zod";
 
 const schema = z.object({
@@ -20,6 +21,16 @@ export async function POST(req: Request) {
     });
     if (!task) {
       return NextResponse.json({ error: "Task not found" }, { status: 404 });
+    }
+
+    // Gate on project membership first (project boards are members-only; admin
+    // tier bypasses; global board open), THEN the creator/manager rule below.
+    const access = await assertTaskAccess(taskId, user);
+    if (!access.ok) {
+      return NextResponse.json(
+        { error: access.status === 404 ? "Task not found" : "Forbidden" },
+        { status: access.status },
+      );
     }
 
     // Only the card's creator or a manager-tier user may delete it.

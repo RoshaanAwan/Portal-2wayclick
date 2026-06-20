@@ -27,6 +27,11 @@ export default async function ProjectBoardPage({
   const user = await getCurrentUser();
   const isAdmin = can.manageProjects(user?.role);
 
+  // Cap comments loaded per card on the initial board render (mirrors the /tasks
+  // page). Without this, a card with a long thread loads its entire history on
+  // every board view; the modal can lazy-load older comments on demand.
+  const MAX_COMMENTS = 50;
+
   const project = await db.project.findUnique({
     where: { id },
     include: {
@@ -66,7 +71,10 @@ export default async function ProjectBoardPage({
                     },
                   },
                   comments: {
-                    orderBy: { createdAt: "asc" },
+                    // Newest-first so `take` keeps the most recent; reversed in
+                    // the map below for the oldest-first order the modal expects.
+                    orderBy: { createdAt: "desc" },
+                    take: MAX_COMMENTS,
                     include: {
                       author: {
                         select: { id: true, name: true, avatarUrl: true },
@@ -164,16 +172,20 @@ export default async function ProjectBoardPage({
           avatarUrl: a.user.avatarUrl,
           title: a.user.title,
         })),
-        comments: t.comments.map((c) => ({
-          id: c.id,
-          body: c.body,
-          createdAt: c.createdAt.toISOString(),
-          author: {
-            id: c.author.id,
-            name: c.author.name,
-            avatarUrl: c.author.avatarUrl,
-          },
-        })),
+        // Fetched newest-first (capped at MAX_COMMENTS); reverse to oldest-first
+        // for the thread display order.
+        comments: [...t.comments]
+          .reverse()
+          .map((c) => ({
+            id: c.id,
+            body: c.body,
+            createdAt: c.createdAt.toISOString(),
+            author: {
+              id: c.author.id,
+              name: c.author.name,
+              avatarUrl: c.author.avatarUrl,
+            },
+          })),
       };
     }),
   }));

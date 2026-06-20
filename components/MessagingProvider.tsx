@@ -78,6 +78,14 @@ interface MessagingContextValue {
   refresh: () => Promise<void>;
   /** Locally mark a conversation read (clears its unread immediately). */
   markRead: (conversationId: string) => void;
+  /**
+   * Register that the full messaging UI (the /messages page) is mounted. While
+   * open, the provider runs the periodic conversation-list reconcile (read
+   * receipts, ordering); while closed, only the lightweight message poll runs
+   * (which already keeps the sidebar unread badge live). Call with `true` on
+   * mount and `false` on unmount.
+   */
+  setMessagingViewOpen: (open: boolean) => void;
 }
 
 const MessagingContext = createContext<MessagingContextValue | null>(null);
@@ -106,6 +114,13 @@ export function MessagingProvider({
   // activeId in a ref so the SSE handler (a stable closure) always sees the
   // latest value without re-subscribing the stream.
   const activeRef = useRef<string | null>(null);
+
+  // Whether the full /messages UI is mounted. Held in a ref so the (stable) poll
+  // closure reads the latest value without re-subscribing. When closed, we skip
+  // the periodic conversation-list reconcile — the message poll below still runs
+  // app-wide and keeps the unread badge live; only the read-receipt/ordering
+  // reconcile (which only matters with a thread open) is paused.
+  const viewOpenRef = useRef(false);
 
   // Thread hooks subscribe here; we fan live messages to all of them.
   const handlers = useRef<Set<MessageHandler>>(new Set());
@@ -278,9 +293,15 @@ export function MessagingProvider({
     } catch {
       // next tick retries
     }
-    // Reconcile the list (read receipts, membership, ordering) ~every 5s.
+    // Reconcile the list (read receipts, membership, ordering) ~every 5s — but
+    // ONLY while the /messages UI is open. On other pages the message poll above
+    // already keeps previews + the unread badge live via ingestMessage; the
+    // periodic full re-pull (an N-conversation query every 5s for every user on
+    // every page) is what we're cutting here. Read receipts / ordering only
+    // matter with a thread visible, so pausing them off-page changes nothing the
+    // user can see.
     tick.current = (tick.current + 1) % 2;
-    if (tick.current === 0) void refresh();
+    if (tick.current === 0 && viewOpenRef.current) void refresh();
   });
 
   // ── Transport: SSE (optional, additive — opt in on a long-running host) ─────
@@ -299,6 +320,18 @@ export function MessagingProvider({
     return () => es.close();
   }, [ingestMessage]);
 
+  // Toggled by the /messages page on mount/unmount. On open we immediately
+  // reconcile once (so the list reflects any read-receipt/ordering drift that
+  // accrued while the periodic reconcile was paused off-page), then the poll
+  // loop keeps reconciling every ~5s while open.
+  const setMessagingViewOpen = useCallback(
+    (open: boolean) => {
+      viewOpenRef.current = open;
+      if (open) void refresh();
+    },
+    [refresh],
+  );
+
   const totalUnread = useMemo(
     () => conversations.reduce((sum, c) => sum + c.unread, 0),
     [conversations],
@@ -314,6 +347,7 @@ export function MessagingProvider({
     subscribe,
     refresh,
     markRead: markReadLocal,
+    setMessagingViewOpen,
   };
 
   return (

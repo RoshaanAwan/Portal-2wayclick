@@ -27,6 +27,12 @@ export function useNotifications() {
   const seen = useRef<Set<string>>(new Set());
   // Poll high-water mark: ISO timestamp of the newest notification we've seen.
   const cursor = useRef<string | null>(null);
+  // Counts polls so we can ask the server to recompute the unread count only
+  // periodically (~every 30s at a 2.5s cadence) instead of on every tick. The
+  // server otherwise omits the count when nothing changed; this reconcile catches
+  // read-state changes made in another tab/device.
+  const pollTick = useRef(0);
+  const RECONCILE_EVERY = 12;
 
   const ingest = useCallback((n: ClientNotification, atTop = true) => {
     if (seen.current.has(n.id)) return;
@@ -64,8 +70,16 @@ export function useNotifications() {
   // updates in production.
   usePolling(async () => {
     try {
-      const url = cursor.current
-        ? `/api/notifications/since?cursor=${encodeURIComponent(cursor.current)}`
+      // Ask for an unread-count reconcile every Nth poll; otherwise the server
+      // returns the count only when new rows arrived.
+      pollTick.current = (pollTick.current + 1) % RECONCILE_EVERY;
+      const reconcile = pollTick.current === 0;
+      const params = new URLSearchParams();
+      if (cursor.current) params.set("cursor", cursor.current);
+      if (reconcile) params.set("reconcile", "1");
+      const qs = params.toString();
+      const url = qs
+        ? `/api/notifications/since?${qs}`
         : "/api/notifications/since";
       const res = await fetch(url);
       if (!res.ok) return;

@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { audit } from "@/lib/audit";
 import { notifyMany } from "@/lib/notifications";
 import { isManagerTier } from "@/lib/permissions";
+import { assertTaskAccess } from "@/lib/taskAccess";
 import { formatMinutes } from "@/lib/utils";
 import { statusForList } from "@/lib/issues";
 import { z } from "zod";
@@ -91,6 +92,17 @@ export async function POST(req: Request) {
     });
     if (!task) {
       return NextResponse.json({ error: "Task not found" }, { status: 404 });
+    }
+
+    // First gate on project membership (project boards are members-only; admin
+    // tier bypasses; global board open). The creator/assignee/manager checks
+    // below then apply the finer-grained per-field rules WITHIN that project.
+    const access = await assertTaskAccess(taskId, user);
+    if (!access.ok) {
+      return NextResponse.json(
+        { error: access.status === 404 ? "Task not found" : "Forbidden" },
+        { status: access.status },
+      );
     }
 
     const isManager = isManagerTier(user.role);

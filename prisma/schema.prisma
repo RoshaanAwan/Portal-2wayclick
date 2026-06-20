@@ -13,15 +13,15 @@ datasource db {
 }
 
 model User {
-  id           String   @id @default(cuid())
-  email        String   @unique
+  id           String    @id @default(cuid())
+  email        String    @unique
   passwordHash String
   name         String
   title        String
   department   String
   // Role: SUPER_ADMIN | ADMIN | HR | LEAD | PROJECT_MANAGER | EMPLOYEE
   // (stored as a string; see lib/permissions.ts for the source of truth).
-  role         String   @default("EMPLOYEE")
+  role         String    @default("EMPLOYEE")
   avatarUrl    String?
   phone        String?
   location     String?
@@ -30,46 +30,46 @@ model User {
   // slackUserId is the stable Slack user ID (e.g. "U012ABCDEF"); slackHandle is
   // the human-friendly @name kept only for display/debugging. Either may be set
   // by an admin; the webhook also falls back to matching Slack email → email.
-  slackUserId  String?  @unique
+  slackUserId  String?   @unique
   slackHandle  String?
-  startDate    DateTime @default(now())
+  startDate    DateTime  @default(now())
   // When set, the account is disabled: the user can't sign in and their active
   // sessions are revoked. Null = active. Reversible by an admin (re-enable).
   disabledAt   DateTime?
   managerId    String?
-  manager      User?    @relation("ManagerReports", fields: [managerId], references: [id])
-  reports      User[]   @relation("ManagerReports")
+  manager      User?     @relation("ManagerReports", fields: [managerId], references: [id])
+  reports      User[]    @relation("ManagerReports")
 
   createdAt DateTime @default(now())
 
   // Relations
-  sessions           Session[]
-  approvedLogins     LoginTicket[]      @relation("LoginTicketApprover")
-  authoredPosts      Announcement[]     @relation("PostAuthor")
-  uploadedDocs       Document[]         @relation("DocUploader")
-  leaveRequests      LeaveRequest[]     @relation("RequestOwner")
-  reviewedRequests   LeaveRequest[]     @relation("RequestReviewer")
-  comments           Comment[]
-  reactions          Reaction[]
-  activities         Activity[]
-  readReceipts       AnnouncementRead[]
-  createdTasks       Task[]             @relation("TaskCreator")
-  reportedTasks      Task[]             @relation("TaskReporter")
-  taskAssignments    TaskAssignee[]
-  taskComments       TaskComment[]
-  ownedProjects      Project[]          @relation("ProjectOwner")
-  projectMemberships ProjectMember[]
-  auditLogs          AuditLog[]         @relation("AuditActor")
-  auditedBy          AuditLog[]         @relation("AuditTargetUser")
-  notifications      Notification[]     @relation("NotifRecipient")
-  triggeredNotifs    Notification[]     @relation("NotifActor")
-  pushSubscriptions  PushSubscription[] @relation("UserPushSubs")
-  attendance         Attendance[]
-  createdInvoices    Invoice[]          @relation("InvoiceCreator")
-  submittedExpenses  Expense[]          @relation("ExpenseSubmitter")
-  reviewedExpenses   Expense[]          @relation("ExpenseReviewer")
-  projectSalaries    ProjectSalary[]    @relation("SalaryEmployee")
-  salary             UserSalary?
+  sessions                Session[]
+  approvedLogins          LoginTicket[]        @relation("LoginTicketApprover")
+  authoredPosts           Announcement[]       @relation("PostAuthor")
+  uploadedDocs            Document[]           @relation("DocUploader")
+  leaveRequests           LeaveRequest[]       @relation("RequestOwner")
+  reviewedRequests        LeaveRequest[]       @relation("RequestReviewer")
+  comments                Comment[]
+  reactions               Reaction[]
+  activities              Activity[]
+  readReceipts            AnnouncementRead[]
+  createdTasks            Task[]               @relation("TaskCreator")
+  reportedTasks           Task[]               @relation("TaskReporter")
+  taskAssignments         TaskAssignee[]
+  taskComments            TaskComment[]
+  ownedProjects           Project[]            @relation("ProjectOwner")
+  projectMemberships      ProjectMember[]
+  auditLogs               AuditLog[]           @relation("AuditActor")
+  auditedBy               AuditLog[]           @relation("AuditTargetUser")
+  notifications           Notification[]       @relation("NotifRecipient")
+  triggeredNotifs         Notification[]       @relation("NotifActor")
+  pushSubscriptions       PushSubscription[]   @relation("UserPushSubs")
+  attendance              Attendance[]
+  createdInvoices         Invoice[]            @relation("InvoiceCreator")
+  submittedExpenses       Expense[]            @relation("ExpenseSubmitter")
+  reviewedExpenses        Expense[]            @relation("ExpenseReviewer")
+  projectSalaries         ProjectSalary[]      @relation("SalaryEmployee")
+  salary                  UserSalary?
   // Chat / messaging.
   conversationMemberships ConversationMember[] @relation("ConvMembership")
   sentMessages            Message[]            @relation("MessageSender")
@@ -93,6 +93,26 @@ model Session {
   @@index([userId])
 }
 
+// Postgres-backed fixed-window rate limiter (lib/rateLimit.ts). One row per
+// (bucket, windowStart): `bucket` identifies the limited subject — e.g.
+// "login:ip:1.2.3.4", "login:email:a@b.com", "qr:create:ip:…", "share:<token>".
+// `windowStart` is the start of the fixed time window. The counter is bumped via
+// an atomic upsert+increment; rows older than their window are swept lazily. This
+// works across serverless instances (unlike an in-process counter) using infra we
+// already have (Neon), so no Redis/Upstash dependency is required.
+model RateLimit {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  bucket      String
+  windowStart DateTime
+  count       Int      @default(0)
+  expiresAt   DateTime
+
+  // One counter row per (bucket, window). The increment upserts on this.
+  @@unique([bucket, windowStart])
+  // Lazy cleanup of stale windows.
+  @@index([expiresAt])
+}
+
 // QR "scan to sign in" handshake (WhatsApp-Web style). A new device shows a QR
 // encoding this ticket's `token`; an already-authenticated phone scans it and
 // approves; the new device then claims the ticket to mint a real Session.
@@ -102,23 +122,23 @@ model Session {
 // approver is recorded so `claim` knows which user's session to mint — and so
 // the approving device never has to hand its own session token to the new one.
 model LoginTicket {
-  id        String   @id @default(cuid())
-  token     String   @unique
+  id     String @id @default(cuid())
+  token  String @unique
   // Direction of the handshake:
   //   SCAN_TO_APPROVE — a new device shows the QR; an already-signed-in phone
   //     scans + approves; the showing device then claims a session (login page).
   //   DIRECT_LINK — an already-signed-in device (dashboard) shows the QR bound
   //     to its own user; a NOT-signed-in phone scans it and signs itself in as
   //     that user. Created authenticated, so no separate approval step.
-  kind      String   @default("SCAN_TO_APPROVE")
+  kind   String @default("SCAN_TO_APPROVE")
   // PENDING | APPROVED | CONSUMED  (string to mirror the rest of the schema's
   // enum-as-string convention; see lib/permissions.ts for role precedent).
-  status    String   @default("PENDING")
+  status String @default("PENDING")
 
   // Set when an authenticated user approves the sign-in. SetNull on user delete
   // so a stray pending ticket never blocks account removal.
   approvedById String?
-  approvedBy   User?   @relation("LoginTicketApprover", fields: [approvedById], references: [id], onDelete: SetNull)
+  approvedBy   User?     @relation("LoginTicketApprover", fields: [approvedById], references: [id], onDelete: SetNull)
   approvedAt   DateTime?
 
   // Coarse device hints captured from the requesting browser, shown to the
@@ -232,6 +252,9 @@ model LeaveRequest {
   @@index([ownerId])
   @@index([status, startDate, endDate])
   @@index([reviewerId])
+  // "My requests" filters ownerId and sorts newest-first — composite serves the
+  // filter and the order together.
+  @@index([ownerId, createdAt])
 }
 
 // ── Attendance ───────────────────────────────────────────────────────────────
@@ -346,22 +369,22 @@ model Board {
 // board has at most one ACTIVE sprint at a time (enforced in lib/issues.ts);
 // completing a sprint moves its still-open cards back to the backlog.
 model Sprint {
-  id        String   @id @default(cuid())
-  boardId   String
-  board     Board    @relation(fields: [boardId], references: [id], onDelete: Cascade)
-  name      String
-  goal      String?
+  id          String    @id @default(cuid())
+  boardId     String
+  board       Board     @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  name        String
+  goal        String?
   // PLANNED (in the backlog planner) | ACTIVE (started, drives the board) |
   // COMPLETED (closed). See SPRINT_STATUSES in lib/constants.ts.
-  status    String   @default("PLANNED")
-  startDate DateTime?
-  endDate   DateTime?
+  status      String    @default("PLANNED")
+  startDate   DateTime?
+  endDate     DateTime?
   // Set when the sprint is started / completed, for the timeline.
   startedAt   DateTime?
   completedAt DateTime?
   // Ordering of sprints within the backlog planner (top → bottom).
-  position  Float    @default(0)
-  createdAt DateTime @default(now())
+  position    Float     @default(0)
+  createdAt   DateTime  @default(now())
 
   tasks Task[]
 
@@ -416,12 +439,12 @@ model Project {
   // per-person salaries. revenueCents is a CACHE of sum(incomeLines.amountCents),
   // recomputed whenever a line changes (lib/financeQueries.ts), so the existing
   // share/pool math reads one number. The salary pool = revenue − sum(shares).
-  revenueCents    Int    @default(0)
-  revenueCurrency String @default("USD")
-  incomeLines     ProjectIncomeLine[]
-  shareLines      ProjectShareLine[]
-  expenses        Expense[]
-  salaries        ProjectSalary[]
+  revenueCents      Int                    @default(0)
+  revenueCurrency   String                 @default("USD")
+  incomeLines       ProjectIncomeLine[]
+  shareLines        ProjectShareLine[]
+  expenses          Expense[]
+  salaries          ProjectSalary[]
   salaryAllocations UserSalaryAllocation[]
 
   @@index([ownerId])
@@ -433,17 +456,17 @@ model Project {
 // name, denormalized here. A REQUEST also spawns a Backlog card (taskId links
 // the two); a COMMENT is attached to an existing card (taskId = the card).
 model ClientSubmission {
-  id        String   @id @default(cuid())
+  id        String  @id @default(cuid())
   projectId String
-  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
   // COMMENT (on an existing card) | REQUEST (becomes a new Backlog card).
-  kind        String
+  kind       String
   // Client-supplied display name, e.g. "Jane @ Acme". Never a portal identity.
-  clientName  String
+  clientName String
   // For REQUEST: the request title. For COMMENT: null (body holds the text).
-  title       String?
-  body        String
+  title      String?
+  body       String
 
   // The card this submission relates to: the commented card, or the card a
   // request spawned. SetNull (not Cascade) so deleting the card keeps the
@@ -550,6 +573,13 @@ model Message {
 
   // Serves both keyset history paging and the unread range count.
   @@index([conversationId, createdAt])
+  // /api/messages/since filters createdAt > cursor across ALL of a user's
+  // conversations (no single conversationId), so the composite above can't drive
+  // it — this is the hottest poll query. A bare createdAt index serves the range.
+  @@index([createdAt])
+  // senderId is SetNull on user delete; without an index that delete full-scans
+  // this (the highest-volume) table.
+  @@index([senderId])
 }
 
 model BoardList {
@@ -586,12 +616,12 @@ model Task {
   // rows the backfill hasn't reached.
   issueNumber Int?
   // Issue type: STORY | BUG | TASK | EPIC | SUBTASK. See ISSUE_TYPES.
-  issueType   String  @default("TASK")
+  issueType   String   @default("TASK")
   // Workflow status: TODO | IN_PROGRESS | IN_REVIEW | DONE. This is the JIRA
   // lifecycle, kept in lock-step with the card's list (the Kanban column) — both
   // are written together so the board reads from the list and filters read from
   // status. See WORKFLOW_STATUSES + statusForList in lib/issues.ts.
-  status      String  @default("TODO")
+  status      String   @default("TODO")
   // Agile estimate in story points (Fibonacci-ish). Distinct from
   // estimateMinutes (time). Null when unestimated.
   storyPoints Int?
@@ -606,20 +636,20 @@ model Task {
 
   // Optional sprint this issue is planned into. Null = backlog. SetNull so
   // deleting a sprint drops its cards back to the backlog rather than the cards.
-  sprintId String?
-  sprint   Sprint? @relation(fields: [sprintId], references: [id], onDelete: SetNull)
+  sprintId         String?
+  sprint           Sprint?   @relation(fields: [sprintId], references: [id], onDelete: SetNull)
   // Time estimate (minutes) set by whoever creates the card — the planned
   // effort, distinct from `timeSpentMinutes` (the actual logged time). Null
   // when no estimate was given.
   estimateMinutes  Int?
   // Manual time tracking ("time lock"). A single pool of minutes logged against
   // the card by anyone who can edit it; managers can adjust/reset the total.
-  timeSpentMinutes Int   @default(0)
-  listId      String
-  list        BoardList @relation(fields: [listId], references: [id], onDelete: Cascade)
-  creatorId   String
-  creator     User      @relation("TaskCreator", fields: [creatorId], references: [id])
-  createdAt   DateTime  @default(now())
+  timeSpentMinutes Int       @default(0)
+  listId           String
+  list             BoardList @relation(fields: [listId], references: [id], onDelete: Cascade)
+  creatorId        String
+  creator          User      @relation("TaskCreator", fields: [creatorId], references: [id])
+  createdAt        DateTime  @default(now())
 
   assignees         TaskAssignee[]
   comments          TaskComment[]
@@ -650,13 +680,13 @@ model Task {
 // of ISSUE_LINK_TYPES. The same pair can be linked at most once per type+
 // direction. Deleting either card removes the link (Cascade).
 model IssueLink {
-  id       String @id @default(cuid())
+  id        String   @id @default(cuid())
   // BLOCKS | RELATES | DUPLICATES | PARENT. See ISSUE_LINK_TYPES.
-  type     String
-  sourceId String
-  source   Task   @relation("LinkSource", fields: [sourceId], references: [id], onDelete: Cascade)
-  targetId String
-  target   Task   @relation("LinkTarget", fields: [targetId], references: [id], onDelete: Cascade)
+  type      String
+  sourceId  String
+  source    Task     @relation("LinkSource", fields: [sourceId], references: [id], onDelete: Cascade)
+  targetId  String
+  target    Task     @relation("LinkTarget", fields: [targetId], references: [id], onDelete: Cascade)
   createdAt DateTime @default(now())
 
   @@unique([sourceId, targetId, type])
@@ -722,7 +752,7 @@ model PushSubscription {
 
   // The push service endpoint URL (unique per browser+origin) and the keys the
   // browser generated for encrypting payloads to it.
-  endpoint String  @unique
+  endpoint String @unique
   p256dh   String
   auth     String
 
@@ -769,16 +799,16 @@ model Invoice {
   // Cached totals (minor units). Derived from items; recomputed on every edit.
   subtotalCents Int @default(0)
   // Tax as a basis-point rate (e.g. 825 = 8.25%) and the resulting amount.
-  taxRateBps Int @default(0)
-  taxCents   Int @default(0)
-  totalCents Int @default(0)
+  taxRateBps    Int @default(0)
+  taxCents      Int @default(0)
+  totalCents    Int @default(0)
 
   issueDate DateTime  @default(now())
   dueDate   DateTime?
   // Stamped when status first moves to SENT (for "sent X ago").
-  sentAt DateTime?
+  sentAt    DateTime?
   // Stamped when status moves to PAID.
-  paidAt DateTime?
+  paidAt    DateTime?
 
   // Public, login-less link a client opens to view the invoice at
   // /invoices/shared/<token>. Opaque + unguessable; nullable so it can be
@@ -814,14 +844,14 @@ model InvoiceItem {
   invoiceId String
   invoice   Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
 
-  description String
+  description    String
   // Quantity is whole units (e.g. hours, licenses). Price is per-unit, in minor
   // units. amountCents is qty * unitPriceCents, cached so the row is a snapshot.
-  quantity       Int @default(1)
-  unitPriceCents Int @default(0)
-  amountCents    Int @default(0)
+  quantity       Int    @default(1)
+  unitPriceCents Int    @default(0)
+  amountCents    Int    @default(0)
   // Display order of the line within the invoice (top → bottom).
-  position Int @default(0)
+  position       Int    @default(0)
 
   @@index([invoiceId, position])
 }
@@ -885,7 +915,7 @@ model Expense {
 
   // Who decided it (null until decided). Denormalized name like the submitter.
   reviewerId   String?
-  reviewer     User?   @relation("ExpenseReviewer", fields: [reviewerId], references: [id], onDelete: SetNull)
+  reviewer     User?     @relation("ExpenseReviewer", fields: [reviewerId], references: [id], onDelete: SetNull)
   reviewerName String?
   decidedAt    DateTime?
 
@@ -898,6 +928,11 @@ model Expense {
   @@index([status])
   @@index([projectId])
   @@index([submitterId])
+  // Approval queue (filter status, sort createdAt) and per-project rollup
+  // (filter projectId, sort createdAt) — composites so Postgres serves both the
+  // filter and the order from one index instead of filtering then sorting.
+  @@index([status, createdAt])
+  @@index([projectId, createdAt])
 }
 
 // ── Finance: per-project salaries ──────────────────────────────────────────────

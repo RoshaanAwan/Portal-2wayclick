@@ -3,6 +3,7 @@ import { z } from "zod";
 import { timingSafeEqual } from "crypto";
 import { db } from "@/lib/db";
 import { recordCheckIn, recordCheckOut } from "@/lib/attendance";
+import { rateLimit, clientIp, LIMITS } from "@/lib/rateLimit";
 
 // ── Slack attendance webhook ───────────────────────────────────────────────────
 // The local Slack bot forwards check-in / check-out events here. It is NOT a
@@ -54,6 +55,21 @@ function parseTimestamp(ts?: string): Date {
 
 export async function POST(req: Request) {
   try {
+    // 0) Throttle per IP so the shared secret can't be brute-forced online (the
+    // compare is constant-time, but there's no lockout without this).
+    const ip = clientIp(req);
+    const limit = await rateLimit(
+      `webhook:slack:ip:${ip}`,
+      LIMITS.webhook.limit,
+      LIMITS.webhook.windowMs,
+    );
+    if (!limit.ok) {
+      return NextResponse.json(
+        { error: "Too many requests" },
+        { status: 429, headers: { "Retry-After": String(limit.retryAfter) } },
+      );
+    }
+
     // 1) Authenticate the bot.
     const auth = req.headers.get("authorization");
     const token = auth?.startsWith("Bearer ") ? auth.slice(7) : auth;

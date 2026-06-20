@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { audit } from "@/lib/audit";
 import { notifyMany } from "@/lib/notifications";
 import { encodeClientComment } from "@/lib/clientShare";
+import { rateLimit, clientIp, LIMITS } from "@/lib/rateLimit";
 
 // ── Public: client comments on an existing card ─────────────────────────────
 // Reached from /shared/<token> with no portal login — the token IS the auth, so
@@ -25,6 +26,21 @@ export async function POST(
 ) {
   try {
     const { token } = await params;
+
+    // This endpoint is anonymous (the token is the only auth) and fans out a
+    // notification + Web Push to every project watcher per call. Throttle per
+    // token+IP so a leaked link can't be scripted into a notification/push flood.
+    const rl = await rateLimit(
+      `share:comment:${token}:${clientIp(req)}`,
+      LIMITS.share.limit,
+      LIMITS.share.windowMs,
+    );
+    if (!rl.ok) {
+      return NextResponse.json(
+        { error: "Too many requests. Please try again later." },
+        { status: 429, headers: { "Retry-After": String(rl.retryAfter) } },
+      );
+    }
 
     const project = await db.project.findUnique({
       where: { shareToken: token },

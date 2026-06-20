@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { audit } from "@/lib/audit";
+import { assertTaskAccess } from "@/lib/taskAccess";
 import { z } from "zod";
 
 const schema = z.object({
@@ -13,6 +14,17 @@ export async function POST(req: Request) {
   try {
     const actor = await requireUser();
     const { taskId, userId } = schema.parse(await req.json());
+
+    // Authorize against the task's project BEFORE mutating (members-only for
+    // project boards; admin tier bypasses; global board open). Previously the
+    // delete ran unconditionally on any client-supplied taskId.
+    const access = await assertTaskAccess(taskId, actor);
+    if (!access.ok) {
+      return NextResponse.json(
+        { error: access.status === 404 ? "Task not found" : "Forbidden" },
+        { status: access.status },
+      );
+    }
 
     // deleteMany is idempotent — removing a non-existent assignment is fine.
     await db.taskAssignee.deleteMany({ where: { taskId, userId } });

@@ -5,6 +5,7 @@ import { audit } from "@/lib/audit";
 import { notify } from "@/lib/notifications";
 import { sendSlackDM } from "@/lib/slack";
 import { recordActivity } from "@/lib/activityFeed";
+import { assertTaskAccess } from "@/lib/taskAccess";
 import { z } from "zod";
 
 const schema = z.object({
@@ -34,6 +35,17 @@ export async function POST(req: Request) {
     ]);
     if (!task) return NextResponse.json({ error: "Task not found" }, { status: 404 });
     if (!member) return NextResponse.json({ error: "User not found" }, { status: 404 });
+
+    // Authorize against the task's project (members-only for project boards;
+    // admin tier bypasses; global board open). Closes the cross-project IDOR
+    // (previously anyone could assign anyone onto any card).
+    const access = await assertTaskAccess(taskId, actor);
+    if (!access.ok) {
+      return NextResponse.json(
+        { error: access.status === 404 ? "Task not found" : "Forbidden" },
+        { status: access.status },
+      );
+    }
 
     // Idempotent: re-assigning an existing member is a no-op (unique constraint).
     const assignment = await db.taskAssignee.upsert({

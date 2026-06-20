@@ -3,6 +3,7 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { audit } from "@/lib/audit";
 import { notifyMany } from "@/lib/notifications";
+import { rateLimit, clientIp, LIMITS } from "@/lib/rateLimit";
 
 // ── Public: client moves a card ─────────────────────────────────────────────
 // Reached from /shared/<token> with no portal login — the token is the auth.
@@ -25,6 +26,20 @@ export async function POST(
 ) {
   try {
     const { token } = await params;
+
+    // Anonymous (token-only auth) + notifies every watcher per call — throttle
+    // per token+IP so a leaked link can't be scripted into a flood.
+    const rl = await rateLimit(
+      `share:move:${token}:${clientIp(req)}`,
+      LIMITS.share.limit,
+      LIMITS.share.windowMs,
+    );
+    if (!rl.ok) {
+      return NextResponse.json(
+        { error: "Too many requests. Please try again later." },
+        { status: 429, headers: { "Retry-After": String(rl.retryAfter) } },
+      );
+    }
 
     const project = await db.project.findUnique({
       where: { shareToken: token },

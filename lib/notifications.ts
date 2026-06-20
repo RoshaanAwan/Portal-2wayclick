@@ -1,7 +1,7 @@
 import "server-only";
 import { EventEmitter } from "events";
 import { db } from "./db";
-import { sendPushToUser } from "./push";
+import { sendPushToUser, sendPushToUsers } from "./push";
 
 // ── Notifications ─────────────────────────────────────────────────────────────
 // Per-user inbox writer + in-process event bus. notify() persists a row (so it
@@ -165,14 +165,91 @@ export async function notify(input: NotifyInput): Promise<void> {
 
 /**
  * Fan out the same notification to many recipients (e.g. a company-wide
- * announcement). De-dupes the recipient list and runs in parallel. Never throws.
+ * announcement). Never throws.
+ *
+ * Behaviourally identical to calling notify() once per recipient — same rows,
+ * same self-skip, same SSE bell events, same Web Push — but it batches the two
+ * DB-heavy parts so a company-wide post is a couple of queries instead of O(N):
+ *   • one `createMany` insert for every recipient's row (was N inserts),
+ *   • one `sendPushToUsers` (one subscription lookup) instead of N.
+ * The SSE emit and the push payload are per-recipient/shared exactly as before.
  */
 export async function notifyMany(
   userIds: string[],
   input: Omit<NotifyInput, "userId">,
 ): Promise<void> {
-  const unique = [...new Set(userIds)];
-  await Promise.all(unique.map((userId) => notify({ ...input, userId })));
+  try {
+    // Drop the actor (self-notification) up front — notify() does this per row;
+    // we must replicate it before the batch insert.
+    const actorId = input.actor?.id ?? null;
+    const recipients = [...new Set(userIds)].filter((id) => id !== actorId);
+    if (recipients.length === 0) return;
+
+    const actorName = input.actor?.name ?? null;
+    const actorAvatar = input.actor?.avatarUrl ?? null;
+    const createdAt = new Date();
+
+    // One insert for all recipient rows (createMany returns no IDs).
+    await db.notification.createMany({
+      data: recipients.map((userId) => ({
+        userId,
+        type: input.type,
+        message: input.message,
+        link: input.link ?? null,
+        actorId,
+        actorName,
+        actorAvatar,
+        createdAt,
+      })),
+    });
+
+    // Re-read the rows we just created so the SSE bell payload carries real ids
+    // (only those connected right now consume this; the DB row is the source of
+    // truth and reconciles on reload either way).
+    const rows = await db.notification.findMany({
+      where: {
+        userId: { in: recipients },
+        type: input.type,
+        createdAt,
+      },
+      select: {
+        id: true,
+        userId: true,
+        type: true,
+        message: true,
+        link: true,
+        actorName: true,
+        actorAvatar: true,
+        createdAt: true,
+      },
+    });
+    for (const row of rows) {
+      const live: LiveNotification = {
+        id: row.id,
+        type: row.type,
+        message: row.message,
+        link: row.link,
+        actorName: row.actorName,
+        actorAvatar: row.actorAvatar,
+        createdAt: row.createdAt.toISOString(),
+        readAt: null,
+      };
+      bus.emit(`notif:${row.userId}`, live);
+    }
+
+    // Web Push to every recipient with ONE subscription lookup. The payload is
+    // identical across recipients (same actor/message), exactly as the per-user
+    // path produced. Fire-and-forget so push latency never slows the caller.
+    const title = actorName ? `${actorName}` : "2WayClick";
+    void sendPushToUsers(recipients, {
+      title,
+      body: input.message,
+      url: input.link ?? "/dashboard",
+      tag: input.type,
+    });
+  } catch (err) {
+    console.error("[notifyMany] failed", input.type, err);
+  }
 }
 
 // ── Live activity wall ────────────────────────────────────────────────────────

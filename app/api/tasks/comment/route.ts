@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { audit } from "@/lib/audit";
 import { notifyMany } from "@/lib/notifications";
 import { recordActivity } from "@/lib/activityFeed";
+import { assertTaskAccess } from "@/lib/taskAccess";
 import { z } from "zod";
 
 const schema = z.object({
@@ -27,6 +28,16 @@ export async function POST(req: Request) {
     });
     if (!task) {
       return NextResponse.json({ error: "Task not found" }, { status: 404 });
+    }
+
+    // Authorize against the task's project (members-only for project boards;
+    // admin tier bypasses; global board open). Closes the cross-project IDOR.
+    const access = await assertTaskAccess(taskId, user);
+    if (!access.ok) {
+      return NextResponse.json(
+        { error: access.status === 404 ? "Task not found" : "Forbidden" },
+        { status: access.status },
+      );
     }
 
     const comment = await db.taskComment.create({

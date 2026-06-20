@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { createSession } from "@/lib/auth";
 import { audit } from "@/lib/audit";
 import { TICKET_STATUS } from "@/lib/qrLogin";
+import { rateLimit, clientIp, LIMITS } from "@/lib/rateLimit";
 
 const schema = z.object({ token: z.string().min(1) });
 
@@ -15,6 +16,19 @@ export async function POST(req: Request) {
   const parsed = schema.safeParse(await req.json().catch(() => ({})));
   if (!parsed.success) {
     return NextResponse.json({ error: "Invalid request" }, { status: 400 });
+  }
+
+  // Throttle per IP so the claim endpoint can't be hammered with token guesses.
+  const limit = await rateLimit(
+    `qr:claim:ip:${clientIp(req)}`,
+    LIMITS.qrPoll.limit,
+    LIMITS.qrPoll.windowMs,
+  );
+  if (!limit.ok) {
+    return NextResponse.json(
+      { error: "Too many requests" },
+      { status: 429, headers: { "Retry-After": String(limit.retryAfter) } },
+    );
   }
 
   const ticket = await db.loginTicket.findUnique({

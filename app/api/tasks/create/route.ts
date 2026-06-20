@@ -7,6 +7,7 @@ import { sendSlackDM } from "@/lib/slack";
 import { z } from "zod";
 import { ISSUE_TYPES, TASK_PRIORITIES } from "@/lib/constants";
 import { nextIssueNumber, statusForList } from "@/lib/issues";
+import { assertListAccess } from "@/lib/taskAccess";
 
 const schema = z.object({
   listId: z.string().min(1),
@@ -59,6 +60,16 @@ export async function POST(req: Request) {
     });
     if (!list) {
       return NextResponse.json({ error: "List not found" }, { status: 404 });
+    }
+
+    // Authorize against the destination list's project: project boards are
+    // members-only (admin tier bypasses); the global /tasks board is open.
+    const access = await assertListAccess(listId, user);
+    if (!access.ok) {
+      return NextResponse.json(
+        { error: access.status === 404 ? "List not found" : "Forbidden" },
+        { status: access.status },
+      );
     }
 
     // A sprint, if given, must belong to this list's board.

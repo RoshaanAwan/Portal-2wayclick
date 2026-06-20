@@ -2,6 +2,7 @@ import { FolderOpen } from "lucide-react";
 import type { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
+import { can } from "@/lib/permissions";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { AddDocumentButton } from "./AddDocumentButton";
 import { DocumentLibrary } from "./DocumentLibrary";
@@ -80,12 +81,16 @@ export default async function DocumentsPage({
         title="Document Library"
         subtitle="Handbooks, policies, decks, and everything the team shares."
         icon={FolderOpen}
-        action={<AddDocumentButton currentUserName={user?.name ?? null} />}
+        action={
+          can.manageDocuments(user?.role) ? (
+            <AddDocumentButton currentUserName={user?.name ?? null} />
+          ) : null
+        }
       />
 
       <DocumentLibrary
         docs={docs}
-        canManage={!!user}
+        canManage={can.manageDocuments(user?.role)}
         page={page}
         pageCount={pageCount}
         total={total}
