@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -263,6 +264,35 @@ function RowActions({
   const [menuOpen, setMenuOpen] = useState(false);
   const [busy, setBusy] = useState<null | "disable" | "reset">(null);
   const [error, setError] = useState<string | null>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const [coords, setCoords] = useState<{ top: number; right: number } | null>(
+    null,
+  );
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+
+  // Anchor the portal-rendered menu to the trigger button. Using fixed
+  // positioning lets the menu escape the table's `overflow-x-auto` wrapper and
+  // the GlassCard's `overflow-hidden`, which would otherwise clip it.
+  useLayoutEffect(() => {
+    if (!menuOpen) return;
+    function place() {
+      const el = buttonRef.current;
+      if (!el) return;
+      const r = el.getBoundingClientRect();
+      setCoords({
+        top: r.bottom + 6,
+        right: window.innerWidth - r.right,
+      });
+    }
+    place();
+    window.addEventListener("resize", place);
+    window.addEventListener("scroll", place, true);
+    return () => {
+      window.removeEventListener("resize", place);
+      window.removeEventListener("scroll", place, true);
+    };
+  }, [menuOpen]);
 
   async function toggleDisabled() {
     setBusy("disable");
@@ -305,6 +335,7 @@ function RowActions({
   return (
     <div className="relative inline-block text-left">
       <button
+        ref={buttonRef}
         onClick={() => setMenuOpen((o) => !o)}
         aria-label={`Actions for ${user.name}`}
         aria-expanded={menuOpen}
@@ -317,62 +348,69 @@ function RowActions({
         )}
       </button>
 
-      <AnimatePresence>
-        {menuOpen && (
-          <>
-            <div
-              className="fixed inset-0 z-30"
-              onClick={() => setMenuOpen(false)}
-            />
-            <motion.div
-              initial={{ opacity: 0, y: -6, scale: 0.97 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: -6, scale: 0.97 }}
-              transition={{ duration: 0.14 }}
-              className="glass-strong absolute right-0 z-40 mt-1.5 w-48 overflow-hidden p-1.5 text-left shadow-pop"
-            >
-              <button
-                onClick={() => {
-                  setMenuOpen(false);
-                  onEdit();
-                }}
-                className="hover-surface flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-ink-500 hover:text-ink"
-              >
-                <Pencil className="h-4 w-4" />
-                Edit
-              </button>
-              <button
-                onClick={toggleDisabled}
-                disabled={busy !== null}
-                className="hover-surface flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-ink-500 hover:text-ink disabled:opacity-50"
-              >
-                {user.disabled ? (
-                  <>
-                    <CircleCheck className="h-4 w-4 text-success" />
-                    Enable
-                  </>
-                ) : (
-                  <>
-                    <Ban className="h-4 w-4 text-danger-ink" />
-                    Disable
-                  </>
-                )}
-              </button>
-              <button
-                onClick={resetPassword}
-                disabled={busy !== null}
-                className="hover-surface flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-ink-500 hover:text-ink disabled:opacity-50"
-              >
-                <KeyRound className="h-4 w-4" />
-                Reset password
-              </button>
-              {error && (
-                <p className="px-3 py-1.5 text-[11px] text-danger-ink">{error}</p>
-              )}
-            </motion.div>
-          </>
+      {mounted &&
+        createPortal(
+          <AnimatePresence>
+            {menuOpen && coords && (
+              <>
+                <div
+                  className="fixed inset-0 z-[60]"
+                  onClick={() => setMenuOpen(false)}
+                />
+                <motion.div
+                  initial={{ opacity: 0, y: -6, scale: 0.97 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: -6, scale: 0.97 }}
+                  transition={{ duration: 0.14 }}
+                  style={{ top: coords.top, right: coords.right }}
+                  className="glass-strong fixed z-[61] w-48 overflow-hidden p-1.5 text-left shadow-pop"
+                >
+                  <button
+                    onClick={() => {
+                      setMenuOpen(false);
+                      onEdit();
+                    }}
+                    className="hover-surface flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-ink-500 hover:text-ink"
+                  >
+                    <Pencil className="h-4 w-4" />
+                    Edit
+                  </button>
+                  <button
+                    onClick={toggleDisabled}
+                    disabled={busy !== null}
+                    className="hover-surface flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-ink-500 hover:text-ink disabled:opacity-50"
+                  >
+                    {user.disabled ? (
+                      <>
+                        <CircleCheck className="h-4 w-4 text-success" />
+                        Enable
+                      </>
+                    ) : (
+                      <>
+                        <Ban className="h-4 w-4 text-danger-ink" />
+                        Disable
+                      </>
+                    )}
+                  </button>
+                  <button
+                    onClick={resetPassword}
+                    disabled={busy !== null}
+                    className="hover-surface flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-ink-500 hover:text-ink disabled:opacity-50"
+                  >
+                    <KeyRound className="h-4 w-4" />
+                    Reset password
+                  </button>
+                  {error && (
+                    <p className="px-3 py-1.5 text-[11px] text-danger-ink">
+                      {error}
+                    </p>
+                  )}
+                </motion.div>
+              </>
+            )}
+          </AnimatePresence>,
+          document.body,
         )}
-      </AnimatePresence>
     </div>
   );
 }
