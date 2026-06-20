@@ -30,9 +30,12 @@ import {
   priorityLabel,
   priorityVariant,
   type TaskPriority,
+  type WorkflowStatus,
 } from "@/lib/constants";
 import { AssigneePicker } from "./AssigneePicker";
-import type { MemberDTO, TaskDTO } from "./BoardClient";
+import { IssueTypeIcon, IssueKey } from "./issueUi";
+import { IssueDetailsPanel } from "./IssueDetailsPanel";
+import type { MemberDTO, SprintDTO, TaskDTO } from "./BoardClient";
 
 // Comments left by a client via the public share link are stored with an
 // attribution marker — "[client:Jane @ Acme] message". Recognise it here so the
@@ -61,12 +64,17 @@ export function TaskModal({
   task,
   listName,
   members,
+  sprints,
   currentUserId,
   canManage,
   onClose,
   onAssign,
   onAddComment,
   onLogTime,
+  onChangeStatus,
+  onPatchIssue,
+  onAddLink,
+  onRemoveLink,
   onSaveDescription,
   onEdit,
   onDelete,
@@ -74,6 +82,7 @@ export function TaskModal({
   task: TaskDTO | null;
   listName: string;
   members: MemberDTO[];
+  sprints: SprintDTO[];
   currentUserId: string | null;
   canManage: boolean;
   onClose: () => void;
@@ -85,6 +94,23 @@ export function TaskModal({
     minutes: number,
     reason?: string,
   ) => Promise<boolean>;
+  onChangeStatus: (taskId: string, status: WorkflowStatus) => Promise<boolean>;
+  onPatchIssue: (
+    taskId: string,
+    payload: {
+      issueType?: string;
+      storyPoints?: number | null;
+      reporterId?: string | null;
+      sprintId?: string | null;
+      labels?: string[];
+    },
+  ) => Promise<boolean>;
+  onAddLink: (
+    taskId: string,
+    targetKey: string,
+    type: string,
+  ) => Promise<string | null>;
+  onRemoveLink: (taskId: string, linkId: string) => Promise<boolean>;
   onSaveDescription: (taskId: string, description: string) => Promise<boolean>;
   onEdit: (taskId: string) => void;
   onDelete: (taskId: string) => void;
@@ -216,12 +242,17 @@ export function TaskModal({
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 16, scale: 0.98 }}
             transition={{ duration: 0.2, ease: "easeOut" }}
-            className="glass-strong relative z-10 my-auto w-full max-w-2xl overflow-hidden rounded-2xl"
+            className="glass-strong relative z-10 my-auto w-full max-w-4xl overflow-hidden rounded-2xl"
           >
             {/* Header */}
             <div className="flex items-start justify-between gap-4 border-b border-line p-5">
               <div className="min-w-0">
-                <p className="eyebrow mb-1.5">{listName}</p>
+                <div className="mb-1.5 flex items-center gap-2">
+                  <IssueTypeIcon type={task.issueType} className="h-4 w-4" />
+                  <IssueKey keyText={task.issueKey} className="text-xs" />
+                  <span className="text-ink-300">·</span>
+                  <p className="eyebrow !mb-0">{listName}</p>
+                </div>
                 <h2 className="text-lg font-semibold leading-snug text-ink">
                   {task.title}
                 </h2>
@@ -258,7 +289,9 @@ export function TaskModal({
               </div>
             </div>
 
-            <div className="max-h-[70vh] overflow-y-auto p-5">
+            <div className="grid max-h-[70vh] grid-cols-1 gap-5 overflow-y-auto p-5 md:grid-cols-[1fr_260px]">
+              {/* Main column */}
+              <div className="min-w-0">
               {/* Meta chips */}
               <div className="mb-5 flex flex-wrap items-center gap-2">
                 <Badge variant={priorityVariant[priority]}>
@@ -627,6 +660,26 @@ export function TaskModal({
                   </div>
                 </form>
               </section>
+              </div>
+
+              {/* JIRA details sidebar */}
+              <aside className="md:border-l md:border-line md:pl-5">
+                <IssueDetailsPanel
+                  task={task}
+                  members={members}
+                  sprints={sprints}
+                  canManage={canManage}
+                  canTransition={
+                    canManage ||
+                    (!!currentUserId &&
+                      task.assignees.some((a) => a.id === currentUserId))
+                  }
+                  onChangeStatus={onChangeStatus}
+                  onPatchIssue={onPatchIssue}
+                  onAddLink={onAddLink}
+                  onRemoveLink={onRemoveLink}
+                />
+              </aside>
             </div>
           </motion.div>
         </motion.div>

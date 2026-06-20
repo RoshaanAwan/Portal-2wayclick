@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { audit } from "@/lib/audit";
+import { statusForList } from "@/lib/issues";
 import { z } from "zod";
 
 // The client sends the destination list and the ids of the cards that should
@@ -51,9 +52,14 @@ export async function POST(req: Request) {
       position = 1000;
     }
 
+    // Moving a card between columns also advances its JIRA workflow status:
+    // the column name is the source of truth (statusForList), keeping the board
+    // and the status field — read by filters/reports — in lock-step.
+    const status = statusForList(list.name);
+
     await db.task.update({
       where: { id: taskId },
-      data: { listId, position },
+      data: { listId, position, status },
     });
 
     await audit({
@@ -62,10 +68,10 @@ export async function POST(req: Request) {
       entity: "Task",
       entityId: task.id,
       summary: `${user.name} moved “${task.title}” to ${list.name}`,
-      detail: { fromListId: task.listId, toListId: listId, position },
+      detail: { fromListId: task.listId, toListId: listId, position, status },
     });
 
-    return NextResponse.json({ ok: true, position });
+    return NextResponse.json({ ok: true, position, status });
   } catch (e: any) {
     if (e?.message === "UNAUTHENTICATED")
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

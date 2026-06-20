@@ -6,6 +6,7 @@ import {
   CalendarClock,
   Clock,
   GripVertical,
+  Link2,
   MessageSquare,
   MoreHorizontal,
   Pencil,
@@ -15,6 +16,7 @@ import {
 import { Avatar } from "@/components/ui/Avatar";
 import { cn, formatDate, formatMinutes } from "@/lib/utils";
 import { type TaskPriority } from "@/lib/constants";
+import { IssueTypeIcon, IssueKey, PointsBadge } from "./issueUi";
 import type { TaskDTO } from "./BoardClient";
 
 function dueState(iso: string | null): "overdue" | "soon" | "later" | null {
@@ -73,7 +75,9 @@ export function TaskCard({
     task.assignees.length > 0 ||
     task.comments.length > 0 ||
     task.timeSpentMinutes > 0 ||
-    task.estimateMinutes != null;
+    task.estimateMinutes != null ||
+    task.storyPoints != null ||
+    task.links.length > 0;
 
   // Card overflow menu (Edit / Delete). Closes on outside click or Escape.
   // The trigger lives inside the card (which is `overflow-hidden` to clip the
@@ -182,8 +186,22 @@ export function TaskCard({
           )}
         </div>
 
+        {/* Issue key + type (JIRA card header) */}
+        <div className="mb-1 flex items-center gap-1.5 pr-9">
+          <IssueTypeIcon type={task.issueType} />
+          <IssueKey keyText={task.issueKey} />
+          {task.labels.slice(0, 2).map((l) => (
+            <span
+              key={l}
+              className="truncate rounded bg-surface px-1.5 py-px text-[9px] font-medium text-ink-400"
+            >
+              {l}
+            </span>
+          ))}
+        </div>
+
         {/* Title + quiet due pill */}
-        <div className="flex items-start gap-2 pr-9">
+        <div className="flex items-start gap-2 pr-2">
           <p className="flex-1 text-sm font-medium leading-snug text-ink">
             {task.title}
           </p>
@@ -234,6 +252,16 @@ export function TaskCard({
             </div>
 
             <div className="flex items-center gap-2.5">
+              {task.links.length > 0 && (
+                <span
+                  className="flex items-center gap-1 text-[11px] text-ink-400"
+                  title={`${task.links.length} linked issue${task.links.length > 1 ? "s" : ""}`}
+                >
+                  <Link2 className="h-3.5 w-3.5" />
+                  {task.links.length}
+                </span>
+              )}
+              <PointsBadge points={task.storyPoints} />
               {task.estimateMinutes != null && (
                 <span
                   className="flex items-center gap-1 text-[11px] text-ink-400"
