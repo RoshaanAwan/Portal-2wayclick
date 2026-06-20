@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
@@ -44,6 +44,27 @@ export function Topbar({ user }: { user: SafeUser }) {
   const { items: notifications, unread, markAllRead } = useNotifications();
   const hasUnread = unread > 0;
 
+  // Close either dropdown on an outside click. A document-level mousedown
+  // listener is stacking-context-proof — the sticky `z-20` header would
+  // otherwise let the page content paint over a nested backdrop, so clicks on
+  // the page never closed the menu (it only closed on a second bell click).
+  const notifRef = useRef<HTMLDivElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!notifOpen && !menuOpen) return;
+    function onPointerDown(e: MouseEvent) {
+      const target = e.target as Node;
+      if (notifOpen && notifRef.current && !notifRef.current.contains(target)) {
+        setNotifOpen(false);
+      }
+      if (menuOpen && menuRef.current && !menuRef.current.contains(target)) {
+        setMenuOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", onPointerDown);
+    return () => document.removeEventListener("mousedown", onPointerDown);
+  }, [notifOpen, menuOpen]);
+
   async function logout() {
     await fetch("/api/auth/logout", { method: "POST" });
     router.push("/login");
@@ -84,7 +105,7 @@ export function Topbar({ user }: { user: SafeUser }) {
         <ThemeToggle />
 
         {/* Notifications */}
-        <div className="relative">
+        <div className="relative" ref={notifRef}>
           <button
             aria-label="Notifications"
             aria-expanded={notifOpen}
@@ -107,11 +128,6 @@ export function Topbar({ user }: { user: SafeUser }) {
 
           <AnimatePresence>
             {notifOpen && (
-              <>
-                <div
-                  className="fixed inset-0 z-10"
-                  onClick={() => setNotifOpen(false)}
-                />
                 <motion.div
                   initial={{ opacity: 0, y: -8, scale: 0.97 }}
                   animate={{ opacity: 1, y: 0, scale: 1 }}
@@ -201,7 +217,6 @@ export function Topbar({ user }: { user: SafeUser }) {
                     View all activity
                   </Link>
                 </motion.div>
-              </>
             )}
           </AnimatePresence>
         </div>
@@ -209,7 +224,7 @@ export function Topbar({ user }: { user: SafeUser }) {
         <div className="h-6 w-px bg-line" />
 
         {/* Profile menu */}
-        <div className="relative">
+        <div className="relative" ref={menuRef}>
           <button
             onClick={() => {
               setMenuOpen((o) => !o);
@@ -234,11 +249,6 @@ export function Topbar({ user }: { user: SafeUser }) {
 
           <AnimatePresence>
             {menuOpen && (
-              <>
-                <div
-                  className="fixed inset-0 z-10"
-                  onClick={() => setMenuOpen(false)}
-                />
                 <motion.div
                   initial={{ opacity: 0, y: -8, scale: 0.97 }}
                   animate={{ opacity: 1, y: 0, scale: 1 }}
@@ -294,7 +304,6 @@ export function Topbar({ user }: { user: SafeUser }) {
                     </button>
                   </div>
                 </motion.div>
-              </>
             )}
           </AnimatePresence>
         </div>

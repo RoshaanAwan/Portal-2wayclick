@@ -17,11 +17,10 @@ import "server-only";
 // Setup: create a Slack app installed to the workspace with the `chat:write` bot
 // scope, then set SLACK_BOT_TOKEN (the `xoxb-…` bot token) in the environment.
 
-const token = process.env.SLACK_BOT_TOKEN;
-
-/** Whether outbound Slack messaging is configured on this server. */
+/** Whether outbound Slack messaging is configured on this server. Read live (not
+ *  captured at module load) so dev/HMR picks up a token added after first import. */
 export function isSlackConfigured(): boolean {
-  return !!token;
+  return !!process.env.SLACK_BOT_TOKEN;
 }
 
 /**
@@ -36,7 +35,16 @@ export async function sendSlackDM(
   slackUserId: string | null | undefined,
   text: string,
 ): Promise<void> {
-  if (!token || !slackUserId) return;
+  // Read the token live (not at module load) so dev picks it up after restart.
+  const token = process.env.SLACK_BOT_TOKEN;
+  if (!token) {
+    console.warn("[slack] skipped DM: SLACK_BOT_TOKEN not set");
+    return;
+  }
+  if (!slackUserId) {
+    console.warn("[slack] skipped DM: recipient has no linked slackUserId");
+    return;
+  }
 
   try {
     const res = await fetch("https://slack.com/api/chat.postMessage", {
@@ -53,7 +61,9 @@ export async function sendSlackDM(
     const data: { ok?: boolean; error?: string } = await res
       .json()
       .catch(() => ({}));
-    if (!data.ok) {
+    if (data.ok) {
+      console.log(`[slack] DM sent to ${slackUserId}`);
+    } else {
       console.error("[slack] chat.postMessage failed", data.error ?? res.status);
     }
   } catch (err) {
