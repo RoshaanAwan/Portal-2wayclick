@@ -1,12 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { usePolling, REALTIME_TRANSPORT } from "@/lib/usePolling";
+import { usePolling } from "@/lib/usePolling";
 
 // Client-side notification store for the topbar bell. Loads the initial list
-// over HTTP, then keeps it live. Default transport is polling (serverless-safe);
-// set NEXT_PUBLIC_REALTIME_TRANSPORT="sse" on a single long-running host to use
-// the SSE stream instead. Exposes the list, the unread count, and read actions.
+// over HTTP, then keeps it live via two cooperating transports: a Web Push nudge
+// from the service worker triggers an instant pull the moment a notification
+// fires (no held connection), and adaptive polling runs underneath as a slow
+// always-on fallback. Exposes the list, the unread count, and read actions.
 
 export interface ClientNotification {
   id: string;
@@ -61,14 +62,11 @@ export function useNotifications() {
     };
   }, []);
 
-  // ── Transport: polling ─────────────────────────────────────────────────────
-  // ALWAYS on. Polling is the universal transport that works on Vercel
-  // serverless (where the in-process SSE bus can't reach the recipient). SSE
-  // below is purely ADDITIVE — when it works (single long-running host) it just
-  // delivers faster; `seen` dedupes so running both is safe. We never disable
-  // polling, so a stray NEXT_PUBLIC_REALTIME_TRANSPORT value can't break live
-  // updates in production.
-  usePolling(async () => {
+  // One pull of everything newer than the cursor. Returns `true` when at least
+  // one new notification arrived. Shared by the poll loop AND the push-triggered
+  // sync below so both go through identical fetch/ingest/dedupe logic — `seen`
+  // makes calling it from multiple sources at once safe (no duplicate items).
+  const sync = useCallback(async () => {
     try {
       // Ask for an unread-count reconcile every Nth poll; otherwise the server
       // returns the count only when new rows arrived.
@@ -82,32 +80,44 @@ export function useNotifications() {
         ? `/api/notifications/since?${qs}`
         : "/api/notifications/since";
       const res = await fetch(url);
-      if (!res.ok) return;
+      if (!res.ok) return false;
       const data = await res.json();
       if (data.cursor) cursor.current = data.cursor;
       // Server returns oldest-first; ingest in order so the newest ends on top.
-      (data.notifications ?? []).forEach((n: ClientNotification) => ingest(n));
+      const fresh: ClientNotification[] = data.notifications ?? [];
+      fresh.forEach((n) => ingest(n));
       // Trust the server's authoritative unread count (read-state may have
       // changed elsewhere, e.g. another tab).
       if (typeof data.unread === "number") setUnread(data.unread);
+      return fresh.length > 0;
     } catch {
-      // next tick retries
+      return false;
     }
-  });
-
-  // ── Transport: SSE (optional, additive — opt in on a long-running host) ─────
-  useEffect(() => {
-    if (REALTIME_TRANSPORT !== "sse") return;
-    const es = new EventSource("/api/notifications/stream");
-    es.addEventListener("notification", (ev) => {
-      try {
-        ingest(JSON.parse((ev as MessageEvent).data));
-      } catch {
-        // ignore malformed frames
-      }
-    });
-    return () => es.close();
   }, [ingest]);
+
+  // ── Transport: adaptive polling (always-on fallback) ────────────────────────
+  // The universal transport that works everywhere. With the push-triggered sync
+  // below carrying live updates, this is now mostly a SAFETY NET — it ramps down
+  // to a slow cadence (see POLL_INTERVAL_MAX_MS) and catches anything the push
+  // path misses (user hasn't enabled push, push service hiccup, no HTTPS in dev).
+  // A bare reconcile (no new rows) must NOT keep the loop hot, so it returns the
+  // "got new data" signal straight from sync().
+  usePolling(sync);
+
+  // ── Transport: push-triggered sync (instant, no held connection) ────────────
+  // The service worker postMessages "notif-sync" the moment a Web Push for this
+  // user lands (see public/sw.js). We pull once, right then — so the bell updates
+  // near-instantly without SSE/WebSocket and without fast polling. Requires the
+  // user to have enabled push; everyone else falls back to the poll loop above.
+  useEffect(() => {
+    if (typeof navigator === "undefined" || !navigator.serviceWorker) return;
+    const onMessage = (ev: MessageEvent) => {
+      if (ev.data?.type === "notif-sync") void sync();
+    };
+    navigator.serviceWorker.addEventListener("message", onMessage);
+    return () =>
+      navigator.serviceWorker.removeEventListener("message", onMessage);
+  }, [sync]);
 
   const markAllRead = useCallback(async () => {
     // Optimistic: clear the badge immediately, then persist.

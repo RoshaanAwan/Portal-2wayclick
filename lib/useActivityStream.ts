@@ -2,12 +2,12 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { FeedItem } from "@/app/(app)/dashboard/PulseFeed";
-import { usePolling, REALTIME_TRANSPORT } from "@/lib/usePolling";
+import { usePolling } from "@/lib/usePolling";
 
 // Client store for the Live Activity Wall. Seeds from the server-rendered feed,
-// then keeps it live. Default transport is polling (serverless-safe); set
-// NEXT_PUBLIC_REALTIME_TRANSPORT="sse" on a single long-running host to use the
-// SSE stream. Company-wide and read-only — it's a feed, not an inbox.
+// then keeps it live via a Web Push nudge (the service worker postMessages on
+// each push, triggering an instant pull) with adaptive polling underneath as a
+// slow always-on fallback. Company-wide and read-only — it's a feed, not an inbox.
 
 export function useActivityStream(initial: FeedItem[], cap = 12) {
   const [items, setItems] = useState<FeedItem[]>(initial);
@@ -28,38 +28,46 @@ export function useActivityStream(initial: FeedItem[], cap = 12) {
     [cap],
   );
 
-  // ── Transport: polling ─────────────────────────────────────────────────────
-  // ALWAYS on (works on Vercel serverless). SSE below is additive; `seen`
-  // dedupes if both run. See useNotifications for the rationale.
-  usePolling(async () => {
+  // One pull of everything newer than the cursor. Returns `true` when new
+  // activity arrived. Shared by the poll loop AND the push-triggered sync below
+  // so both go through identical fetch/ingest logic; `seen` dedupes so calling
+  // it from both at once can't double-insert.
+  const sync = useCallback(async () => {
     try {
       const url = cursor.current
         ? `/api/activity/since?cursor=${encodeURIComponent(cursor.current)}`
         : "/api/activity/since";
       const res = await fetch(url);
-      if (!res.ok) return;
+      if (!res.ok) return false;
       const data = await res.json();
       if (data.cursor) cursor.current = data.cursor;
       // Server returns oldest-first; ingest in order so newest ends on top.
-      (data.activities ?? []).forEach((a: FeedItem) => ingest(a));
+      const fresh: FeedItem[] = data.activities ?? [];
+      fresh.forEach((a) => ingest(a));
+      return fresh.length > 0;
     } catch {
-      // next tick retries
+      return false;
     }
-  });
-
-  // ── Transport: SSE (optional, additive) ────────────────────────────────────
-  useEffect(() => {
-    if (REALTIME_TRANSPORT !== "sse") return;
-    const es = new EventSource("/api/activity/stream");
-    es.addEventListener("activity", (ev) => {
-      try {
-        ingest(JSON.parse((ev as MessageEvent).data));
-      } catch {
-        // ignore malformed frames
-      }
-    });
-    return () => es.close();
   }, [ingest]);
+
+  // ── Transport: adaptive polling (always-on fallback) ────────────────────────
+  // Ramps down to a slow cadence (see usePolling); the push-triggered sync below
+  // carries the live updates, so this just catches anything push misses.
+  usePolling(sync);
+
+  // ── Transport: push-triggered sync (instant, no held connection) ────────────
+  // The service worker postMessages "notif-sync" the moment a Web Push lands; we
+  // pull once right then so the wall animates in new activity near-instantly
+  // without SSE/WebSocket. Falls back to the poll loop above when push is off.
+  useEffect(() => {
+    if (typeof navigator === "undefined" || !navigator.serviceWorker) return;
+    const onMessage = (ev: MessageEvent) => {
+      if (ev.data?.type === "notif-sync") void sync();
+    };
+    navigator.serviceWorker.addEventListener("message", onMessage);
+    return () =>
+      navigator.serviceWorker.removeEventListener("message", onMessage);
+  }, [sync]);
 
   return { items, liveCount };
 }

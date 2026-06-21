@@ -12,7 +12,7 @@
  * Bump CACHE_VERSION to invalidate the precache on the next deploy.
  */
 
-const CACHE_VERSION = "v2";
+const CACHE_VERSION = "v3";
 const PRECACHE = `2wc-precache-${CACHE_VERSION}`;
 const RUNTIME = `2wc-runtime-${CACHE_VERSION}`;
 const OFFLINE_URL = "/offline";
@@ -157,7 +157,27 @@ self.addEventListener("push", (event) => {
     data: { url: data.url || "/dashboard" },
   };
 
-  event.waitUntil(self.registration.showNotification(title, options));
+  // Deliver the OS notification AND nudge any open app tabs to pull the new
+  // data immediately. The nudge lets the in-app bell/feed update live without a
+  // held connection (no SSE/WebSocket) and without fast polling — open tabs do a
+  // single cursor-deduped /since fetch only when a real event actually fired.
+  // Best-effort: a client that ignores the message just relies on slow polling.
+  event.waitUntil(
+    (async () => {
+      await self.registration.showNotification(title, options);
+      try {
+        const clientsList = await self.clients.matchAll({
+          type: "window",
+          includeUncontrolled: true,
+        });
+        for (const client of clientsList) {
+          client.postMessage({ type: "notif-sync", tag: data.tag || null });
+        }
+      } catch {
+        // matchAll/postMessage can throw if the SW is shutting down — ignore.
+      }
+    })(),
+  );
 });
 
 // Focus an existing app tab (navigating it to the link) or open a new one.

@@ -30,10 +30,15 @@ import { Logo } from "@/components/ui/Logo";
 import { can, isManagerTier } from "@/lib/permissions";
 import { useMobileNav } from "@/components/MobileNavProvider";
 import { useMessaging } from "@/components/MessagingProvider";
+import { CHAT_ENABLED } from "@/lib/features";
 
 const NAV = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/messages", label: "Messages", icon: MessageSquare },
+  // Messages — only when chat is enabled (lib/features.ts). While off, the entry
+  // is hidden and the SidebarBody doesn't read the (unmounted) MessagingProvider.
+  ...(CHAT_ENABLED
+    ? [{ href: "/messages", label: "Messages", icon: MessageSquare }]
+    : []),
   { href: "/announcements", label: "Announcements", icon: Megaphone },
   { href: "/projects", label: "Projects", icon: FolderKanban },
   // Directory is admin-tier only — see adminTierNav below.
@@ -189,8 +194,6 @@ function SidebarBody({
   onClose?: () => void;
 }) {
   const { adminTierNav, managerNav, adminNav } = sections;
-  // Live unread total for the Messages entry — same source as the page badge.
-  const { totalUnread } = useMessaging();
   return (
     <div className="glass relative flex h-full flex-col overflow-hidden px-3 py-4">
       {/* Brand */}
@@ -224,18 +227,32 @@ function SidebarBody({
           the most items). min-h-0 lets this flex child actually scroll. */}
       <nav className="min-h-0 flex-1 space-y-0.5 overflow-y-auto">
         <p className="eyebrow mb-2 px-3">Workspace</p>
-        {NAV.map((item) => (
-          <NavLink
-            key={item.href}
-            href={item.href}
-            label={item.label}
-            Icon={item.icon}
-            active={isActive(item.href)}
-            onGo={go}
-            scope={scope}
-            badge={item.href === "/messages" ? totalUnread : 0}
-          />
-        ))}
+        {NAV.map((item) =>
+          // The Messages entry shows a live unread badge from MessagingProvider;
+          // it only exists in NAV when CHAT_ENABLED, so reading the provider here
+          // is always safe (the provider is mounted iff chat is enabled).
+          item.href === "/messages" ? (
+            <MessagesNavLink
+              key={item.href}
+              href={item.href}
+              label={item.label}
+              Icon={item.icon}
+              active={isActive(item.href)}
+              onGo={go}
+              scope={scope}
+            />
+          ) : (
+            <NavLink
+              key={item.href}
+              href={item.href}
+              label={item.label}
+              Icon={item.icon}
+              active={isActive(item.href)}
+              onGo={go}
+              scope={scope}
+            />
+          ),
+        )}
 
         {/* Directory — admin tier only. */}
         {adminTierNav.map((item) => (
@@ -294,6 +311,22 @@ function SidebarBody({
       </div>
     </div>
   );
+}
+
+// The Messages entry, with a live unread badge sourced from MessagingProvider.
+// Split out so the useMessaging() call lives in a component that only mounts when
+// chat is enabled (the entry is absent from NAV otherwise), keeping the hook out
+// of the always-rendered SidebarBody where the provider may not exist.
+function MessagesNavLink(props: {
+  href: string;
+  label: string;
+  Icon: React.ComponentType<{ className?: string; strokeWidth?: number }>;
+  active: boolean;
+  onGo: (e: React.MouseEvent, href: string) => void;
+  scope: string;
+}) {
+  const { totalUnread } = useMessaging();
+  return <NavLink {...props} badge={totalUnread} />;
 }
 
 // A single sidebar entry — the sliding accent pill marks the active item.
