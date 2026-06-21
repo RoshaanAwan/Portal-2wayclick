@@ -115,6 +115,13 @@ export function MessagingProvider({
   // latest value without re-subscribing the stream.
   const activeRef = useRef<string | null>(null);
 
+  // Set once the initial conversation-list load has resolved. setMessagingView
+  // Open() uses this to avoid a redundant refresh() on the FIRST mount: the
+  // initial-load effect already fetches the list, so firing refresh() from the
+  // /messages page mounting at the same time would double-call the endpoint.
+  // After the first load, an open→refresh reconciles drift accrued off-page.
+  const initialLoadDone = useRef(false);
+
   // Whether the full /messages UI is mounted. Held in a ref so the (stable) poll
   // closure reads the latest value without re-subscribing. When closed, we skip
   // the periodic conversation-list reconcile — the message poll below still runs
@@ -199,7 +206,10 @@ export function MessagingProvider({
       } catch {
         // ignore
       } finally {
-        if (!cancelled) setLoadingConversations(false);
+        if (!cancelled) {
+          setLoadingConversations(false);
+          initialLoadDone.current = true;
+        }
       }
     })();
     return () => {
@@ -327,7 +337,10 @@ export function MessagingProvider({
   const setMessagingViewOpen = useCallback(
     (open: boolean) => {
       viewOpenRef.current = open;
-      if (open) void refresh();
+      // Reconcile on open — but NOT on the very first mount, where the initial
+      // -load effect is already fetching the list (avoids a double call). Once
+      // that's done, a later open→refresh catches drift accrued while off-page.
+      if (open && initialLoadDone.current) void refresh();
     },
     [refresh],
   );

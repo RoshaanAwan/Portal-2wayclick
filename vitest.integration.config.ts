@@ -19,7 +19,9 @@ export default defineConfig({
   test: {
     environment: "node",
     include: ["**/*.itest.ts"],
-    exclude: ["node_modules/**", ".next/**"],
+    // Perf measurement harness runs on demand (needs the seeded dataset); keep it
+    // out of the normal integration run.
+    exclude: ["node_modules/**", ".next/**", "**/*.perf.itest.ts"],
     fileParallelism: false,
     // DB round-trips + seeding need a little more headroom than the default.
     testTimeout: 20000,
