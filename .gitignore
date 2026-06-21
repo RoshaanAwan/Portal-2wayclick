@@ -20,3 +20,10 @@ prisma/dev.db-journal
 .vercel
 next-env.d.ts
 *.tsbuildinfo
+
+# Local-only perf benchmark tooling (not shipped). The `perf:*` npm scripts
+# reference these; they exist only on machines that run the benchmark.
+scripts/perf-seed.ts
+scripts/perf-clean.ts
+lib/__tests__/pageLoad.perf.itest.ts
+vitest.perf.config.ts
