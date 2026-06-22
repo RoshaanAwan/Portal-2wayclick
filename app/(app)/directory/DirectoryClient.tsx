@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import Link from "next/link";
+import Link from "@/components/Link";
 import { motion, AnimatePresence, LayoutGroup } from "framer-motion";
 import { Search, MapPin, Users, LayoutGrid, Network, ChevronRight } from "lucide-react";
 import { GlassCard } from "@/components/ui/GlassCard";

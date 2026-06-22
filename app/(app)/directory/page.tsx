@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/Link";
 import { redirect } from "next/navigation";
 import { Users, Network } from "lucide-react";
 import type { Prisma } from "@prisma/client";

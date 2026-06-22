@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { Sun, Sunrise, Moon, ArrowUpRight, UserCheck, Plane, ListChecks, QrCode } from "lucide-react";
-import Link from "next/link";
+import Link from "@/components/Link";
 import { Avatar } from "@/components/ui/Avatar";
 import { CountUp } from "@/components/ui/CountUp";
 import { DeviceLinkButton } from "@/components/DeviceLinkScanner";
