@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import Link from "next/link";
+import Link from "@/components/Link";
 import { AnimatePresence, motion } from "framer-motion";
 import { ChevronDown, Users, ZoomIn, ZoomOut, Network } from "lucide-react";
 import { Avatar } from "@/components/ui/Avatar";

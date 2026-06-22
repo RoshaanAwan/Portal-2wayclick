@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/Link";
 import { notFound } from "next/navigation";
 import { ArrowLeft, KanbanSquare, Users } from "lucide-react";
 import { getCurrentUser } from "@/lib/auth";

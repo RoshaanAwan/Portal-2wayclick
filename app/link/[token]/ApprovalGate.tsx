@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import Link from "next/link";
+import Link from "@/components/Link";
 import { Smartphone, ShieldCheck, LogIn, Loader2 } from "lucide-react";
 import { Avatar } from "@/components/ui/Avatar";
 import { ApproveActions } from "./ApproveActions";
