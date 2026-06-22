@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import Link from "next/link";
+import Link from "@/components/Link";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -436,7 +436,7 @@ function ProjectCard({
       </div>
 
       <div className="flex min-w-0 items-center gap-2">
-        <Link href={`/projects/${project.id}`} className="min-w-0">
+        <Link href={`/projects/${project.id}`} prefetch={false} className="min-w-0">
           <h2 className="truncate text-[15px] font-semibold text-ink transition-colors group-hover:text-accent-ink">
             {project.name}
           </h2>
@@ -479,6 +479,7 @@ function ProjectCard({
 
         <Link
           href={`/projects/${project.id}`}
+          prefetch={false}
           className="inline-flex items-center gap-1 text-xs font-medium text-accent-ink transition-colors hover:gap-1.5"
         >
           Open board
@@ -708,7 +709,7 @@ function ProjectRow({
       {/* Name + description */}
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
-          <Link href={`/projects/${project.id}`} className="min-w-0">
+          <Link href={`/projects/${project.id}`} prefetch={false} className="min-w-0">
             <h2 className="truncate text-sm font-semibold text-ink transition-colors group-hover:text-accent-ink">
               {project.name}
             </h2>
@@ -749,6 +750,7 @@ function ProjectRow({
       ) : (
         <Link
           href={`/projects/${project.id}`}
+          prefetch={false}
           className="inline-flex shrink-0 items-center gap-1 text-xs font-medium text-accent-ink transition-colors hover:gap-1.5"
         >
           Open
