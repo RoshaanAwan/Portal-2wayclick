@@ -4,6 +4,12 @@ import { db } from "@/lib/db";
 import { audit } from "@/lib/audit";
 import { notifyMany } from "@/lib/notifications";
 import { rateLimit, clientIp, LIMITS } from "@/lib/rateLimit";
+import { issueKey, nextIssueNumber, statusForList } from "@/lib/issues";
+
+// Issue types a client may raise from the public board. A subset of the full
+// internal set — clients pick Story / Bug / Task, never Epic / Subtask (those
+// are team-internal structuring concerns).
+const CLIENT_ISSUE_TYPES = ["STORY", "BUG", "TASK"] as const;
 
 // ── Public: client adds a card ──────────────────────────────────────────────
 // Reached from /shared/<token> with no portal login. The client may drop the
@@ -20,6 +26,8 @@ const schema = z.object({
   // Optional target list. Validated against THIS board's lists below; an
   // unknown / other-project id is ignored in favour of the Backlog fallback.
   listId: z.string().min(1).optional(),
+  // JIRA-style issue type the client picked; defaults to TASK.
+  issueType: z.enum(CLIENT_ISSUE_TYPES).optional().default("TASK"),
 });
 
 export async function POST(
@@ -53,6 +61,8 @@ export async function POST(
         members: { select: { userId: true } },
         board: {
           select: {
+            id: true,
+            keyPrefix: true,
             lists: {
               orderBy: { position: "asc" },
               select: { id: true, name: true },
@@ -65,7 +75,9 @@ export async function POST(
       return NextResponse.json({ error: "Invalid link" }, { status: 404 });
     }
 
-    const { clientName, title, body, listId } = schema.parse(await req.json());
+    const { clientName, title, body, listId, issueType } = schema.parse(
+      await req.json(),
+    );
 
     // Honour the client's chosen list ONLY if it belongs to this board; never
     // trust a listId that points elsewhere. Otherwise fall back to Backlog,
@@ -96,16 +108,26 @@ export async function POST(
       ? `${body}\n\n— Added by ${clientName} via the client link`
       : `Added by ${clientName} via the client link`;
 
-    const task = await db.task.create({
-      data: {
-        title: `${title} (client)`,
-        description,
-        priority: "MEDIUM",
-        position,
-        listId: targetList.id,
-        creatorId: project.ownerId,
-      },
+    // Mint the issue number and insert the card together so the per-board
+    // counter and the card commit atomically (mirrors the internal create) —
+    // this is what gives the client's card a real JIRA key like TASK-7.
+    const task = await db.$transaction(async (tx) => {
+      const issueNumber = await nextIssueNumber(project.board.id, tx);
+      return tx.task.create({
+        data: {
+          title: `${title} (client)`,
+          description,
+          priority: "MEDIUM",
+          position,
+          listId: targetList.id,
+          creatorId: project.ownerId,
+          issueNumber,
+          issueType,
+          status: statusForList(targetList.name),
+        },
+      });
     });
+    const issueLabel = issueKey(project.board.keyPrefix, task.issueNumber);
 
     await db.clientSubmission.create({
       data: {
@@ -125,7 +147,7 @@ export async function POST(
     ];
     await notifyMany(watchers, {
       type: "task.assigned",
-      message: `${clientName} (client) added “${title}” to ${targetList.name} on ${project.name}`,
+      message: `${clientName} (client) added ${issueLabel} “${title}” to ${targetList.name} on ${project.name}`,
       link: `/projects/${project.id}`,
     });
 
@@ -140,6 +162,8 @@ export async function POST(
         title,
         body,
         taskId: task.id,
+        issueKey: issueLabel,
+        issueType,
         listId: targetList.id,
         listName: targetList.name,
       },
@@ -154,6 +178,8 @@ export async function POST(
         title: task.title,
         description: task.description,
         priority: task.priority,
+        issueKey: issueLabel,
+        issueType: task.issueType,
         comments: [],
       },
     });

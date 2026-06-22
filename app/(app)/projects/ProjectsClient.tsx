@@ -11,6 +11,7 @@ import {
   KanbanSquare,
   LayoutGrid,
   List,
+  MoreHorizontal,
   Plus,
   Power,
   RotateCcw,
@@ -531,6 +532,63 @@ function ProjectActions({
   onDelete: () => void;
 }) {
   const completed = !!project.completedAt;
+  // Collapse the four icon-actions (complete/reopen, activate/deactivate, edit,
+  // delete) into a kebab menu; "Members" stays a visible button since it's the
+  // common action. The menu is rendered FIXED (anchored to the button via its
+  // bounding rect) rather than absolutely inside the card — the project cards
+  // and list rows are `overflow-hidden` GlassCards, so an in-card dropdown would
+  // be clipped (the known GlassCard overflow trap). Closes on outside click,
+  // Escape, or scroll/resize (the anchor would otherwise drift).
+  const [open, setOpen] = useState(false);
+  const [coords, setCoords] = useState<{ top: number; right: number } | null>(
+    null,
+  );
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  function openMenu() {
+    const r = btnRef.current?.getBoundingClientRect();
+    if (r) setCoords({ top: r.bottom + 6, right: window.innerWidth - r.right });
+    setOpen(true);
+  }
+
+  useEffect(() => {
+    if (!open) return;
+    function onDocClick(e: MouseEvent) {
+      const t = e.target as Node;
+      if (
+        !btnRef.current?.contains(t) &&
+        !menuRef.current?.contains(t)
+      ) {
+        setOpen(false);
+      }
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setOpen(false);
+    }
+    // The menu is positioned from a one-time rect; if the page scrolls or
+    // resizes the anchor moves, so just close rather than chase it.
+    function onReflow() {
+      setOpen(false);
+    }
+    document.addEventListener("mousedown", onDocClick);
+    document.addEventListener("keydown", onKey);
+    window.addEventListener("scroll", onReflow, true);
+    window.addEventListener("resize", onReflow);
+    return () => {
+      document.removeEventListener("mousedown", onDocClick);
+      document.removeEventListener("keydown", onKey);
+      window.removeEventListener("scroll", onReflow, true);
+      window.removeEventListener("resize", onReflow);
+    };
+  }, [open]);
+
+  // Run a menu action then close the menu.
+  const act = (fn: () => void) => () => {
+    fn();
+    setOpen(false);
+  };
+
   return (
     <div className="flex items-center gap-1">
       <button
@@ -541,56 +599,76 @@ function ProjectActions({
         <UserCog className="h-3.5 w-3.5" />
         Members
       </button>
+
       <button
+        ref={btnRef}
         type="button"
-        onClick={onToggleComplete}
-        disabled={completing}
-        aria-label={completed ? "Reopen project" : "Mark project completed"}
-        title={completed ? "Reopen project" : "Mark completed"}
-        className={cn(
-          "grid h-7 w-7 place-items-center rounded-lg border border-line bg-surface-2 text-ink-500 transition-colors disabled:opacity-50",
-          completed
-            ? "hover:border-accent/40 hover:bg-accent-soft hover:text-accent-ink"
-            : "hover:border-success/40 hover:bg-success-soft hover:text-success-ink",
-        )}
-      >
-        {completed ? (
-          <RotateCcw className="h-3.5 w-3.5" />
-        ) : (
-          <CheckCircle2 className="h-3.5 w-3.5" />
-        )}
-      </button>
-      <button
-        type="button"
-        onClick={onToggleActive}
-        disabled={toggling}
-        aria-label={project.active ? "Deactivate project" : "Activate project"}
-        title={project.active ? "Deactivate project" : "Activate project"}
-        className={cn(
-          "grid h-7 w-7 place-items-center rounded-lg border border-line bg-surface-2 text-ink-500 transition-colors disabled:opacity-50",
-          project.active
-            ? "hover:border-warn/40 hover:bg-warn-soft hover:text-warn-ink"
-            : "hover:border-success/40 hover:bg-success-soft hover:text-success-ink",
-        )}
-      >
-        <Power className="h-3.5 w-3.5" />
-      </button>
-      <button
-        type="button"
-        onClick={onEdit}
-        aria-label="Edit project"
+        onClick={() => (open ? setOpen(false) : openMenu())}
+        aria-label="Project actions"
+        aria-haspopup="menu"
+        aria-expanded={open}
         className="grid h-7 w-7 place-items-center rounded-lg border border-line bg-surface-2 text-ink-500 transition-colors hover:border-line-strong hover:text-ink"
       >
-        <Pencil className="h-3.5 w-3.5" />
+        <MoreHorizontal className="h-3.5 w-3.5" />
       </button>
-      <button
-        type="button"
-        onClick={onDelete}
-        aria-label="Delete project"
-        className="grid h-7 w-7 place-items-center rounded-lg border border-line bg-surface-2 text-ink-500 transition-colors hover:border-danger/40 hover:bg-danger-soft hover:text-danger-ink"
-      >
-        <Trash2 className="h-3.5 w-3.5" />
-      </button>
+
+      <AnimatePresence>
+        {open && coords && (
+          <motion.div
+            ref={menuRef}
+            role="menu"
+            initial={{ opacity: 0, y: -6, scale: 0.97 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -6, scale: 0.97 }}
+            transition={{ duration: 0.15 }}
+            style={{ top: coords.top, right: coords.right }}
+            className="glass-strong fixed z-50 w-44 overflow-hidden p-1"
+          >
+            <button
+              type="button"
+              role="menuitem"
+              onClick={act(onToggleComplete)}
+              disabled={completing}
+              className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-xs font-medium text-ink-500 transition-colors hover:bg-surface-2 hover:text-ink disabled:opacity-50"
+            >
+              {completed ? (
+                <RotateCcw className="h-3.5 w-3.5" />
+              ) : (
+                <CheckCircle2 className="h-3.5 w-3.5" />
+              )}
+              {completed ? "Reopen project" : "Mark completed"}
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              onClick={act(onToggleActive)}
+              disabled={toggling}
+              className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-xs font-medium text-ink-500 transition-colors hover:bg-surface-2 hover:text-ink disabled:opacity-50"
+            >
+              <Power className="h-3.5 w-3.5" />
+              {project.active ? "Deactivate" : "Activate"}
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              onClick={act(onEdit)}
+              className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-xs font-medium text-ink-500 transition-colors hover:bg-surface-2 hover:text-ink"
+            >
+              <Pencil className="h-3.5 w-3.5" />
+              Edit project
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              onClick={act(onDelete)}
+              className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-xs font-medium text-ink-500 transition-colors hover:bg-danger-soft hover:text-danger-ink"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+              Delete project
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

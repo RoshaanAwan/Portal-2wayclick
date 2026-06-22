@@ -1,5 +1,6 @@
 import "server-only";
 import { db } from "./db";
+import { issueKey } from "./issues";
 import type {
   ClientBoardDTO,
   ClientCardDTO,
@@ -62,6 +63,9 @@ export async function getClientBoard(
       description: true,
       board: {
         select: {
+          // The board's key prefix builds each card's JIRA-style key
+          // (`<PREFIX>-<issueNumber>`), so the client board reads like the team's.
+          keyPrefix: true,
           lists: {
             orderBy: { position: "asc" },
             select: {
@@ -74,6 +78,8 @@ export async function getClientBoard(
                   title: true,
                   description: true,
                   priority: true,
+                  issueNumber: true,
+                  issueType: true,
                   comments: {
                     orderBy: { createdAt: "asc" },
                     select: { id: true, body: true, createdAt: true },
@@ -89,6 +95,7 @@ export async function getClientBoard(
 
   if (!project) return null;
 
+  const keyPrefix = project.board.keyPrefix;
   const lists: ClientListDTO[] = project.board.lists.map((list) => ({
     id: list.id,
     name: list.name,
@@ -97,6 +104,8 @@ export async function getClientBoard(
       title: t.title,
       description: t.description,
       priority: t.priority,
+      issueKey: issueKey(keyPrefix, t.issueNumber),
+      issueType: t.issueType,
       comments: t.comments.map((c) => {
         // Client-authored comments carry an attribution marker; everyone else
         // is shown generically as "Team" — we never leak internal names.

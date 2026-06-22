@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { audit } from "@/lib/audit";
 import { notifyMany } from "@/lib/notifications";
 import { rateLimit, clientIp, LIMITS } from "@/lib/rateLimit";
+import { statusForList } from "@/lib/issues";
 
 // ── Public: client moves a card ─────────────────────────────────────────────
 // Reached from /shared/<token> with no portal login — the token is the auth.
@@ -105,13 +106,20 @@ export async function POST(
       position = 1000;
     }
 
+    // Keep the JIRA workflow status in lock-step with the column, exactly like
+    // the internal board — so a card the client drags to "Done" actually reads
+    // as DONE in the team's filters/reports, not just visually in the column.
+    const changedList = task.listId !== listId;
     await db.task.update({
       where: { id: taskId },
-      data: { listId, position },
+      data: {
+        listId,
+        position,
+        ...(changedList ? { status: statusForList(list.name) } : {}),
+      },
     });
 
     // Only make noise when the card actually changed columns.
-    const changedList = task.listId !== listId;
     if (changedList) {
       const watchers = [
         project.ownerId,

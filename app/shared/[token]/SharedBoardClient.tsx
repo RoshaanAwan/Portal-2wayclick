@@ -15,6 +15,8 @@ import { GlassCard } from "@/components/ui/GlassCard";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { Logo } from "@/components/ui/Logo";
+import { ThemeToggle } from "@/components/ThemeToggle";
+import { IssueTypeIcon, IssueKey } from "@/app/(app)/tasks/issueUi";
 import { cn, timeAgo } from "@/lib/utils";
 import type {
   ClientBoardDTO,
@@ -24,10 +26,26 @@ import type {
 /** Where a newly-composed card should land. */
 type AddTarget = { id: string; name: string };
 
+/** Issue type the client may raise — a JIRA-like subset (no Epic/Subtask). */
+type ClientIssueType = "TASK" | "STORY" | "BUG";
+const CLIENT_ISSUE_TYPES: { type: ClientIssueType; label: string; hint: string }[] = [
+  { type: "TASK", label: "Task", hint: "A piece of work to be done" },
+  { type: "STORY", label: "Story", hint: "A feature or capability you'd like" },
+  { type: "BUG", label: "Bug", hint: "Something that isn't working right" },
+];
+
 const priorityVariant: Record<string, "neutral" | "amber" | "red"> = {
   LOW: "neutral",
   MEDIUM: "amber",
   HIGH: "red",
+};
+
+// Left-edge priority stripe — mirrors the internal board's TaskCard so the
+// client view reads identically (HIGH red, MEDIUM amber, LOW muted).
+const STRIPE: Record<string, string> = {
+  HIGH: "bg-danger",
+  MEDIUM: "bg-warn",
+  LOW: "bg-line-strong",
 };
 
 // The client's display name is asked once and remembered (this browser only) so
@@ -222,6 +240,11 @@ export function SharedBoardClient({
             <HelpCircle className="h-4 w-4" />
             How this works
           </button>
+          {/* Clients have no account, so the board renders in their device's
+              theme by default. This lets them flip light/dark themselves; the
+              choice is remembered per-browser (same 2wc-theme key the portal
+              uses) and applied before paint on return visits. */}
+          <ThemeToggle />
           <Button
             size="sm"
             onClick={() => backlog && setAddTarget(backlog)}
@@ -234,14 +257,20 @@ export function SharedBoardClient({
         </div>
       </header>
 
-      {/* Board columns — drag a card between lists to move it. */}
-      <div className="flex gap-4 overflow-x-auto pb-4">
+      {/* Board columns — drag a card between lists to move it. Styled to mirror
+          the internal project board (BoardClient): each column is a boxed
+          bg-surface panel and cards sit on bg-surface-2 with a left priority
+          stripe, so the client view looks identical to the team's view. */}
+      <div className="-mx-1 flex gap-5 overflow-x-auto px-1 pb-4">
         {lists.map((list) => {
           const isEndTarget = dropHint === `${list.id}:end`;
           return (
             <div
               key={list.id}
-              className="w-72 shrink-0"
+              className={cn(
+                "relative flex w-[300px] shrink-0 flex-col rounded-2xl border bg-surface p-2 transition-colors",
+                isEndTarget ? "border-accent/30 bg-accent-soft/20" : "border-line",
+              )}
               // Dropping over the column body (not a card) appends to the end.
               onDragOver={(e) => {
                 if (!dragId) return;
@@ -253,21 +282,15 @@ export function SharedBoardClient({
                 drop(list.id, null);
               }}
             >
-              <div className="mb-2 flex items-center justify-between px-1">
-                <span className="text-xs font-semibold uppercase tracking-wide text-ink-500">
+              <div className="mb-2 flex items-center justify-between rounded-lg px-1.5 pt-0.5 pb-1">
+                <h2 className="truncate text-[13px] font-semibold text-ink">
                   {list.name}
-                </span>
-                <span className="rounded-full bg-surface-2 px-2 py-0.5 text-[10px] font-medium text-ink-400">
+                </h2>
+                <span className="rounded-full bg-surface-2 px-2 py-0.5 text-[11px] font-medium text-ink-400">
                   {list.cards.length}
                 </span>
               </div>
-              <div
-                className={cn(
-                  "space-y-2 rounded-xl p-1 transition-colors",
-                  dragId && "min-h-16",
-                  isEndTarget && "bg-accent-soft/40 ring-1 ring-accent/30",
-                )}
-              >
+              <div className="flex flex-1 flex-col gap-2 px-0.5">
                 {list.cards.length === 0 && !dragId && (
                   <p className="rounded-xl border border-dashed border-line px-3 py-5 text-center text-[11px] text-ink-400">
                     Nothing here yet
@@ -276,15 +299,7 @@ export function SharedBoardClient({
                 {list.cards.map((card) => (
                   <div
                     key={card.id}
-                    draggable
-                    onDragStart={(e) => {
-                      setDragId(card.id);
-                      e.dataTransfer.effectAllowed = "move";
-                    }}
-                    onDragEnd={() => {
-                      setDragId(null);
-                      setDropHint(null);
-                    }}
+                    className="relative"
                     // Hovering a card targets the slot *before* it.
                     onDragOver={(e) => {
                       if (!dragId) return;
@@ -297,19 +312,41 @@ export function SharedBoardClient({
                       e.stopPropagation();
                       drop(list.id, card.id);
                     }}
-                    className={cn(
-                      "transition-all",
-                      dropHint === `${list.id}:${card.id}` &&
-                        "border-t-2 border-accent pt-1",
-                    )}
                   >
+                    {/* Drop indicator above this card */}
+                    {dropHint === `${list.id}:${card.id}` && (
+                      <div className="absolute -top-[5px] left-0 right-0 z-10 h-0.5 rounded-full bg-accent" />
+                    )}
                     <button
+                      draggable
+                      onDragStart={(e) => {
+                        setDragId(card.id);
+                        e.dataTransfer.effectAllowed = "move";
+                      }}
+                      onDragEnd={() => {
+                        setDragId(null);
+                        setDropHint(null);
+                      }}
                       onClick={() => setOpenCard(card)}
                       className={cn(
-                        "hover-surface block w-full cursor-grab rounded-xl border border-line bg-surface px-3 py-2.5 text-left transition-colors active:cursor-grabbing",
+                        "group relative block w-full cursor-grab overflow-hidden rounded-xl border border-line-strong bg-surface-2 pl-3.5 pr-3 py-2.5 text-left shadow-xs transition-all hover:border-ink-300 active:cursor-grabbing",
                         dragId === card.id && "opacity-40",
                       )}
                     >
+                      {/* Left priority stripe — matches the internal board. */}
+                      <span
+                        className={cn(
+                          "absolute inset-y-0 left-0 w-1.5",
+                          STRIPE[card.priority] ?? STRIPE.MEDIUM,
+                        )}
+                        aria-label={`${card.priority.toLowerCase()} priority`}
+                      />
+                      {/* JIRA-style header: type icon + stable key, like the
+                          team's board (e.g. ⬛ TASK-1). */}
+                      <div className="mb-1 flex items-center gap-1.5">
+                        <IssueTypeIcon type={card.issueType} />
+                        <IssueKey keyText={card.issueKey} />
+                      </div>
                       <p className="text-sm font-medium leading-snug text-ink">
                         {card.title}
                       </p>
@@ -605,6 +642,7 @@ function AddCardModal({
   onCreated: (card: ClientCardDTO) => void;
 }) {
   const [name, setName] = useState(clientName);
+  const [issueType, setIssueType] = useState<ClientIssueType>("TASK");
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
   const [loading, setLoading] = useState(false);
@@ -627,6 +665,7 @@ function AddCardModal({
         title: title.trim(),
         body: body.trim() || undefined,
         listId: target.id,
+        issueType,
       }),
     });
 
@@ -637,6 +676,7 @@ function AddCardModal({
       // Reset the fields so "Add another" starts clean.
       setTitle("");
       setBody("");
+      setIssueType("TASK");
       setDone(true);
       setLoading(false);
     } else {
@@ -655,7 +695,7 @@ function AddCardModal({
               <Plus className="h-[18px] w-[18px]" />
             </div>
             <div>
-              <p className="text-sm font-semibold text-ink">Add a card</p>
+              <p className="text-sm font-semibold text-ink">Create issue</p>
               <p className="text-[11px] text-ink-400">
                 Drops into{" "}
                 <span className="font-medium text-ink-500">{target.name}</span>{" "}
@@ -691,9 +731,37 @@ function AddCardModal({
         ) : (
           <form onSubmit={submit} className="space-y-3">
             <NameField value={name} onChange={setName} />
+            {/* JIRA-style issue-type picker. */}
             <div>
               <label className="mb-1.5 block text-xs font-medium text-ink-500">
-                Card title
+                Issue type
+              </label>
+              <div className="grid grid-cols-3 gap-2">
+                {CLIENT_ISSUE_TYPES.map((t) => {
+                  const active = issueType === t.type;
+                  return (
+                    <button
+                      key={t.type}
+                      type="button"
+                      onClick={() => setIssueType(t.type)}
+                      title={t.hint}
+                      className={cn(
+                        "flex items-center justify-center gap-1.5 rounded-lg border px-2 py-2 text-xs font-medium transition-colors",
+                        active
+                          ? "border-accent/40 bg-accent-soft text-accent-ink"
+                          : "border-line bg-surface-2 text-ink-500 hover:border-line-strong hover:text-ink",
+                      )}
+                    >
+                      <IssueTypeIcon type={t.type} />
+                      {t.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+            <div>
+              <label className="mb-1.5 block text-xs font-medium text-ink-500">
+                Summary
               </label>
               <input
                 value={title}
@@ -723,7 +791,7 @@ function AddCardModal({
             <div className="flex justify-end">
               <Button type="submit" size="sm" loading={loading} disabled={!canSubmit}>
                 {!loading && <Plus className="h-4 w-4" />}
-                Add to {target.name}
+                Create in {target.name}
               </Button>
             </div>
           </form>

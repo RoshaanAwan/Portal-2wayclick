@@ -17,6 +17,11 @@ export interface ClientCardDTO {
   title: string;
   description: string | null;
   priority: string;
+  // JIRA-style identity so the client board reads like the team's board: the
+  // stable key (e.g. "TASK-1", or "—" before a number is minted) and the issue
+  // type (STORY / BUG / TASK / …) that drives the card's type icon.
+  issueKey: string;
+  issueType: string;
   comments: ClientCommentDTO[];
 }
 
