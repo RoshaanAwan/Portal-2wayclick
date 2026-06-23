@@ -20,7 +20,10 @@ export type Role = (typeof ROLES)[number];
 
 /** Display labels for each role. */
 export const ROLE_LABELS: Record<Role, string> = {
-  SUPER_ADMIN: "Super Admin",
+  // SUPER_ADMIN is a tenant's top admin — the "Company Owner". (The platform
+  // operator above all tenants is the System Owner, the isSystemOwner flag, not
+  // a tenant role.)
+  SUPER_ADMIN: "Company Owner",
   ADMIN: "Admin",
   HR: "HR",
   LEAD: "Lead",
@@ -31,7 +34,7 @@ export const ROLE_LABELS: Record<Role, string> = {
 
 /** A short description shown next to each role in pickers. */
 export const ROLE_DESCRIPTIONS: Record<Role, string> = {
-  SUPER_ADMIN: "Full access to everything, including all audit logs.",
+  SUPER_ADMIN: "Full access to everything in this workspace, including all audit logs.",
   ADMIN: "Manages users, projects, and company content.",
   HR: "People operations — approvals and announcements.",
   LEAD: "Team lead — approvals, announcements, and projects.",

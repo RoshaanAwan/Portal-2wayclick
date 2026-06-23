@@ -9,7 +9,7 @@ import { tenantStore } from "./tenantContext";
 // — and a miss fails CLOSED (throws) instead of leaking another tenant's rows.
 //
 // `adminDb` is the un-extended base client, for platform-admin/cross-tenant work
-// (behind requirePlatformAdmin) and migrations/seed. Never use it in normal
+// (behind requireSystemOwner) and migrations/seed. Never use it in normal
 // tenant request paths.
 
 const globalForPrisma = globalThis as unknown as {

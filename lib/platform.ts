@@ -4,22 +4,48 @@ import { hashPassword } from "./auth";
 import { runWithTenant } from "./tenantContext";
 
 // ── Platform (cross-tenant) operations ────────────────────────────────────────
-// Used ONLY by the platform super-admin area, always behind requirePlatformAdmin.
+// Used ONLY by the System Owner area, always behind requireSystemOwner.
 // These deliberately use adminDb (the un-scoped client) because they operate
 // across tenant boundaries — listing all tenants, provisioning a new one, etc.
 
 const SUBDOMAIN_RE = /^[a-z0-9](?:[a-z0-9-]{0,30}[a-z0-9])?$/;
-const RESERVED = new Set(["www", "app", "admin", "api", "default", "localhost"]);
+// "system" is the reserved tenant holding System Owner accounts — never a
+// customer workspace, never routable.
+const RESERVED = new Set([
+  "www",
+  "app",
+  "admin",
+  "api",
+  "default",
+  "localhost",
+  "system",
+]);
+
+/** The reserved tenant id that holds System Owner accounts (no business data). */
+export const SYSTEM_TENANT_ID = "system";
 
 export function isValidSubdomain(s: string): boolean {
   return SUBDOMAIN_RE.test(s) && !RESERVED.has(s);
 }
 
-/** Every tenant with a user/headcount summary, newest first. */
+/** Every CUSTOMER tenant with a headcount summary, newest first. Excludes the
+ *  reserved "system" tenant so it never appears in the management UI. Each row
+ *  also carries `companyOwnerId`: the id of the tenant's first SUPER_ADMIN
+ *  (its Company Owner), used to drive the "Enter as Company Owner" impersonate
+ *  action — null when the tenant has no such user. */
 export async function listTenants() {
   const tenants = await adminDb.tenant.findMany({
+    where: { id: { not: SYSTEM_TENANT_ID } },
     orderBy: { createdAt: "desc" },
-    include: { _count: { select: { users: true } } },
+    include: {
+      _count: { select: { users: true } },
+      users: {
+        where: { role: "SUPER_ADMIN", isSystemOwner: false },
+        orderBy: { createdAt: "asc" },
+        take: 1,
+        select: { id: true },
+      },
+    },
   });
   return tenants.map((t) => ({
     id: t.id,
@@ -29,6 +55,7 @@ export async function listTenants() {
     suspendedAt: t.suspendedAt,
     createdAt: t.createdAt,
     userCount: t._count.users,
+    companyOwnerId: t.users[0]?.id ?? null,
   }));
 }
 

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { requireUser } from "@/lib/auth";
+import { requireTenantUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { audit } from "@/lib/audit";
 import { recordActivity } from "@/lib/activityFeed";
@@ -33,7 +33,7 @@ const schema = z.object({
 
 export async function POST(req: Request) {
   try {
-    const user = await requireUser();
+    const user = await requireTenantUser();
     // Adding a library document is an admin-tier action (matches edit/delete in
     // documents/[id]). Previously any authenticated user could add documents.
     if (!can.manageDocuments(user.role)) {

@@ -86,7 +86,7 @@ export function runWithTenant<T>(
 
 /**
  * Run `fn` with tenant scoping DISABLED — for platform-admin/cross-tenant work
- * only, always behind requirePlatformAdmin(). Prefer adminDb (lib/db.ts) for
+ * only, always behind requireSystemOwner(). Prefer adminDb (lib/db.ts) for
  * one-off un-scoped reads; use this when a code path must call shared
  * tenant-aware helpers without their scoping.
  */

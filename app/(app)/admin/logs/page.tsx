@@ -6,10 +6,9 @@ import { getCurrentUser } from "@/lib/auth";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { can } from "@/lib/permissions";
 import { auditActorScope } from "@/lib/audit";
-import { pageTitle } from "@/lib/brand";
 import { LogsClient, type AuditRow } from "./LogsClient";
 
-export const metadata = { title: pageTitle("Audit Log") };
+export const metadata = { title: "Audit Log" };
 
 const PAGE_SIZE = 50;
 

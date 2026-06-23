@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requireUser } from "@/lib/auth";
+import { requireTenantUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { audit } from "@/lib/audit";
 import { assertTaskAccess } from "@/lib/taskAccess";
@@ -12,7 +12,7 @@ const schema = z.object({
 
 export async function POST(req: Request) {
   try {
-    const actor = await requireUser();
+    const actor = await requireTenantUser();
     const { taskId, userId } = schema.parse(await req.json());
 
     // Authorize against the task's project BEFORE mutating (members-only for

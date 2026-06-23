@@ -23,7 +23,6 @@ import {
   Banknote,
   MessageSquare,
   Palette,
-  Building2,
   X,
 } from "lucide-react";
 import { useState } from "react";
@@ -51,13 +50,7 @@ const NAV = [
   { href: "/tools", label: "Tools", icon: Wrench },
 ];
 
-export function Sidebar({
-  role,
-  isPlatformAdmin = false,
-}: {
-  role?: string | null;
-  isPlatformAdmin?: boolean;
-}) {
+export function Sidebar({ role }: { role?: string | null }) {
   const pathname = usePathname();
   const router = useRouter();
   const { open, closeNav } = useMobileNav();
@@ -125,10 +118,8 @@ export function Sidebar({
     ...(can.manageBranding(role)
       ? [{ href: "/admin/branding", label: "Branding", icon: Palette }]
       : []),
-    // Tenants — PLATFORM admins only (cross-tenant management).
-    ...(isPlatformAdmin
-      ? [{ href: "/admin/tenants", label: "Tenants", icon: Building2 }]
-      : []),
+    // (Tenant management lives in the separate /system area for System Owners —
+    // never in the tenant sidebar.)
     ...(can.viewAuditLog(role)
       ? [{ href: "/admin/logs", label: "Audit Log", icon: ScrollText }]
       : []),

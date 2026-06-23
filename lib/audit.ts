@@ -1,8 +1,10 @@
 import "server-only";
-import { headers } from "next/headers";
-import { db } from "./db";
+import { headers, cookies } from "next/headers";
+import { db, adminDb } from "./db";
 import { requireTenantId } from "./tenantContext";
 import type { SafeUser } from "./auth";
+
+const SESSION_COOKIE = "twayclick_session";
 
 // ── Audit logging ────────────────────────────────────────────────────────────
 // Writes to the AuditLog table — the "track everything" trail for privileged
@@ -119,6 +121,21 @@ async function clientMeta(): Promise<{ ip: string | null; userAgent: string | nu
   }
 }
 
+/** The System Owner id if the current session is an impersonation, else null. */
+async function currentImpersonator(): Promise<string | null> {
+  try {
+    const token = (await cookies()).get(SESSION_COOKIE)?.value;
+    if (!token) return null;
+    const s = await adminDb.session.findUnique({
+      where: { token },
+      select: { impersonatedBy: true },
+    });
+    return s?.impersonatedBy ?? null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Record an audit entry. Never throws — auditing must not break the action it
  * is recording, so failures are swallowed (logged to the server console).
@@ -126,6 +143,13 @@ async function clientMeta(): Promise<{ ip: string | null; userAgent: string | nu
 export async function audit(input: AuditInput): Promise<void> {
   try {
     const { ip, userAgent } = await clientMeta();
+    // If this action happens under a System Owner impersonation, stamp the
+    // operator's id into the detail so the trail shows "(impersonated by …)".
+    const impersonatedBy = await currentImpersonator();
+    const detailObj =
+      input.detail === undefined && !impersonatedBy
+        ? null
+        : { ...(input.detail ?? {}), ...(impersonatedBy ? { impersonatedBy } : {}) };
     await db.auditLog.create({
       data: {
         tenantId: requireTenantId(),
@@ -136,8 +160,7 @@ export async function audit(input: AuditInput): Promise<void> {
         entity: input.entity,
         entityId: input.entityId ?? null,
         summary: input.summary ?? null,
-        detail:
-          input.detail === undefined ? null : JSON.stringify(input.detail),
+        detail: detailObj === null ? null : JSON.stringify(detailObj),
         ip,
         userAgent,
         targetUserId: input.targetUserId ?? null,

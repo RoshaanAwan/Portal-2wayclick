@@ -3,14 +3,13 @@ import { getCurrentUser } from "@/lib/auth";
 import { isAdminTier } from "@/lib/permissions";
 import { db } from "@/lib/db";
 import { PageHeader } from "@/components/ui/PageHeader";
-import { pageTitle } from "@/lib/brand";
 import { AppsGrid } from "./AppsGrid";
 import { QuickLinks } from "./QuickLinks";
 import { FocusTimer } from "./FocusTimer";
 import { TodayPanel } from "./TodayPanel";
 
 export const metadata = {
-  title: pageTitle("Tools"),
+  title: "Tools",
 };
 
 export default async function ToolsPage() {

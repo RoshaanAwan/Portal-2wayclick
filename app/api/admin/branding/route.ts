@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { requireUser } from "@/lib/auth";
+import { requireTenantUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { audit } from "@/lib/audit";
 import { can } from "@/lib/permissions";
@@ -25,7 +25,20 @@ const schema = z.object({
   legalName: blank(),
   website: blank(),
   emailDomain: blank(),
-  logoUrl: z.string().trim().max(2048).optional().transform((v) => (v ? v : null)),
+  // A hosted URL (Vercel Blob, ~hundreds of chars) OR — when Blob isn't
+  // configured — an inline base64 data: URL, which is large. Cap generously
+  // enough to hold the 4 MB upload limit as base64 (~5.6M chars) plus overhead;
+  // the column is TEXT so there's no DB limit. Accept http(s):// and data: only.
+  logoUrl: z
+    .string()
+    .trim()
+    .max(8_000_000)
+    .refine(
+      (v) => v === "" || /^(https?:\/\/|data:image\/)/.test(v),
+      "Logo must be an http(s) URL or an image data URL",
+    )
+    .optional()
+    .transform((v) => (v ? v : null)),
   accentHex: z
     .string()
     .trim()
@@ -36,7 +49,7 @@ const schema = z.object({
 
 export async function POST(req: Request) {
   try {
-    const user = await requireUser();
+    const user = await requireTenantUser();
     if (!can.manageBranding(user.role)) {
       return NextResponse.json(
         { error: "You do not have permission to manage branding." },

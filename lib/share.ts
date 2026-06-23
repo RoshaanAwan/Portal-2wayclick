@@ -30,6 +30,20 @@ export function newShareToken(): string {
  *      with zero config.
  *   3. localhost — local dev fallback.
  */
+/**
+ * Whether a portal base domain is a LOCAL dev host (→ plain HTTP). Dev servers
+ * always carry an explicit :port (localhost:3000, lvh.me:3001), and lvh.me /
+ * localhost / 127.0.0.1 are local; everything else is a real domain over HTTPS.
+ * Shared so the protocol choice can't drift between URL builders.
+ */
+export function isLocalPortalDomain(portalDomain: string): boolean {
+  return (
+    portalDomain.includes(":") ||
+    /(^|\.)(localhost|lvh\.me)$/.test(portalDomain) ||
+    portalDomain.startsWith("127.0.0.1")
+  );
+}
+
 export function appBaseUrl(subdomain?: string | null): string {
   // Per-tenant host wins when we know both the subdomain and the base domain.
   const portalDomain = (process.env.NEXT_PUBLIC_PORTAL_DOMAIN ?? "").replace(
@@ -37,7 +51,7 @@ export function appBaseUrl(subdomain?: string | null): string {
     "",
   );
   if (subdomain && portalDomain) {
-    const proto = portalDomain.startsWith("localhost") ? "http" : "https";
+    const proto = isLocalPortalDomain(portalDomain) ? "http" : "https";
     return `${proto}://${subdomain}.${portalDomain}`;
   }
 

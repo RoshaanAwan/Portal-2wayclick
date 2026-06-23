@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requireUser } from "@/lib/auth";
+import { requireTenantUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { audit } from "@/lib/audit";
 import { recordActivity } from "@/lib/activityFeed";
@@ -13,7 +13,7 @@ import { expenseInputSchema, toCents, formatMoney } from "@/lib/finance";
 // rather than waiting on a review they'd just rubber-stamp themselves.
 export async function POST(req: Request) {
   try {
-    const actor = await requireUser();
+    const actor = await requireTenantUser();
     if (!can.manageFinance(actor.role)) {
       return NextResponse.json({ error: "Admins only" }, { status: 403 });
     }

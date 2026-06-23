@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { requirePlatformAdmin } from "@/lib/auth";
+import { requireSystemOwner } from "@/lib/auth";
 import { createTenant, isValidSubdomain } from "@/lib/platform";
 import { audit } from "@/lib/audit";
 import { runWithTenant } from "@/lib/tenantContext";
@@ -16,7 +16,7 @@ const schema = z.object({
 
 export async function POST(req: Request) {
   try {
-    const platformAdmin = await requirePlatformAdmin();
+    const systemOwner = await requireSystemOwner();
     const data = schema.parse(await req.json());
 
     if (!isValidSubdomain(data.subdomain)) {
@@ -32,14 +32,14 @@ export async function POST(req: Request) {
     await runWithTenant(tenant.id, () =>
       audit({
         actor: {
-          id: platformAdmin.id,
-          name: platformAdmin.name,
-          role: platformAdmin.role,
+          id: systemOwner.id,
+          name: systemOwner.name,
+          role: systemOwner.role,
         },
         action: "tenant.create",
         entity: "Tenant",
         entityId: tenant.id,
-        summary: `${platformAdmin.name} created tenant "${tenant.name}" (${tenant.subdomain})`,
+        summary: `${systemOwner.name} created tenant "${tenant.name}" (${tenant.subdomain})`,
       }),
     );
 

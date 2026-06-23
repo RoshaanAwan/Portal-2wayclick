@@ -8,28 +8,12 @@ import { describeDevice, TICKET_STATUS, TICKET_KIND } from "@/lib/qrLogin";
 import { ApproveActions } from "./ApproveActions";
 import { DirectSignInActions } from "./DirectSignInActions";
 import { ApprovalGate } from "./ApprovalGate";
-import { pageTitle } from "@/lib/brand";
 import { resolveBrand, resolveBrandForTenant } from "@/lib/branding";
 
-export async function generateMetadata({
-  params,
-}: {
-  params: Promise<{ token: string }>;
-}): Promise<Metadata> {
-  const { token } = await params;
-  // The token wins: the ticket's tenant decides the brand, not the request host.
-  const ticket = await adminDb.loginTicket.findUnique({
-    where: { token },
-    select: { tenantId: true },
-  });
-  const brand = ticket
-    ? await resolveBrandForTenant(ticket.tenantId)
-    : await resolveBrand();
-  return {
-    title: pageTitle("Sign in", brand.name),
-    robots: { index: false, follow: false },
-  };
-}
+export const metadata: Metadata = {
+  title: "Sign in",
+  robots: { index: false, follow: false },
+};
 
 // The page the phone opens after scanning a QR. Two flows, by ticket kind:
 //   DIRECT_LINK    — the QR was shown on a signed-in dashboard and is bound to

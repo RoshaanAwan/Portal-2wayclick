@@ -66,9 +66,16 @@ model User {
   // Role: SUPER_ADMIN | ADMIN | HR | LEAD | PROJECT_MANAGER | EMPLOYEE
   // (stored as a string; see lib/permissions.ts for the source of truth).
   role         String    @default("EMPLOYEE")
-  // Platform operator flag — lifts this user ABOVE tenant boundaries (manages
-  // tenants, can impersonate). Distinct from the per-tenant SUPER_ADMIN role.
-  // Guarded by requirePlatformAdmin(); only such routes use the un-scoped client.
+  // System Owner flag — a PLATFORM operator who manages tenants and NOTHING
+  // else: no users/invoices/salaries/expenses/tasks in any tenant. Mutually
+  // exclusive with a tenant business role: a System Owner lives in the reserved
+  // "system" tenant with role EMPLOYEE (inert — every tenant check short-circuits
+  // on this flag). Guarded by requireSystemOwner(); only platform routes use the
+  // un-scoped client. A tenant's top admin (SUPER_ADMIN, "Company Owner") is
+  // NEVER a System Owner.
+  isSystemOwner Boolean @default(false)
+  // DEPRECATED: kept transiently for a safe rollback during the System Owner
+  // migration; backfilled into isSystemOwner. Dropped in a follow-up migration.
   isPlatformAdmin Boolean @default(false)
   avatarUrl    String?
   phone        String?
@@ -534,6 +541,11 @@ model Project {
   // recomputed whenever a line changes (lib/financeQueries.ts), so the existing
   // share/pool math reads one number. The salary pool = revenue − sum(shares).
   revenueCents      Int                    @default(0)
+  // CACHE of sum(active salaries' component amounts) — the committed payroll for
+  // this project. Recomputed by recomputeProjectCommitted (lib/financeQueries.ts)
+  // on every salary/component write, so finance reads return one integer instead
+  // of hydrating every salary's components into Node to sum them.
+  committedCents    Int                    @default(0)
   revenueCurrency   String                 @default("USD")
   incomeLines       ProjectIncomeLine[]
   shareLines        ProjectShareLine[]

@@ -5,10 +5,9 @@ import { getCurrentUser } from "@/lib/auth";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { can } from "@/lib/permissions";
 import { dayKey, dayKeyToString, parseDayKey, addDays, ATTENDANCE_TZ } from "@/lib/attendance";
-import { pageTitle } from "@/lib/brand";
 import { AttendanceDateNav } from "./AttendanceDateNav";
 
-export const metadata = { title: pageTitle("Attendance") };
+export const metadata = { title: "Attendance" };
 
 // Attendance is sourced from Slack check-in/out events the local bot forwards to
 // /api/attendance/slack. This page just reads the resulting rows:

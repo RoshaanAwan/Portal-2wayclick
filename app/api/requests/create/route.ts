@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { requireUser } from "@/lib/auth";
+import { requireTenantUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { audit } from "@/lib/audit";
 import { recordActivity } from "@/lib/activityFeed";
@@ -29,7 +29,7 @@ const schema = z
 
 export async function POST(req: Request) {
   try {
-    const user = await requireUser();
+    const user = await requireTenantUser();
     const { type, startDate, endDate, reason } = schema.parse(await req.json());
 
     // Reviewer defaults to the requester's manager, if they have one.

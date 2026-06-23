@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { requireUser } from "@/lib/auth";
+import { requireTenantUser } from "@/lib/auth";
 import { membershipOf, sendMessage } from "@/lib/messaging";
 
 // Send a message to a conversation. Requires membership. Persists the message,
@@ -17,7 +17,7 @@ const schema = z.object({
 
 export async function POST(req: Request) {
   try {
-    const me = await requireUser();
+    const me = await requireTenantUser();
     const { conversationId, body, clientId } = schema.parse(await req.json());
 
     const member = await membershipOf(conversationId, me.id);

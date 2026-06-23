@@ -13,13 +13,9 @@ export default async function AdminLayout({
 }) {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
-  // Platform admins reach /admin (for /admin/tenants) even if their tenant role
-  // weren't admin-tier; otherwise require the tenant-level admin/audit access.
-  if (
-    !user.isPlatformAdmin &&
-    !can.accessAdmin(user.role) &&
-    !can.viewAuditLog(user.role)
-  ) {
+  // /admin is tenant-only now (tenant management moved to the /system area).
+  // Admin tier gets the full section; Project Managers reach only the audit log.
+  if (!can.accessAdmin(user.role) && !can.viewAuditLog(user.role)) {
     redirect("/dashboard");
   }
 

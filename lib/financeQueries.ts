@@ -9,7 +9,7 @@ import type {
   ProjectFinanceDTO,
   FinanceStatus,
 } from "./finance";
-import { computeSalaryPool, salaryTotalCents } from "./finance";
+import { computeSalaryPool } from "./finance";
 
 // ── Finance read helpers ──────────────────────────────────────────────────────
 // Server-only queries + the Prisma→DTO serializers used by the finance pages.
@@ -131,10 +131,10 @@ function toShareLineDTO(l: {
 const projectFinanceInclude = {
   incomeLines: { orderBy: { position: "asc" } },
   shareLines: { orderBy: { position: "asc" } },
-  salaries: {
-    where: { active: true },
-    select: { components: { select: { amountCents: true } } },
-  },
+  // committedCents (payroll total) is a CACHED column on Project — recomputed on
+  // every salary/component write by recomputeProjectCommitted — so the read no
+  // longer hydrates every active salary's components into Node just to sum them.
+  // This keeps the finance read O(projects) regardless of headcount.
 } satisfies Prisma.ProjectInclude;
 
 type ProjectFinanceRow = Prisma.ProjectGetPayload<{
@@ -145,11 +145,6 @@ export function toProjectFinanceDTO(p: ProjectFinanceRow): ProjectFinanceDTO {
   const incomeLines = p.incomeLines.map(toIncomeLineDTO);
   const shareLines = p.shareLines.map(toShareLineDTO);
   const { sharedCents, poolCents } = computeSalaryPool(p.revenueCents, shareLines);
-  // Payroll committed = sum of every active salary's component total.
-  const committedCents = p.salaries.reduce(
-    (sum, s) => sum + salaryTotalCents(s),
-    0,
-  );
   return {
     projectId: p.id,
     projectName: p.name,
@@ -159,7 +154,7 @@ export function toProjectFinanceDTO(p: ProjectFinanceRow): ProjectFinanceDTO {
     shareLines,
     sharedCents,
     poolCents,
-    committedCents,
+    committedCents: p.committedCents,
   };
 }
 
@@ -178,6 +173,32 @@ export async function recomputeProjectRevenue(
   const revenueCents = agg._sum.amountCents ?? 0;
   await db.project.update({ where: { id: projectId }, data: { revenueCents } });
   return revenueCents;
+}
+
+/**
+ * Recompute and persist Project.committedCents as the sum of every ACTIVE
+ * salary's component total for the project. Call after any salary/component is
+ * created, edited, (de)activated, or deleted so the cached payroll total (read
+ * by every finance page) stays in sync — mirrors recomputeProjectRevenue.
+ *
+ * The sum is done in Postgres (no salary/component rows hydrated into Node),
+ * keeping this cheap and flat regardless of headcount. Returns the new total.
+ */
+export async function recomputeProjectCommitted(
+  projectId: string,
+): Promise<number> {
+  const rows = await db.$queryRaw<{ cents: bigint }[]>`
+    SELECT COALESCE(SUM(c."amountCents"), 0) AS cents
+    FROM "ProjectSalary" s
+    JOIN "SalaryComponent" c ON c."salaryId" = s.id
+    WHERE s.active = true AND s."projectId" = ${projectId}
+  `;
+  const committedCents = Number(rows[0]?.cents ?? 0);
+  await db.project.update({
+    where: { id: projectId },
+    data: { committedCents },
+  });
+  return committedCents;
 }
 
 /** Finance summary (revenue, shares, pool, committed payroll) for one project. */

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { requireUser } from "@/lib/auth";
+import { requireTenantUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { audit } from "@/lib/audit";
 import { isAdminTier, canManageUser } from "@/lib/permissions";
@@ -23,7 +23,7 @@ const schema = z.object({
 
 export async function POST(req: Request) {
   try {
-    const actor = await requireUser();
+    const actor = await requireTenantUser();
     if (!isAdminTier(actor.role)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }

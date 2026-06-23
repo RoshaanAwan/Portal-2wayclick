@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { put } from "@vercel/blob";
-import { requireUser } from "@/lib/auth";
+import { requireTenantUser } from "@/lib/auth";
 import { audit } from "@/lib/audit";
 
 // Uploads a document file (multipart/form-data, field "file") to Vercel Blob and
@@ -37,7 +37,7 @@ function detectFileType(name: string, mime: string): "pdf" | "doc" | "sheet" | "
 
 export async function POST(req: Request) {
   try {
-    const user = await requireUser();
+    const user = await requireTenantUser();
 
     const form = await req.formData();
     const file = form.get("file");

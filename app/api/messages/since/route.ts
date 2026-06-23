@@ -24,10 +24,27 @@ export async function GET(req: Request) {
     // initial load. Default to "now" so the first poll returns only future msgs.
     const cursor = cursorParam ? new Date(cursorParam) : new Date();
 
+    // Resolve the caller's conversation ids first (one cheap lookup served by
+    // ConversationMember's [userId] index), then range over Message by
+    // (conversationId, createdAt). This drives the existing
+    // [conversationId, createdAt] composite directly — instead of a nested
+    // `conversation.members.some` subquery that leans on the global createdAt
+    // index and rescans recent messages across every conversation each poll
+    // (this is the hottest, most frequent query in the app). No memberships →
+    // nothing to catch up on.
+    const memberships = await db.conversationMember.findMany({
+      where: { userId: user.id },
+      select: { conversationId: true },
+    });
+    const conversationIds = memberships.map((m) => m.conversationId);
+    if (conversationIds.length === 0) {
+      return NextResponse.json({ messages: [], cursor: cursor.toISOString() });
+    }
+
     const rows = await db.message.findMany({
       where: {
+        conversationId: { in: conversationIds },
         createdAt: { gt: cursor },
-        conversation: { members: { some: { userId: user.id } } },
       },
       orderBy: { createdAt: "asc" },
       take: MAX,

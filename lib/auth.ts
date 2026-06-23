@@ -5,9 +5,9 @@ import bcrypt from "bcryptjs";
 import { adminDb } from "./db";
 import { enterTenant } from "./tenantContext";
 import { tenantIdForSubdomain } from "./tenant";
+import { loadSession, SESSION_COOKIE } from "./session";
 import { randomBytes } from "crypto";
 
-const SESSION_COOKIE = "twayclick_session";
 const SESSION_DAYS = 7;
 // Middleware forwards the resolved subdomain here so getCurrentUser can reject a
 // session whose tenant doesn't match the host it arrived on.
@@ -24,21 +24,33 @@ export async function verifyPassword(
   return bcrypt.compare(password, hash);
 }
 
-export async function createSession(
+/**
+ * Create a Session ROW and return its token — WITHOUT setting the cookie. Use
+ * when the cookie must be set on a DIFFERENT host than the current request (the
+ * cookie is host-scoped with no parent domain, by design). Impersonation needs
+ * this: a System Owner on `system.<domain>` mints a session for a tenant, and the
+ * cookie must land on the tenant's subdomain — so the token is claimed there.
+ */
+export async function mintSession(
   userId: string,
   tenantId: string,
   impersonatedBy?: string,
-): Promise<string> {
+): Promise<{ token: string; expiresAt: Date }> {
   const token = randomBytes(32).toString("hex");
   const expiresAt = new Date(Date.now() + SESSION_DAYS * 24 * 60 * 60 * 1000);
-
-  // adminDb: Session is a scoped model, but a fresh session is minted before any
-  // tenant context exists (login/QR-claim), so we set tenantId explicitly.
+  // adminDb: Session is scoped, but the session is minted before any tenant
+  // context exists; set tenantId explicitly.
   await adminDb.session.create({
     data: { token, userId, tenantId, expiresAt, impersonatedBy },
   });
+  return { token, expiresAt };
+}
 
-  // Next 15+: cookies() is async.
+/** Set the session cookie (host-scoped) for an already-minted token. */
+export async function setSessionCookie(
+  token: string,
+  expiresAt: Date,
+): Promise<void> {
   const cookieStore = await cookies();
   cookieStore.set(SESSION_COOKIE, token, {
     httpOnly: true,
@@ -53,7 +65,16 @@ export async function createSession(
     expires: expiresAt,
     path: "/",
   });
+}
 
+/** Mint a session AND set its cookie on the current host (normal login / QR). */
+export async function createSession(
+  userId: string,
+  tenantId: string,
+  impersonatedBy?: string,
+): Promise<string> {
+  const { token, expiresAt } = await mintSession(userId, tenantId, impersonatedBy);
+  await setSessionCookie(token, expiresAt);
   return token;
 }
 
@@ -72,42 +93,27 @@ export async function destroySession(): Promise<void> {
  * — crucially — ESTABLISHES the tenant context for the rest of the request, so
  * every scoped query that follows is filtered to this user's tenant.
  *
- * Session lookup uses adminDb: the token is the global credential and Session is
- * a scoped model, so we can't query it through the scoped client before the
- * tenant is known. Once the session is found, enterTenant() makes the rest of
- * the request tenant-scoped.
+ * The underlying Session row is loaded once per request by loadSession()
+ * (lib/session.ts) — a React.cache'd single read shared by every auth/tenant
+ * helper — so this does NOT issue its own query. Once the session is found,
+ * enterTenant() makes the rest of the request tenant-scoped.
  *
  * Cross-subdomain protection: if middleware resolved a subdomain for this request
  * and it maps to a DIFFERENT tenant than the session's, the session is treated as
  * signed-out (a token can't be replayed on another tenant's subdomain).
  *
- * Wrapped in React.cache() so the lookup + store entry happen once per request.
+ * Wrapped in React.cache() so the store entry happens once per request.
  */
 export const getCurrentUser = cache(async () => {
-  const cookieStore = await cookies();
-  const token = cookieStore.get(SESSION_COOKIE)?.value;
-  if (!token) return null;
+  const session = await loadSession();
+  if (!session) return null;
 
-  const session = await adminDb.session.findUnique({
-    where: { token },
-    include: { user: true },
-  });
-
-  if (!session || session.expiresAt < new Date()) {
-    return null;
-  }
-
-  // A disabled account is treated as signed-out everywhere, even if it still
-  // holds a (not-yet-revoked) session cookie. Disabling also deletes sessions,
-  // so this is a belt-and-suspenders guard.
-  if (session.user.disabledAt) {
-    return null;
-  }
-
-  // Reject a session whose tenant doesn't match the host it arrived on. Platform
-  // admins are exempt (they legitimately operate across subdomains / on bare
-  // hosts during impersonation).
-  if (!session.user.isPlatformAdmin) {
+  // Reject a session whose tenant doesn't match the host it arrived on. System
+  // Owners are exempt: they live on the reserved "system" tenant and browse the
+  // platform area on the bare host. (Impersonation sessions are NORMAL tenant
+  // sessions for the target user — isSystemOwner is false there — so they don't
+  // rely on this exemption.)
+  if (!session.user.isSystemOwner) {
     const hdrs = await headers();
     const subdomain = hdrs.get(TENANT_SUBDOMAIN_HEADER);
     if (subdomain) {
@@ -128,20 +134,14 @@ export const getCurrentUser = cache(async () => {
 export type SafeUser = NonNullable<Awaited<ReturnType<typeof getCurrentUser>>>;
 
 /**
- * Whether the current session is a platform-admin impersonation, and who started
+ * Whether the current session is a System Owner impersonation, and who started
  * it — drives the persistent "Impersonating" banner. Returns null normally.
- * adminDb: read by token before/independent of tenant scoping.
+ * Reads the shared once-per-request session row (no extra query).
  */
 export const getImpersonation = cache(async (): Promise<{
   byUserId: string;
 } | null> => {
-  const cookieStore = await cookies();
-  const token = cookieStore.get(SESSION_COOKIE)?.value;
-  if (!token) return null;
-  const session = await adminDb.session.findUnique({
-    where: { token },
-    select: { impersonatedBy: true },
-  });
+  const session = await loadSession();
   return session?.impersonatedBy ? { byUserId: session.impersonatedBy } : null;
 });
 
@@ -153,11 +153,27 @@ export async function requireUser(): Promise<SafeUser> {
 }
 
 /**
- * Throws unless the current user is a PLATFORM admin (operates above tenants).
- * Use to gate the cross-tenant management area and any adminDb/bypass usage.
+ * Throws unless the current user is a SYSTEM OWNER (the platform operator above
+ * all tenants). Use to gate the tenant-management area and any adminDb usage.
  */
-export async function requirePlatformAdmin(): Promise<SafeUser> {
+export async function requireSystemOwner(): Promise<SafeUser> {
   const user = await requireUser();
-  if (!user.isPlatformAdmin) throw new Error("FORBIDDEN");
+  if (!user.isSystemOwner) throw new Error("FORBIDDEN");
   return user;
 }
+
+/**
+ * Throws unless the current user is a TENANT user (not a System Owner). Confines
+ * a System Owner OUT of all tenant business routes — they have no tenant
+ * identity and may only act on tenant data via impersonation (which returns a
+ * normal tenant user, so this passes during impersonation). Use at the top of
+ * every tenant-data write route / server action.
+ */
+export async function requireTenantUser(): Promise<SafeUser> {
+  const user = await requireUser();
+  if (user.isSystemOwner) throw new Error("PLATFORM_ONLY");
+  return user;
+}
+
+/** @deprecated renamed to requireSystemOwner. Kept transiently for imports. */
+export const requirePlatformAdmin = requireSystemOwner;

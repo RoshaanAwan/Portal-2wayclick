@@ -17,10 +17,16 @@ import { BRAND, type Brand } from "./brand";
 // throwing on the scoped client.
 
 export const getBrandingRow = cache(async () => {
-  // Resolve the tenant from the explicit context, else the request's session
-  // cookie (so brand works in root-layout metadata, which runs before any
-  // getCurrentUser). No tenant (login / platform) → env brand.
-  const tenantId = getTenantId() ?? (await currentRequestTenantId());
+  // Resolve the tenant in priority order, so the root-layout accent injection
+  // (which runs before getCurrentUser) is always tenant-correct:
+  //   1. explicit ALS context  2. session cookie  3. the request SUBDOMAIN.
+  // The subdomain fallback is what makes the brand accent correct on the LOGIN
+  // screen, where there's no session yet but the host already identifies the
+  // tenant. No tenant at all (bare/platform host) → env brand.
+  const tenantId =
+    getTenantId() ??
+    (await currentRequestTenantId()) ??
+    (await currentSubdomainTenantId());
   if (!tenantId) return null;
   try {
     return await adminDb.brandingSettings.findUnique({ where: { tenantId } });
@@ -29,6 +35,20 @@ export const getBrandingRow = cache(async () => {
     return null;
   }
 });
+
+/** Resolve the request's tenant from the x-tenant-subdomain header (no session
+ *  needed). Returns null on bare/unknown hosts or outside a request. */
+async function currentSubdomainTenantId(): Promise<string | null> {
+  try {
+    const { headers } = await import("next/headers");
+    const sub = (await headers()).get("x-tenant-subdomain");
+    if (!sub) return null;
+    const { tenantIdForSubdomain } = await import("./tenant");
+    return await tenantIdForSubdomain(sub);
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Resolve the brand for a SPECIFIC tenant id, regardless of the current context.

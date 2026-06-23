@@ -8,7 +8,6 @@ import { AssistantWidgetLazy } from "@/components/AssistantWidgetLazy";
 import { MobileNavProvider } from "@/components/MobileNavProvider";
 import { MessagingProvider } from "@/components/MessagingProvider";
 import { BrandProvider } from "@/components/BrandProvider";
-import { ImpersonationBanner } from "@/components/ImpersonationBanner";
 import { resolveClientBrand } from "@/lib/branding";
 import { CHAT_ENABLED } from "@/lib/features";
 
@@ -19,6 +18,12 @@ export default async function AppLayout({
 }) {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
+
+  // System Owners have NO tenant identity — they manage tenants only and must
+  // never render the tenant shell. Bounce them to their own area. (When a System
+  // Owner impersonates, getCurrentUser returns the impersonated TENANT user,
+  // whose isSystemOwner is false — so this correctly does NOT fire then.)
+  if (user.isSystemOwner) redirect("/system/tenants");
 
   // Tenant guard: if the request arrives on a tenant SUBDOMAIN whose tenant is
   // missing or suspended, the workspace is unavailable → show /suspended. Only
@@ -37,10 +42,9 @@ export default async function AppLayout({
   // SSE stream) client-side — see components/Topbar.tsx.
   const shell = (
     <div className="min-h-screen">
-      {impersonating && <ImpersonationBanner userName={user.name} />}
-      <Sidebar role={user.role} isPlatformAdmin={user.isPlatformAdmin} />
+      <Sidebar role={user.role} />
       <div className="lg:pl-64">
-        <Topbar user={user} />
+        <Topbar user={user} impersonating={!!impersonating} />
         <main className="px-4 py-6 lg:px-8">{children}</main>
       </div>
       {/* Floating AI assistant (bottom-right) — answers from scoped portal data.

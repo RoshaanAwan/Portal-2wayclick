@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { z } from "zod";
-import { requireUser, hashPassword, verifyPassword } from "@/lib/auth";
+import { requireTenantUser, hashPassword, verifyPassword } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { audit } from "@/lib/audit";
 
@@ -32,10 +32,10 @@ const schema = z
 
 export async function POST(req: Request) {
   try {
-    const actor = await requireUser();
+    const actor = await requireTenantUser();
     const { currentPassword, newPassword } = schema.parse(await req.json());
 
-    // requireUser strips passwordHash, so re-read it for verification.
+    // requireTenantUser strips passwordHash, so re-read it for verification.
     const record = await db.user.findUnique({
       where: { id: actor.id },
       select: { passwordHash: true },

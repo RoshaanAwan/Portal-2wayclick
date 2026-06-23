@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { requireUser } from "@/lib/auth";
+import { requireTenantUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { audit } from "@/lib/audit";
 
@@ -26,7 +26,7 @@ const orNull = (v: string | undefined) => {
 
 export async function POST(req: Request) {
   try {
-    const actor = await requireUser();
+    const actor = await requireTenantUser();
     const data = schema.parse(await req.json());
 
     const updated = await db.user.update({

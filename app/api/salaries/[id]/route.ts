@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { requireUser } from "@/lib/auth";
+import { requireTenantUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { audit } from "@/lib/audit";
 import { can } from "@/lib/permissions";
+import { recomputeProjectCommitted } from "@/lib/financeQueries";
 
 // PATCH /api/salaries/[id] — toggle a salary's active flag (deactivate excludes
 // it from the project's payroll cost without losing the record). Admin tier.
@@ -14,7 +15,7 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
-    const actor = await requireUser();
+    const actor = await requireTenantUser();
     if (!can.manageFinance(actor.role)) {
       return NextResponse.json({ error: "Admins only" }, { status: 403 });
     }
@@ -24,13 +25,20 @@ export async function PATCH(
 
     const existing = await db.projectSalary.findUnique({
       where: { id },
-      select: { id: true, userName: true, project: { select: { name: true } } },
+      select: {
+        id: true,
+        userName: true,
+        projectId: true,
+        project: { select: { name: true } },
+      },
     });
     if (!existing) {
       return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
 
     await db.projectSalary.update({ where: { id }, data: { active } });
+    // Toggling active changes which salaries count toward payroll — refresh cache.
+    await recomputeProjectCommitted(existing.projectId);
 
     await audit({
       actor,
@@ -58,7 +66,7 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
-    const actor = await requireUser();
+    const actor = await requireTenantUser();
     if (!can.manageFinance(actor.role)) {
       return NextResponse.json({ error: "Admins only" }, { status: 403 });
     }
@@ -66,13 +74,20 @@ export async function DELETE(
     const { id } = await params;
     const existing = await db.projectSalary.findUnique({
       where: { id },
-      select: { id: true, userName: true, project: { select: { name: true } } },
+      select: {
+        id: true,
+        userName: true,
+        projectId: true,
+        project: { select: { name: true } },
+      },
     });
     if (!existing) {
       return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
 
     await db.projectSalary.delete({ where: { id } });
+    // Removing a salary drops it from payroll — refresh the cached total.
+    await recomputeProjectCommitted(existing.projectId);
 
     await audit({
       actor,

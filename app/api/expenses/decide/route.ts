@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requireUser } from "@/lib/auth";
+import { requireTenantUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { audit } from "@/lib/audit";
 import { notify } from "@/lib/notifications";
@@ -11,7 +11,7 @@ import { decisionSchema, formatMoney } from "@/lib/finance";
 // The approver must NOT be the submitter, so the workflow keeps two parties.
 export async function POST(req: Request) {
   try {
-    const user = await requireUser();
+    const user = await requireTenantUser();
     if (!can.manageFinance(user.role)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }

@@ -3,7 +3,7 @@ import { Ban } from "lucide-react";
 import { pageTitle } from "@/lib/brand";
 
 export const metadata: Metadata = {
-  title: pageTitle("Workspace unavailable"),
+  title: "Workspace unavailable",
   robots: { index: false, follow: false },
 };
 

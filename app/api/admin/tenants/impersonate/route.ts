@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { requirePlatformAdmin, createSession } from "@/lib/auth";
+import { requireSystemOwner, mintSession } from "@/lib/auth";
 import { adminDb } from "@/lib/db";
 import { audit } from "@/lib/audit";
 import { runWithTenant } from "@/lib/tenantContext";
@@ -14,7 +14,7 @@ const schema = z.object({ userId: z.string().min(1) });
 
 export async function POST(req: Request) {
   try {
-    const platformAdmin = await requirePlatformAdmin();
+    const systemOwner = await requireSystemOwner();
     const { userId } = schema.parse(await req.json());
 
     const target = await adminDb.user.findUnique({
@@ -31,28 +31,37 @@ export async function POST(req: Request) {
       );
     }
 
-    // Mint the impersonation session (replaces the platform admin's cookie on
-    // this browser; they re-authenticate or use a separate browser to return).
-    await createSession(target.id, target.tenantId, platformAdmin.id);
+    // Mint the impersonation session row but DON'T set the cookie here — the
+    // System Owner is on the platform host, and the session cookie is host-scoped
+    // (no parent domain, to preserve tenant isolation). So the client redirects
+    // to a CLAIM url on the TARGET subdomain, which sets the cookie there.
+    const { token } = await mintSession(
+      target.id,
+      target.tenantId,
+      systemOwner.id,
+    );
 
     await runWithTenant(target.tenantId, () =>
       audit({
         actor: {
-          id: platformAdmin.id,
-          name: platformAdmin.name,
-          role: platformAdmin.role,
+          id: systemOwner.id,
+          name: systemOwner.name,
+          role: systemOwner.role,
         },
         action: "tenant.impersonate",
         entity: "User",
         entityId: target.id,
         targetUserId: target.id,
-        summary: `${platformAdmin.name} started impersonating ${target.name} in tenant "${target.tenant.name}"`,
+        summary: `${systemOwner.name} started impersonating ${target.name} in tenant "${target.tenant.name}"`,
       }),
     );
 
     return NextResponse.json({
       ok: true,
       subdomain: target.tenant.subdomain,
+      // Single-use claim token; the client navigates to the target subdomain's
+      // claim route which sets the host-scoped cookie and lands on /dashboard.
+      claimToken: token,
     });
   } catch (e: any) {
     if (e?.message === "UNAUTHENTICATED")

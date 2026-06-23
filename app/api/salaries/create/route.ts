@@ -1,10 +1,13 @@
 import { NextResponse } from "next/server";
-import { requireUser } from "@/lib/auth";
+import { requireTenantUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { audit } from "@/lib/audit";
 import { can } from "@/lib/permissions";
 import { salaryInputSchema, toCents, formatMoney } from "@/lib/finance";
-import { getProjectFinance } from "@/lib/financeQueries";
+import {
+  getProjectFinance,
+  recomputeProjectCommitted,
+} from "@/lib/financeQueries";
 import { recalcGrid, type GridCell } from "@/lib/formula";
 
 // POST /api/salaries/create — set an employee's monthly salary on a project.
@@ -12,7 +15,7 @@ import { recalcGrid, type GridCell } from "@/lib/formula";
 // the pair it is updated (and re-activated), so this doubles as "set / change".
 export async function POST(req: Request) {
   try {
-    const actor = await requireUser();
+    const actor = await requireTenantUser();
     if (!can.manageFinance(actor.role)) {
       return NextResponse.json({ error: "Admins only" }, { status: 403 });
     }
@@ -216,6 +219,11 @@ export async function POST(req: Request) {
         }),
       ),
     ]);
+
+    // Refresh the project's cached committed-payroll total now that this salary
+    // (and any cross-referenced cells in the same project) changed. Every write
+    // in this route targets input.projectId, so one recompute covers it.
+    await recomputeProjectCommitted(input.projectId);
 
     await audit({
       actor,

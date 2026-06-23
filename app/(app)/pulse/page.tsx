@@ -3,10 +3,9 @@ import { Activity } from "lucide-react";
 import { getCurrentUser } from "@/lib/auth";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { buildTeamPulse, canViewTeamPulse } from "@/lib/teamPulse";
-import { pageTitle } from "@/lib/brand";
 import { PulseBoard } from "./PulseBoard";
 
-export const metadata = { title: pageTitle("Team Pulse") };
+export const metadata = { title: "Team Pulse" };
 
 export default async function PulsePage() {
   const user = await getCurrentUser();

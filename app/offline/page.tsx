@@ -5,7 +5,7 @@ import { BRAND, pageTitle } from "@/lib/brand";
 import { OfflineRetry } from "./OfflineRetry";
 
 export const metadata: Metadata = {
-  title: pageTitle("Offline"),
+  title: "Offline",
 };
 
 // Static fallback shown by the service worker when a navigation fails with no

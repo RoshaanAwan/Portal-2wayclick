@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requireUser } from "@/lib/auth";
+import { requireTenantUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { audit } from "@/lib/audit";
 import { isManagerTier } from "@/lib/permissions";
@@ -20,7 +20,7 @@ const schema = z.object({
 
 export async function POST(req: Request) {
   try {
-    const user = await requireUser();
+    const user = await requireTenantUser();
     const { sourceId, targetKey, type } = schema.parse(await req.json());
 
     const parsed = parseIssueKey(targetKey);

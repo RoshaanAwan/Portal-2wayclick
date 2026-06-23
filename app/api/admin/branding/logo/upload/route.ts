@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { put } from "@vercel/blob";
-import { requireUser } from "@/lib/auth";
+import { requireTenantUser } from "@/lib/auth";
 import { audit } from "@/lib/audit";
 import { can } from "@/lib/permissions";
 
@@ -21,7 +21,7 @@ const ALLOWED = new Set([
 
 export async function POST(req: Request) {
   try {
-    const user = await requireUser();
+    const user = await requireTenantUser();
     if (!can.manageBranding(user.role)) {
       return NextResponse.json(
         { error: "You do not have permission to manage branding." },

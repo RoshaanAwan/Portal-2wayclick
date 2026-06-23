@@ -59,7 +59,7 @@ export function LoginForm() {
           transition={{ delay: 0.15, type: "spring", stiffness: 220 }}
           className="relative mb-5 lg:hidden"
         >
-          <Logo size="lg" />
+          <Logo size="lg" logoUrl={brand.logoUrl} name={brand.name} />
         </motion.div>
         <h1 className="font-display text-[2rem] font-semibold tracking-tight text-ink">
           Welcome{" "}

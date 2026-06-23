@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { requireUser } from "@/lib/auth";
+import { requireTenantUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { dmKeyFor } from "@/lib/messaging";
 import { can } from "@/lib/permissions";
@@ -25,7 +25,7 @@ const schema = z.discriminatedUnion("kind", [
 
 export async function POST(req: Request) {
   try {
-    const me = await requireUser();
+    const me = await requireTenantUser();
     const input = schema.parse(await req.json());
 
     if (input.kind === "dm") {

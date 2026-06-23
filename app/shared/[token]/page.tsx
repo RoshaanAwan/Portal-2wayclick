@@ -3,8 +3,7 @@ import { notFound } from "next/navigation";
 import { getClientBoard } from "@/lib/clientShare";
 import { adminDb } from "@/lib/db";
 import { runWithTenant } from "@/lib/tenantContext";
-import { resolveBrand, resolveBrandForTenant } from "@/lib/branding";
-import { pageTitle } from "@/lib/brand";
+import { resolveBrandForTenant } from "@/lib/branding";
 import { SharedBoardClient } from "./SharedBoardClient";
 
 // Public, login-less client board. Lives OUTSIDE the (app) route group, so it
@@ -13,24 +12,11 @@ import { SharedBoardClient } from "./SharedBoardClient";
 //
 // "The token wins": brand (logo/name shown to the client) comes from the OWNING
 // tenant resolved from the project row, not the request host or env default.
-export async function generateMetadata({
-  params,
-}: {
-  params: Promise<{ token: string }>;
-}): Promise<Metadata> {
-  const { token } = await params;
-  const owner = await adminDb.project.findUnique({
-    where: { shareToken: token },
-    select: { tenantId: true },
-  });
-  const brand = owner
-    ? await resolveBrandForTenant(owner.tenantId)
-    : await resolveBrand();
-  return {
-    title: pageTitle("Project", brand.name),
-    robots: { index: false, follow: false },
-  };
-}
+export const metadata: Metadata = {
+  // Brand suffix comes from the root layout's title template.
+  title: "Project",
+  robots: { index: false, follow: false },
+};
 
 export default async function SharedProjectPage({
   params,

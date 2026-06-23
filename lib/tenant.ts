@@ -1,9 +1,7 @@
 import "server-only";
 import { cache } from "react";
-import { cookies } from "next/headers";
 import { adminDb } from "./db";
-
-const SESSION_COOKIE = "twayclick_session";
+import { loadSession } from "./session";
 
 // ── Tenant resolution helpers ─────────────────────────────────────────────────
 // Resolve a subdomain (from the request Host, forwarded by middleware) to a
@@ -78,19 +76,14 @@ export async function tenantIdForSubdomain(
  * so every server component/route is tenant-scoped without each one having to
  * call runWithTenant. Returns null when there's no session (login/platform).
  *
- * Uses adminDb (Session is a scoped model; the token is the global credential).
+ * Derives from loadSession() (lib/session.ts) — the single once-per-request
+ * Session read shared with getCurrentUser/getImpersonation — so this issues no
+ * query of its own.
  */
 export const currentRequestTenantId = cache(async (): Promise<string | null> => {
   try {
-    const store = await cookies();
-    const token = store.get(SESSION_COOKIE)?.value;
-    if (!token) return null;
-    const session = await adminDb.session.findUnique({
-      where: { token },
-      select: { tenantId: true, expiresAt: true },
-    });
-    if (!session || session.expiresAt < new Date()) return null;
-    return session.tenantId;
+    const session = await loadSession();
+    return session?.tenantId ?? null;
   } catch {
     return null;
   }

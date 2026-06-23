@@ -3,11 +3,11 @@ import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/auth";
 import { can } from "@/lib/permissions";
 import { getBrandingRow } from "@/lib/branding";
-import { BRAND, pageTitle } from "@/lib/brand";
+import { BRAND } from "@/lib/brand";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { BrandingClient } from "./BrandingClient";
 
-export const metadata = { title: pageTitle("Branding") };
+export const metadata = { title: "Branding" };
 
 export default async function AdminBrandingPage() {
   const user = await getCurrentUser();

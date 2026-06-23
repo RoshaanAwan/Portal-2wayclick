@@ -4,11 +4,10 @@ import { getCurrentUser } from "@/lib/auth";
 import { isAdminTier } from "@/lib/permissions";
 import { buildOrgChart } from "@/lib/orgChart";
 import { PageHeader } from "@/components/ui/PageHeader";
-import { pageTitle } from "@/lib/brand";
 import { OrgChart } from "./OrgChart";
 
 export const metadata = {
-  title: pageTitle("Org Chart"),
+  title: "Org Chart",
 };
 
 export default async function OrgChartPage() {

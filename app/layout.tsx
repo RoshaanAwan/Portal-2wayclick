@@ -33,7 +33,14 @@ export async function generateMetadata(): Promise<Metadata> {
           : "http://localhost:3000"),
     ),
     applicationName: brand.name,
-    title: `${brand.name} — ${brand.tagline}`,
+    // Every tab shows just "<brand> — <tagline>" (e.g. "Nexus — Company Portal").
+    // The template IGNORES the per-page name (no %s reference) so pages that set
+    // `title: "Tools"` still resolve to the brand string — one consistent tab
+    // title across the whole app, per tenant.
+    title: {
+      template: `${brand.name} — ${brand.tagline}`,
+      default: `${brand.name} — ${brand.tagline}`,
+    },
     description: "Your immersive internal employee hub.",
     manifest: "/manifest.webmanifest",
     icons: {

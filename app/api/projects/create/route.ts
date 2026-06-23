@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { headers } from "next/headers";
-import { requireUser } from "@/lib/auth";
+import { requireTenantUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { audit } from "@/lib/audit";
 import { recordActivity } from "@/lib/activityFeed";
@@ -20,7 +20,7 @@ const DEFAULT_LISTS = ["Backlog", "To Do", "In Progress", "Review", "Done"];
 
 export async function POST(req: Request) {
   try {
-    const actor = await requireUser();
+    const actor = await requireTenantUser();
     if (!can.manageProjects(actor.role)) {
       return NextResponse.json({ error: "Admins only" }, { status: 403 });
     }

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requireUser } from "@/lib/auth";
+import { requireTenantUser } from "@/lib/auth";
 import { sendPushToUser, isPushConfigured } from "@/lib/push";
 import { resolveBrand } from "@/lib/branding";
 
@@ -7,7 +7,7 @@ import { resolveBrand } from "@/lib/branding";
 // enable push so they can see it working immediately.
 export async function POST() {
   try {
-    const user = await requireUser();
+    const user = await requireTenantUser();
     if (!isPushConfigured()) {
       return NextResponse.json(
         { error: "Push is not configured on the server." },

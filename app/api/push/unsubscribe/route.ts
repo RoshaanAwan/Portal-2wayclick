@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { requireUser } from "@/lib/auth";
+import { requireTenantUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 
 const schema = z.object({ endpoint: z.string().url() });
@@ -9,7 +9,7 @@ const schema = z.object({ endpoint: z.string().url() });
 // user can't delete another's subscription by guessing an endpoint.
 export async function POST(req: Request) {
   try {
-    const user = await requireUser();
+    const user = await requireTenantUser();
     const { endpoint } = schema.parse(await req.json());
 
     await db.pushSubscription.deleteMany({

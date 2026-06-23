@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { put } from "@vercel/blob";
-import { requireUser } from "@/lib/auth";
+import { requireTenantUser } from "@/lib/auth";
 import { can } from "@/lib/permissions";
 import { audit } from "@/lib/audit";
 
@@ -27,7 +27,7 @@ const ALLOWED = new Set([
 
 export async function POST(req: Request) {
   try {
-    const user = await requireUser();
+    const user = await requireTenantUser();
     if (!can.manageFinance(user.role)) {
       return NextResponse.json({ error: "Admins only" }, { status: 403 });
     }

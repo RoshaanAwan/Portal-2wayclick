@@ -14,6 +14,7 @@ import {
   CheckCheck,
   Menu,
   ScanLine,
+  ShieldAlert,
 } from "lucide-react";
 import { Avatar } from "@/components/ui/Avatar";
 import { ThemeToggle } from "@/components/ThemeToggle";
@@ -35,7 +36,14 @@ const typeColor: Record<string, string> = {
   "message.received": "text-accent",
 };
 
-export function Topbar({ user }: { user: SafeUser }) {
+export function Topbar({
+  user,
+  impersonating = false,
+}: {
+  user: SafeUser;
+  /** True when a System Owner is impersonating — shows "Stop impersonating". */
+  impersonating?: boolean;
+}) {
   const router = useRouter();
   const brand = useBrand();
   const { openNav } = useMobileNav();
@@ -71,6 +79,25 @@ export function Topbar({ user }: { user: SafeUser }) {
     await fetch("/api/auth/logout", { method: "POST" });
     router.push("/login");
     router.refresh();
+  }
+
+  // Stop impersonating: tear down the impersonation session and return to the
+  // platform (/system). Falls back to /login if the operator can't be restored.
+  async function stopImpersonating() {
+    try {
+      const res = await fetch("/api/admin/tenants/impersonate/stop", {
+        method: "POST",
+      });
+      const data = await res.json().catch(() => ({}));
+      if (data?.signedOut || !res.ok) {
+        router.push("/login");
+        router.refresh();
+      } else {
+        window.location.href = "/system/tenants";
+      }
+    } catch {
+      router.push("/login");
+    }
   }
 
   return (
@@ -297,6 +324,17 @@ export function Topbar({ user }: { user: SafeUser }) {
                       <Settings className="h-4 w-4" />
                       Settings
                     </Link>
+                    {/* Shown only while a System Owner is impersonating — the
+                        way back to the platform (replaces the old banner). */}
+                    {impersonating && (
+                      <button
+                        onClick={stopImpersonating}
+                        className="hover-surface flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium text-warn-ink transition hover:bg-warn-soft"
+                      >
+                        <ShieldAlert className="h-4 w-4" />
+                        Stop impersonating
+                      </button>
+                    )}
                     <button
                       onClick={logout}
                       className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-ink-500 transition hover:bg-danger-soft hover:text-danger-ink"

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { requirePlatformAdmin } from "@/lib/auth";
+import { requireSystemOwner } from "@/lib/auth";
 import { setTenantStatus } from "@/lib/platform";
 import { adminDb } from "@/lib/db";
 import { audit } from "@/lib/audit";
@@ -15,7 +15,7 @@ const schema = z.object({
 
 export async function POST(req: Request) {
   try {
-    const platformAdmin = await requirePlatformAdmin();
+    const systemOwner = await requireSystemOwner();
     const { tenantId, status } = schema.parse(await req.json());
 
     const tenant = await adminDb.tenant.findUnique({ where: { id: tenantId } });
@@ -28,14 +28,14 @@ export async function POST(req: Request) {
     await runWithTenant(tenantId, () =>
       audit({
         actor: {
-          id: platformAdmin.id,
-          name: platformAdmin.name,
-          role: platformAdmin.role,
+          id: systemOwner.id,
+          name: systemOwner.name,
+          role: systemOwner.role,
         },
         action: status === "suspended" ? "tenant.suspend" : "tenant.reactivate",
         entity: "Tenant",
         entityId: tenantId,
-        summary: `${platformAdmin.name} ${status === "suspended" ? "suspended" : "reactivated"} tenant "${tenant.name}"`,
+        summary: `${systemOwner.name} ${status === "suspended" ? "suspended" : "reactivated"} tenant "${tenant.name}"`,
       }),
     );
 

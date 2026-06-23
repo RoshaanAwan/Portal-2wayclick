@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { requireUser } from "@/lib/auth";
+import { requireTenantUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { audit } from "@/lib/audit";
 import { recordActivity } from "@/lib/activityFeed";
@@ -25,7 +25,7 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
-    const actor = await requireUser();
+    const actor = await requireTenantUser();
     if (!can.manageInvoices(actor.role)) {
       return NextResponse.json({ error: "Admins only" }, { status: 403 });
     }
@@ -159,7 +159,7 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
-    const actor = await requireUser();
+    const actor = await requireTenantUser();
     if (!can.manageInvoices(actor.role)) {
       return NextResponse.json({ error: "Admins only" }, { status: 403 });
     }

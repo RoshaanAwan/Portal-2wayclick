@@ -7,36 +7,18 @@ import { runWithTenant } from "@/lib/tenantContext";
 import { isStripeConfigured } from "@/lib/stripe";
 import { formatMoney } from "@/lib/invoices";
 import { InvoiceDocument } from "@/app/(app)/invoices/InvoiceDocument";
-import { resolveBrand, resolveBrandForTenant } from "@/lib/branding";
-import { pageTitle } from "@/lib/brand";
+import { resolveBrandForTenant } from "@/lib/branding";
 import { PrintButton } from "./PrintButton";
 import { PayButton } from "./PayButton";
 
 // Public, login-less client invoice view. Lives OUTSIDE the (app) route group,
 // so it skips the auth layout (no session, no sidebar) — the share token is the
-// only gate. Never indexed; the link is meant to be shared privately.
-//
-// "The token wins": the brand the client sees is the OWNING tenant's brand,
-// resolved from the invoice row's tenantId — NOT the request host or the env
-// default. adminDb looks up that tenant id without any ambient context.
-export async function generateMetadata({
-  params,
-}: {
-  params: Promise<{ token: string }>;
-}): Promise<Metadata> {
-  const { token } = await params;
-  const owner = await adminDb.invoice.findUnique({
-    where: { shareToken: token },
-    select: { tenantId: true },
-  });
-  const brand = owner
-    ? await resolveBrandForTenant(owner.tenantId)
-    : await resolveBrand();
-  return {
-    title: pageTitle("Invoice", brand.name),
-    robots: { index: false, follow: false },
-  };
-}
+// only gate. Never indexed; the link is meant to be shared privately. The tab
+// title gets the brand from the root layout's title template.
+export const metadata: Metadata = {
+  title: "Invoice",
+  robots: { index: false, follow: false },
+};
 
 export default async function SharedInvoicePage({
   params,

@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Plus, Ban, Play, ExternalLink, Loader2 } from "lucide-react";
+import { Plus, Ban, Play, ExternalLink, Loader2, LogIn } from "lucide-react";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { Button } from "@/components/ui/Button";
 
@@ -14,6 +14,9 @@ interface TenantRow {
   suspendedAt: string | null;
   createdAt: string;
   userCount: number;
+  // The tenant's first SUPER_ADMIN (Company Owner). Null when the tenant has no
+  // such user — the impersonate action is disabled in that case.
+  companyOwnerId: string | null;
 }
 
 export function TenantsClient({
@@ -36,7 +39,15 @@ export function TenantsClient({
   });
   const [showForm, setShowForm] = useState(false);
 
-  const proto = portalDomain.startsWith("localhost") ? "http" : "https";
+  // Local dev runs over plain HTTP; prod over HTTPS. Dev hosts always carry an
+  // explicit :port (lvh.me:3001 / localhost:3000); a bare prod domain doesn't.
+  // (Mirrors isLocalPortalDomain in lib/share.ts — that module is server-only so
+  // it can't be imported into this client component.)
+  const isLocal =
+    portalDomain.includes(":") ||
+    /(^|\.)(localhost|lvh\.me)$/.test(portalDomain) ||
+    portalDomain.startsWith("127.0.0.1");
+  const proto = isLocal ? "http" : "https";
   const tenantUrl = (sub: string) => `${proto}://${sub}.${portalDomain}`;
 
   async function createTenant(e: React.FormEvent) {
@@ -81,6 +92,32 @@ export function TenantsClient({
     }
   }
 
+  // Mint an impersonation session for the tenant's Company Owner, then hop to
+  // that tenant's subdomain where the host-scoped cookie is valid.
+  async function impersonate(userId: string) {
+    setBusyId(userId);
+    setError("");
+    try {
+      const res = await fetch("/api/admin/tenants/impersonate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.subdomain || !data.claimToken) {
+        setError(data.error || "Could not enter tenant");
+        setBusyId(null);
+        return;
+      }
+      // Claim the session ON the target subdomain so the host-scoped cookie
+      // lands on the right host, then it redirects to the tenant dashboard.
+      window.location.href = `${proto}://${data.subdomain}.${portalDomain}/impersonate/claim?token=${encodeURIComponent(data.claimToken)}`;
+    } catch {
+      setError("Could not enter tenant");
+      setBusyId(null);
+    }
+  }
+
   return (
     <div className="space-y-5">
       <div className="flex items-center justify-between">
@@ -96,13 +133,29 @@ export function TenantsClient({
         <GlassCard hover={false}>
           <form onSubmit={createTenant} className="grid gap-3 sm:grid-cols-2">
             <Input label="Workspace name" value={form.name} onChange={(v) => setForm((f) => ({ ...f, name: v }))} placeholder="Acme Corp" />
-            <Input label="Subdomain" value={form.subdomain} onChange={(v) => setForm((f) => ({ ...f, subdomain: v }))} placeholder="acme" hint={`→ ${form.subdomain || "acme"}.${portalDomain}`} />
-            <Input label="Admin name" value={form.adminName} onChange={(v) => setForm((f) => ({ ...f, adminName: v }))} placeholder="Jane Doe" />
-            <Input label="Admin email" value={form.adminEmail} onChange={(v) => setForm((f) => ({ ...f, adminEmail: v }))} placeholder="jane@acme.com" />
-            <Input label="Admin password" type="password" value={form.adminPassword} onChange={(v) => setForm((f) => ({ ...f, adminPassword: v }))} placeholder="min 8 chars" />
+            <Input
+              label="Subdomain"
+              value={form.subdomain}
+              // Normalize as typed: lowercase, only a–z/0–9/hyphen (no spaces or
+              // uppercase) so the value is always a valid DNS label.
+              onChange={(v) =>
+                setForm((f) => ({
+                  ...f,
+                  subdomain: v.toLowerCase().replace(/[^a-z0-9-]/g, ""),
+                }))
+              }
+              placeholder="acme"
+              hint={`→ ${form.subdomain || "acme"}.${portalDomain}`}
+            />
+            <Input label="Company Owner name" value={form.adminName} onChange={(v) => setForm((f) => ({ ...f, adminName: v }))} placeholder="Jane Doe" />
+            <Input label="Company Owner email" type="email" value={form.adminEmail} onChange={(v) => setForm((f) => ({ ...f, adminEmail: v }))} placeholder="jane@acme.com" />
+            <Input label="Company Owner password" type="password" value={form.adminPassword} onChange={(v) => setForm((f) => ({ ...f, adminPassword: v }))} placeholder="min 8 chars" />
             <div className="flex items-end">
               <Button type="submit" loading={creating}>Create tenant</Button>
             </div>
+            <p className="text-xs text-ink-400 sm:col-span-2">
+              The first admin of this workspace (Company Owner). Full tenant access; no platform access.
+            </p>
           </form>
         </GlassCard>
       )}
@@ -128,6 +181,14 @@ export function TenantsClient({
                     {t.subdomain}.{portalDomain} · {t.userCount} {t.userCount === 1 ? "user" : "users"}
                   </p>
                 </div>
+                <button
+                  onClick={() => t.companyOwnerId && impersonate(t.companyOwnerId)}
+                  disabled={!t.companyOwnerId || busyId !== null}
+                  title={t.companyOwnerId ? "Sign in as this workspace's Company Owner" : "No Company Owner to enter as"}
+                  className="nm-button inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs text-ink-700 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {busyId === t.companyOwnerId ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <LogIn className="h-3.5 w-3.5" />} Enter as Company Owner
+                </button>
                 <a href={tenantUrl(t.subdomain)} target="_blank" rel="noreferrer" className="nm-button inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs text-ink-700">
                   <ExternalLink className="h-3.5 w-3.5" /> Open
                 </a>

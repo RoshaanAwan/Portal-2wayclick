@@ -6,11 +6,11 @@ import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
 import { isAdminTier } from "@/lib/permissions";
 import { PageHeader } from "@/components/ui/PageHeader";
-import { BRAND, pageTitle } from "@/lib/brand";
+import { BRAND } from "@/lib/brand";
 import { DirectoryClient, type DirectoryPerson } from "./DirectoryClient";
 
 export const metadata = {
-  title: pageTitle("Directory"),
+  title: "Directory",
 };
 
 const PAGE_SIZE = 12;

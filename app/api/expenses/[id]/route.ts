@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requireUser } from "@/lib/auth";
+import { requireTenantUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { audit } from "@/lib/audit";
 import { can } from "@/lib/permissions";
@@ -12,7 +12,7 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
-    const actor = await requireUser();
+    const actor = await requireTenantUser();
     if (!can.manageFinance(actor.role)) {
       return NextResponse.json({ error: "Admins only" }, { status: 403 });
     }
@@ -96,7 +96,7 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
-    const actor = await requireUser();
+    const actor = await requireTenantUser();
     if (!can.manageFinance(actor.role)) {
       return NextResponse.json({ error: "Admins only" }, { status: 403 });
     }
