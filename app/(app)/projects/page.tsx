@@ -1,4 +1,5 @@
 import { FolderKanban } from "lucide-react";
+import { Prisma } from "@prisma/client";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { getCurrentUser } from "@/lib/auth";
 import { db } from "@/lib/db";
@@ -14,7 +15,17 @@ export default async function ProjectsPage({
 }: {
   searchParams: Promise<{ page?: string; status?: string; q?: string }>;
 }) {
+  // ── TEMP perf instrumentation ──────────────────────────────────────────────
+  // Logs the wall-clock of each phase of this RSC render to the server console
+  // (pm2/journalctl on the droplet) so we can pinpoint where the ~21s goes.
+  // Remove once the slow phase is identified.
+  const t0 = performance.now();
+  const lap = (label: string, since: number) =>
+    console.log(`[projects-perf] ${label}: ${(performance.now() - since).toFixed(0)}ms`);
+
+  let mark = performance.now();
   const user = await getCurrentUser();
+  lap("getCurrentUser", mark);
   const isAdmin = can.manageProjects(user?.role);
 
   // Admins see every project; everyone else sees only projects they belong to.
@@ -59,6 +70,7 @@ export default async function ProjectsPage({
   // Per-status counts for the filter pills (scoped to what the user can see and
   // to the current search term, so the counts match the visible results).
   const countBase = { ...baseWhere, ...searchWhere };
+  mark = performance.now();
   const [allCount, activeCount, inactiveCount, completedCount] =
     await Promise.all([
       db.project.count({ where: { ...countBase, ...statusWhere("ALL") } }),
@@ -66,6 +78,7 @@ export default async function ProjectsPage({
       db.project.count({ where: { ...countBase, ...statusWhere("INACTIVE") } }),
       db.project.count({ where: { ...countBase, ...statusWhere("COMPLETED") } }),
     ]);
+  lap("status counts (4x parallel)", mark);
   const statusCounts = {
     ALL: allCount,
     ACTIVE: activeCount,
@@ -73,13 +86,16 @@ export default async function ProjectsPage({
     COMPLETED: completedCount,
   };
 
+  mark = performance.now();
   const total = await db.project.count({ where });
+  lap("total count", mark);
   const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const requested = Number.parseInt(sp.page ?? "1", 10);
   const page = Number.isFinite(requested)
     ? Math.min(Math.max(requested, 1), pageCount)
     : 1;
 
+  mark = performance.now();
   const projects = await db.project.findMany({
     orderBy: { createdAt: "desc" },
     where,
@@ -94,21 +110,50 @@ export default async function ProjectsPage({
           },
         },
       },
+      // List count comes from the board's own _count (one cheap subquery).
+      // Task ("card") counts are fetched separately via a single grouped
+      // aggregate below instead of pulling every list row into Node — much
+      // lighter on a memory-constrained box.
       board: {
         select: {
           id: true,
           _count: { select: { lists: true } },
-          lists: { select: { _count: { select: { tasks: true } } } },
         },
       },
     },
   });
 
+  lap("projects findMany (+board/members/owner)", mark);
+
+  // Per-board card (task) totals in ONE aggregate query, scoped to just the
+  // boards on this page. Replaces the previous board.lists fan-out that loaded
+  // every list row into Node only to sum their task counts. A single grouped
+  // join (task → list) returns one count row per board — almost no memory.
+  mark = performance.now();
+  const boardIds = projects.map((p) => p.board.id);
+  const cardCountByBoard = new Map<string, number>();
+  if (boardIds.length) {
+    const rows = await db.$queryRaw<{ boardId: string; count: bigint }[]>`
+      SELECT l."boardId" AS "boardId", COUNT(t.id) AS count
+      FROM "BoardList" l
+      LEFT JOIN "Task" t ON t."listId" = l.id
+      WHERE l."boardId" IN (${Prisma.join(boardIds)})
+      GROUP BY l."boardId"
+    `;
+    for (const r of rows) {
+      cardCountByBoard.set(r.boardId, Number(r.count));
+    }
+  }
+  lap("card counts (single grouped join)", mark);
+
   // Full roster — admins use it for the member picker when creating projects.
+  mark = performance.now();
   const roster = await db.user.findMany({
     orderBy: { name: "asc" },
     select: { id: true, name: true, avatarUrl: true, title: true },
   });
+  lap("roster findMany", mark);
+  lap("TOTAL render", t0);
 
   const projectDTOs: ProjectDTO[] = projects.map((p) => ({
     id: p.id,
@@ -123,7 +168,7 @@ export default async function ProjectsPage({
       avatarUrl: p.owner.avatarUrl,
     },
     listCount: p.board._count.lists,
-    cardCount: p.board.lists.reduce((n, l) => n + l._count.tasks, 0),
+    cardCount: cardCountByBoard.get(p.board.id) ?? 0,
     members: p.members.map((m) => ({
       id: m.user.id,
       name: m.user.name,
