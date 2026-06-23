@@ -2,6 +2,7 @@ import { z } from "zod";
 import OpenAI from "openai";
 import { requireUser } from "@/lib/auth";
 import { buildAssistantContext } from "@/lib/assistantContext";
+import { resolveBrand } from "@/lib/branding";
 
 // AI assistant chat endpoint. The OpenAI key lives only in the server env
 // (OPENAI_API_KEY) and is never exposed to the client. We build a
@@ -48,9 +49,10 @@ export async function POST(req: Request) {
   }
 
   const context = await buildAssistantContext(user);
+  const brand = await resolveBrand();
 
   const system = [
-    "You are the 2WayClick Portal assistant, embedded in an internal company portal.",
+    `You are the ${brand.name} Portal assistant, embedded in an internal company portal.`,
     "Answer questions using ONLY the portal data provided below. It is already",
     "scoped to what the current user is permitted to see.",
     "",

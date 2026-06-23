@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireUser } from "@/lib/auth";
 import { sendPushToUser, isPushConfigured } from "@/lib/push";
+import { resolveBrand } from "@/lib/branding";
 
 // Send a confirmation push to the current user's devices. Used right after they
 // enable push so they can see it working immediately.
@@ -14,8 +15,9 @@ export async function POST() {
       );
     }
 
+    const brand = await resolveBrand();
     await sendPushToUser(user.id, {
-      title: "2WayClick",
+      title: brand.name,
       body: "Push notifications are on — you'll be notified here.",
       url: "/dashboard",
       tag: "push.test",

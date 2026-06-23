@@ -43,6 +43,7 @@ export async function POST(req: Request) {
 
     const doc = await db.document.create({
       data: {
+        tenantId: user.tenantId,
         title: data.title,
         description: data.description ? data.description : null,
         category: data.category,

@@ -70,6 +70,7 @@ export async function POST(req: Request) {
     const salary = await db.userSalary.upsert({
       where: { userId: input.userId },
       create: {
+        tenantId: actor.tenantId,
         userId: input.userId,
         totalCents,
         currency: input.currency,

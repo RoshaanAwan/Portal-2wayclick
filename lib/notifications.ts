@@ -2,6 +2,8 @@ import "server-only";
 import { EventEmitter } from "events";
 import { db } from "./db";
 import { sendPushToUser, sendPushToUsers } from "./push";
+import { BRAND } from "./brand";
+import { requireTenantId } from "./tenantContext";
 
 // ── Notifications ─────────────────────────────────────────────────────────────
 // Per-user inbox writer + in-process event bus. notify() persists a row (so it
@@ -123,6 +125,7 @@ export async function notify(input: NotifyInput): Promise<void> {
 
     const row = await db.notification.create({
       data: {
+        tenantId: requireTenantId(),
         userId: input.userId,
         type: input.type,
         message: input.message,
@@ -149,9 +152,7 @@ export async function notify(input: NotifyInput): Promise<void> {
     // Fan out an OS-level Web Push to the recipient's subscribed devices (works
     // even when the app is closed). Fire-and-forget so push latency never slows
     // the action that triggered this; sendPushToUser is best-effort/never throws.
-    const title = input.actor?.name
-      ? `${input.actor.name}`
-      : "2WayClick";
+    const title = input.actor?.name ? `${input.actor.name}` : BRAND.name;
     void sendPushToUser(input.userId, {
       title,
       body: input.message,
@@ -188,10 +189,12 @@ export async function notifyMany(
     const actorName = input.actor?.name ?? null;
     const actorAvatar = input.actor?.avatarUrl ?? null;
     const createdAt = new Date();
+    const tenantId = requireTenantId();
 
     // One insert for all recipient rows (createMany returns no IDs).
     await db.notification.createMany({
       data: recipients.map((userId) => ({
+        tenantId,
         userId,
         type: input.type,
         message: input.message,
@@ -240,7 +243,7 @@ export async function notifyMany(
     // Web Push to every recipient with ONE subscription lookup. The payload is
     // identical across recipients (same actor/message), exactly as the per-user
     // path produced. Fire-and-forget so push latency never slows the caller.
-    const title = actorName ? `${actorName}` : "2WayClick";
+    const title = actorName ? `${actorName}` : BRAND.name;
     void sendPushToUsers(recipients, {
       title,
       body: input.message,
@@ -253,13 +256,15 @@ export async function notifyMany(
 }
 
 // ── Live activity wall ────────────────────────────────────────────────────────
-// A single, company-wide broadcast channel (distinct from per-user notif:<id>
-// channels above) that powers the dashboard's Live Activity Wall. Anyone with an
-// open activity stream receives every event — it's the public "what's happening
-// right now" pulse, not a private inbox. Same single-process caveat as the bus
-// above; the Activity table remains the source of truth on reload.
+// A PER-TENANT broadcast channel (distinct from per-user notif:<id> channels
+// above) that powers the dashboard's Live Activity Wall. Anyone in a tenant with
+// an open activity stream receives that tenant's events — the "what's happening
+// right now" pulse, scoped to their workspace. (A single global channel here
+// would broadcast every tenant's activity to every tenant — a cross-tenant
+// leak, so the channel is keyed by tenantId.) Same single-process caveat as the
+// bus above; the Activity table remains the source of truth on reload.
 
-const ACTIVITY_CHANNEL = "activity:wall";
+const activityChannel = (tenantId: string) => `activity:wall:${tenantId}`;
 
 /** Shape pushed to the Live Activity Wall (mirrors the dashboard FeedItem). */
 export interface LiveActivity {
@@ -274,18 +279,23 @@ export interface LiveActivity {
   };
 }
 
-/** Subscribe to the company-wide activity wall. Returns an unsubscribe fn. */
+/** Subscribe to a tenant's activity wall. Returns an unsubscribe fn. */
 export function subscribeActivity(
+  tenantId: string,
   handler: (a: LiveActivity) => void,
 ): () => void {
-  bus.on(ACTIVITY_CHANNEL, handler);
-  return () => bus.off(ACTIVITY_CHANNEL, handler);
+  const channel = activityChannel(tenantId);
+  bus.on(channel, handler);
+  return () => bus.off(channel, handler);
 }
 
-/** Push one activity to every open wall stream. Best-effort, never throws. */
-export function broadcastActivity(activity: LiveActivity): void {
+/** Push one activity to a tenant's open wall streams. Best-effort, never throws. */
+export function broadcastActivity(
+  tenantId: string,
+  activity: LiveActivity,
+): void {
   try {
-    bus.emit(ACTIVITY_CHANNEL, activity);
+    bus.emit(activityChannel(tenantId), activity);
   } catch (err) {
     console.error("[broadcastActivity] failed", activity.verb, err);
   }

@@ -1,6 +1,7 @@
 import "server-only";
 import webpush from "web-push";
 import { db } from "./db";
+import { BRAND } from "./brand";
 
 // ── Web Push delivery ─────────────────────────────────────────────────────────
 // Sends OS-level push notifications to a user's subscribed devices, even when the
@@ -13,7 +14,8 @@ import { db } from "./db";
 
 const publicKey = process.env.VAPID_PUBLIC_KEY;
 const privateKey = process.env.VAPID_PRIVATE_KEY;
-const subject = process.env.VAPID_SUBJECT || "mailto:admin@2wayclick.com";
+const subject =
+  process.env.VAPID_SUBJECT || `mailto:admin@${BRAND.emailDomain}`;
 
 let configured = false;
 function ensureConfigured(): boolean {

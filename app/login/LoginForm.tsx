@@ -6,6 +6,7 @@ import { motion } from "framer-motion";
 import { Mail, Lock, ArrowRight } from "lucide-react";
 import { Logo } from "@/components/ui/Logo";
 import { Button } from "@/components/ui/Button";
+import { useBrand } from "@/components/BrandProvider";
 
 // Only allow same-site relative redirects (no protocol/host) to avoid an
 // open-redirect via the ?next= param.
@@ -17,6 +18,7 @@ function safeNext(next: string | null): string {
 export function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const brand = useBrand();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -66,7 +68,7 @@ export function LoginForm() {
           </span>
         </h1>
         <p className="mt-1.5 text-sm text-ink-500">
-          Sign in to your 2WayClick workspace
+          Sign in to your {brand.name} workspace
         </p>
       </div>
 
@@ -83,7 +85,7 @@ export function LoginForm() {
               onChange={(e) => setEmail(e.target.value)}
               required
               className="input pl-10"
-              placeholder="you@2wayclick.com"
+              placeholder={`you@${brand.emailDomain}`}
             />
           </div>
         </div>

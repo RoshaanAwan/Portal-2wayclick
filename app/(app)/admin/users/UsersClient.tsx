@@ -23,6 +23,7 @@ import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { Pagination } from "@/components/ui/Pagination";
+import { useBrand } from "@/components/BrandProvider";
 import {
   ROLE_LABELS,
   ROLE_DESCRIPTIONS,
@@ -426,6 +427,7 @@ function CreateUserModal({
   onClose: () => void;
   onCreated: () => void;
 }) {
+  const brand = useBrand();
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [role, setRole] = useState<Role>(assignableRoles[0] ?? "EMPLOYEE");
@@ -527,7 +529,7 @@ function CreateUserModal({
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  placeholder="jane@2wayclick.com"
+                  placeholder={`jane@${brand.emailDomain}`}
                   className="input"
                 />
               </Field>

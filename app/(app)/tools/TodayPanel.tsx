@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Sparkles, Sunrise, Sun, Moon, RefreshCw } from "lucide-react";
 import { GlassCard } from "@/components/ui/GlassCard";
+import { useBrand } from "@/components/BrandProvider";
 
 const TIPS = [
   "Block 90 minutes of deep work before checking Slack.",
@@ -25,6 +26,7 @@ function greeting(hour: number): { label: string; icon: typeof Sun } {
 }
 
 export function TodayPanel({ firstName }: { firstName: string }) {
+  const brand = useBrand();
   // Compute on the client so the date reflects the viewer's locale/timezone.
   const [now, setNow] = useState<Date | null>(null);
   const [tipIndex, setTipIndex] = useState(0);
@@ -62,7 +64,7 @@ export function TodayPanel({ firstName }: { firstName: string }) {
           <GreetIcon className="h-9 w-9" />
         </div>
         <p className="text-xs font-medium uppercase tracking-widest text-ink-400">
-          Today at 2WayClick
+          {`Today at ${brand.name}`}
         </p>
         <h2 className="mt-1.5 pr-12 text-lg font-bold text-ink">
           {label}, {firstName}

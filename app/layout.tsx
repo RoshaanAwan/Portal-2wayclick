@@ -4,6 +4,8 @@ import "./globals.css";
 import { AnimatedBackground } from "@/components/AnimatedBackground";
 import { ThemeProvider, themeInitScript } from "@/components/ThemeProvider";
 import { ServiceWorkerRegister } from "@/components/ServiceWorkerRegister";
+import { resolveBrand } from "@/lib/branding";
+import { brandAccentStyle } from "@/lib/brand";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -19,35 +21,38 @@ const spaceGrotesk = Space_Grotesk({
   display: "swap",
 });
 
-export const metadata: Metadata = {
-  // Base for resolving relative metadata URLs to absolute ones. Prefers an
-  // explicit site URL, then Vercel's auto-injected deployment host, else local.
-  metadataBase: new URL(
-    process.env.NEXT_PUBLIC_SITE_URL ??
-      (process.env.VERCEL_URL
-        ? `https://${process.env.VERCEL_URL}`
-        : "http://localhost:3000"),
-  ),
-  applicationName: "2WayClick",
-  title: "2WayClick — Company Portal",
-  description: "Your immersive internal employee hub.",
-  manifest: "/manifest.webmanifest",
-  icons: {
-    icon: [
-      { url: "/favicon.ico", sizes: "any" },
-      { url: "/icons/icon-192.png", type: "image/png", sizes: "192x192" },
-      { url: "/icons/icon-512.png", type: "image/png", sizes: "512x512" },
-    ],
-    apple: [{ url: "/icons/apple-touch-icon.png", sizes: "180x180" }],
-  },
-  // iOS standalone (Add to Home Screen) presentation.
-  appleWebApp: {
-    capable: true,
-    statusBarStyle: "black-translucent",
-    title: "2WayClick",
-  },
-  formatDetection: { telephone: false },
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const brand = await resolveBrand();
+  return {
+    // Base for resolving relative metadata URLs to absolute ones. Prefers an
+    // explicit site URL, then Vercel's auto-injected deployment host, else local.
+    metadataBase: new URL(
+      process.env.NEXT_PUBLIC_SITE_URL ??
+        (process.env.VERCEL_URL
+          ? `https://${process.env.VERCEL_URL}`
+          : "http://localhost:3000"),
+    ),
+    applicationName: brand.name,
+    title: `${brand.name} — ${brand.tagline}`,
+    description: "Your immersive internal employee hub.",
+    manifest: "/manifest.webmanifest",
+    icons: {
+      icon: [
+        { url: "/favicon.ico", sizes: "any" },
+        { url: "/icons/icon-192.png", type: "image/png", sizes: "192x192" },
+        { url: "/icons/icon-512.png", type: "image/png", sizes: "512x512" },
+      ],
+      apple: [{ url: "/icons/apple-touch-icon.png", sizes: "180x180" }],
+    },
+    // iOS standalone (Add to Home Screen) presentation.
+    appleWebApp: {
+      capable: true,
+      statusBarStyle: "black-translucent",
+      title: brand.name,
+    },
+    formatDetection: { telephone: false },
+  };
+}
 
 export const viewport: Viewport = {
   // Essential for mobile responsiveness — without this the page renders at
@@ -63,11 +68,17 @@ export const viewport: Viewport = {
   ],
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  const brand = await resolveBrand();
+  // The brand accent as the no-FOUC default: server-rendered into <head> ahead of
+  // the theme init script, scoped to :not([data-accent]) so a per-user preset
+  // (set by that script from localStorage) still wins. This is in the initial
+  // HTML, so the first paint already carries the brand color — no flash.
+  const accentCss = brandAccentStyle(brand.accentHex);
   return (
     <html
       lang="en"
@@ -78,6 +89,7 @@ export default function RootLayout({
       className={`${inter.variable} ${spaceGrotesk.variable}`}
     >
       <head>
+        <style dangerouslySetInnerHTML={{ __html: accentCss }} />
         <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
       </head>
       <body>

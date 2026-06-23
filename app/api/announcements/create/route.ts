@@ -36,6 +36,7 @@ export async function POST(req: Request) {
 
     const announcement = await db.announcement.create({
       data: {
+        tenantId: user.tenantId,
         title,
         body,
         category,

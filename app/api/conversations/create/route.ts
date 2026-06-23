@@ -42,11 +42,12 @@ export async function POST(req: Request) {
         return NextResponse.json({ error: "User not found" }, { status: 404 });
 
       const dmKey = dmKeyFor(me.id, input.userId);
-      // Upsert on dmKey collapses two simultaneous "open DM" requests onto one
-      // row. The nested member create only runs on first creation.
+      // Upsert on (tenantId, dmKey) collapses two simultaneous "open DM" requests
+      // onto one row. The nested member create only runs on first creation.
       const convo = await db.conversation.upsert({
-        where: { dmKey },
+        where: { tenantId_dmKey: { tenantId: me.tenantId, dmKey } },
         create: {
+          tenantId: me.tenantId,
           kind: "dm",
           dmKey,
           createdById: me.id,
@@ -72,6 +73,7 @@ export async function POST(req: Request) {
 
       const convo = await db.conversation.create({
         data: {
+          tenantId: me.tenantId,
           kind: "group",
           title: input.title,
           createdById: me.id,
@@ -111,6 +113,7 @@ export async function POST(req: Request) {
     const convo = await db.conversation.upsert({
       where: { projectId: project.id },
       create: {
+        tenantId: me.tenantId,
         kind: "project",
         title: project.name,
         projectId: project.id,

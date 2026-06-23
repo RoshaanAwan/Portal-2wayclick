@@ -27,6 +27,7 @@ export async function POST(req: Request) {
     await db.pushSubscription.upsert({
       where: { endpoint },
       create: {
+        tenantId: user.tenantId,
         userId: user.id,
         endpoint,
         p256dh: keys.p256dh,

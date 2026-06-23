@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { headers } from "next/headers";
 import { z } from "zod";
 import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
@@ -31,6 +32,10 @@ export async function POST(
     const { id } = await params;
     const { action } = schema.parse(await req.json());
 
+    // The client link must point at THIS tenant's host (subdomain), forwarded
+    // by middleware as x-tenant-subdomain — not the global base URL.
+    const subdomain = (await headers()).get("x-tenant-subdomain");
+
     const invoice = await db.invoice.findUnique({
       where: { id },
       select: { id: true, number: true },
@@ -60,7 +65,10 @@ export async function POST(
       entityId: invoice.id,
       summary: `${actor.name} created a client link for invoice ${invoice.number}`,
     });
-    return NextResponse.json({ ok: true, shareUrl: invoiceShareUrl(shareToken) });
+    return NextResponse.json({
+      ok: true,
+      shareUrl: invoiceShareUrl(shareToken, subdomain),
+    });
   } catch (e: any) {
     if (e?.message === "UNAUTHENTICATED")
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

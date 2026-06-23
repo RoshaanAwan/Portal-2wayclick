@@ -7,6 +7,7 @@ import Link from "@/components/Link";
 import { Avatar } from "@/components/ui/Avatar";
 import { CountUp } from "@/components/ui/CountUp";
 import { DeviceLinkButton } from "@/components/DeviceLinkScanner";
+import { useBrand } from "@/components/BrandProvider";
 import { rise } from "@/lib/motion";
 
 interface TodayStats {
@@ -37,6 +38,7 @@ export function Hero({
   avatarUrl?: string | null;
   todayStats?: TodayStats;
 }) {
+  const brand = useBrand();
   // Compute on the client so the greeting reflects the viewer's local time
   // without a hydration mismatch. Start with morning, then settle on mount.
   const [now, setNow] = useState<Date | null>(null);
@@ -157,7 +159,7 @@ export function Hero({
               3.0
             </div>
             <div>
-              <p className="text-xs font-semibold text-ink-700">2WayClick 3.0</p>
+              <p className="text-xs font-semibold text-ink-700">{brand.name} 3.0</p>
               <p className="text-[11px] text-ink-400">
                 Ships Friday — see what&apos;s new
               </p>

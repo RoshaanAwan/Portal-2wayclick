@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { adminDb } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
 import { audit } from "@/lib/audit";
 import { TICKET_STATUS, describeDevice } from "@/lib/qrLogin";
@@ -21,11 +21,16 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Invalid request" }, { status: 400 });
   }
 
-  const ticket = await db.loginTicket.findUnique({
+  // adminDb: the token is global. getCurrentUser already established the tenant
+  // context, but we look the ticket up un-scoped so a cross-tenant token surfaces
+  // as the explicit 404 below rather than a fail-closed throw.
+  const ticket = await adminDb.loginTicket.findUnique({
     where: { token: parsed.data.token },
   });
 
-  if (!ticket) {
+  // The approver must belong to the ticket's tenant — never let a user from
+  // another tenant approve (or even probe) this ticket.
+  if (!ticket || ticket.tenantId !== user.tenantId) {
     return NextResponse.json({ error: "Unknown sign-in request" }, { status: 404 });
   }
   if (ticket.status === TICKET_STATUS.CONSUMED) {
@@ -48,7 +53,9 @@ export async function POST(req: Request) {
     );
   }
 
-  await db.loginTicket.update({
+  // adminDb: keyed by the global token. The ticket is already confirmed to be in
+  // the approver's tenant above.
+  await adminDb.loginTicket.update({
     where: { token: ticket.token },
     data: {
       status: TICKET_STATUS.APPROVED,

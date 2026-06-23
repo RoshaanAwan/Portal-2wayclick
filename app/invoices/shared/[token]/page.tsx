@@ -2,19 +2,41 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { CheckCircle2, XCircle } from "lucide-react";
 import { getInvoiceByToken } from "@/lib/invoiceQueries";
+import { adminDb } from "@/lib/db";
+import { runWithTenant } from "@/lib/tenantContext";
 import { isStripeConfigured } from "@/lib/stripe";
 import { formatMoney } from "@/lib/invoices";
 import { InvoiceDocument } from "@/app/(app)/invoices/InvoiceDocument";
+import { resolveBrand, resolveBrandForTenant } from "@/lib/branding";
+import { pageTitle } from "@/lib/brand";
 import { PrintButton } from "./PrintButton";
 import { PayButton } from "./PayButton";
 
 // Public, login-less client invoice view. Lives OUTSIDE the (app) route group,
 // so it skips the auth layout (no session, no sidebar) — the share token is the
 // only gate. Never indexed; the link is meant to be shared privately.
-export const metadata: Metadata = {
-  title: "Invoice — 2WayClick",
-  robots: { index: false, follow: false },
-};
+//
+// "The token wins": the brand the client sees is the OWNING tenant's brand,
+// resolved from the invoice row's tenantId — NOT the request host or the env
+// default. adminDb looks up that tenant id without any ambient context.
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ token: string }>;
+}): Promise<Metadata> {
+  const { token } = await params;
+  const owner = await adminDb.invoice.findUnique({
+    where: { shareToken: token },
+    select: { tenantId: true },
+  });
+  const brand = owner
+    ? await resolveBrandForTenant(owner.tenantId)
+    : await resolveBrand();
+  return {
+    title: pageTitle("Invoice", brand.name),
+    robots: { index: false, follow: false },
+  };
+}
 
 export default async function SharedInvoicePage({
   params,
@@ -25,10 +47,26 @@ export default async function SharedInvoicePage({
 }) {
   const { token } = await params;
   const { paid, canceled } = await searchParams;
-  const invoice = await getInvoiceByToken(token);
+
+  // The token wins: resolve the OWNING tenant from the row (adminDb, no ambient
+  // context), then run the scoped read inside that tenant so the auto-scoped
+  // Prisma client doesn't fail closed on a context-less public request.
+  const owner = await adminDb.invoice.findUnique({
+    where: { shareToken: token },
+    select: { tenantId: true },
+  });
 
   // Unknown or revoked token → 404. We don't confirm an invoice ever existed.
+  if (!owner) notFound();
+
+  const invoice = await runWithTenant(owner.tenantId, () =>
+    getInvoiceByToken(token),
+  );
   if (!invoice) notFound();
+
+  // The brand the *client* sees on the invoice is the OWNING tenant's brand, so
+  // a runtime rebrand (BrandingSettings) for that tenant shows here.
+  const brand = await resolveBrandForTenant(owner.tenantId);
 
   const isPaid = invoice.status === "PAID";
   const isCancelled = invoice.status === "CANCELLED";
@@ -75,7 +113,16 @@ export default async function SharedInvoicePage({
         </div>
 
         <div className="print-area">
-          <InvoiceDocument invoice={invoice} />
+          <InvoiceDocument
+            invoice={invoice}
+            issuer={{
+              name: brand.name,
+              tagline: brand.tagline,
+              website: brand.website,
+              logoUrl: brand.logoUrl,
+              accent: brand.invoiceAccent,
+            }}
+          />
         </div>
       </div>
     </div>

@@ -1,6 +1,7 @@
 import "server-only";
 import { headers } from "next/headers";
 import { db } from "./db";
+import { requireTenantId } from "./tenantContext";
 import type { SafeUser } from "./auth";
 
 // ── Audit logging ────────────────────────────────────────────────────────────
@@ -84,7 +85,13 @@ export type AuditAction =
   | "project.income_add"
   | "project.income_delete"
   | "project.share_add"
-  | "project.share_delete";
+  | "project.share_delete"
+  | "branding.update"
+  | "branding.logo_update"
+  | "tenant.create"
+  | "tenant.suspend"
+  | "tenant.reactivate"
+  | "tenant.impersonate";
 
 interface AuditInput {
   actor: SafeUser | { id?: string | null; name: string; role: string };
@@ -121,6 +128,7 @@ export async function audit(input: AuditInput): Promise<void> {
     const { ip, userAgent } = await clientMeta();
     await db.auditLog.create({
       data: {
+        tenantId: requireTenantId(),
         actorId: input.actor.id ?? null,
         actorName: input.actor.name,
         actorRole: input.actor.role,

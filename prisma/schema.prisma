@@ -12,9 +12,53 @@ datasource db {
   directUrl = env("DIRECT_URL")
 }
 
+// ── Tenant (multi-tenancy root) ──────────────────────────────────────────────
+// One row per customer workspace. Every tenant-scoped table carries a tenantId
+// FK back here, and isolation is enforced app-side by the Prisma client
+// extension (lib/db.ts) reading the per-request tenant from AsyncLocalStorage
+// (lib/tenantContext.ts). The subdomain is the routing key: `acme` →
+// acme.<NEXT_PUBLIC_PORTAL_DOMAIN>, resolved in middleware.ts.
+model Tenant {
+  id          String    @id @default(cuid())
+  // Routing key. Lowercase DNS label; resolved from the request Host.
+  subdomain   String    @unique
+  name        String
+  // "active" | "suspended". A suspended tenant is blocked at middleware.
+  status      String    @default("active")
+  suspendedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  // Back-relations from every tenant-root model.
+  users         User[]
+  sessions      Session[]
+  loginTickets  LoginTicket[]
+  announcements Announcement[]
+  boards        Board[]
+  projects      Project[]
+  tasks         Task[]
+  invoices      Invoice[]
+  auditLogs     AuditLog[]
+  documents     Document[]
+  activities    Activity[]
+  conversations Conversation[]
+  notifications Notification[]
+  pushSubs      PushSubscription[]
+  leaveRequests LeaveRequest[]
+  attendance    Attendance[]
+  expenses      Expense[]
+  userSalaries  UserSalary[]
+  branding      BrandingSettings?
+
+  @@index([status])
+}
+
 model User {
   id           String    @id @default(cuid())
-  email        String    @unique
+  // Owning tenant. Email/slack uniqueness is per-tenant (see @@unique below).
+  tenantId     String
+  tenant       Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  email        String
   passwordHash String
   name         String
   title        String
@@ -22,6 +66,10 @@ model User {
   // Role: SUPER_ADMIN | ADMIN | HR | LEAD | PROJECT_MANAGER | EMPLOYEE
   // (stored as a string; see lib/permissions.ts for the source of truth).
   role         String    @default("EMPLOYEE")
+  // Platform operator flag — lifts this user ABOVE tenant boundaries (manages
+  // tenants, can impersonate). Distinct from the per-tenant SUPER_ADMIN role.
+  // Guarded by requirePlatformAdmin(); only such routes use the un-scoped client.
+  isPlatformAdmin Boolean @default(false)
   avatarUrl    String?
   phone        String?
   location     String?
@@ -30,7 +78,8 @@ model User {
   // slackUserId is the stable Slack user ID (e.g. "U012ABCDEF"); slackHandle is
   // the human-friendly @name kept only for display/debugging. Either may be set
   // by an admin; the webhook also falls back to matching Slack email → email.
-  slackUserId  String?   @unique
+  // Per-tenant unique (see @@unique below) so tenants don't collide on Slack ids.
+  slackUserId  String?
   slackHandle  String?
   startDate    DateTime  @default(now())
   // When set, the account is disabled: the user can't sign in and their active
@@ -79,18 +128,32 @@ model User {
   // Postgres does not auto-index FK columns, so this is needed for the
   // `WHERE managerId IN (...)` subtree walks to use an index instead of a scan.
   @@index([managerId])
+  @@index([tenantId])
+  // Email + slack id are unique PER TENANT, so two tenants can have the same
+  // address. Login always resolves the tenant from the subdomain first.
+  @@unique([tenantId, email])
+  @@unique([tenantId, slackUserId])
 }
 
 model Session {
   id        String   @id @default(cuid())
+  // Token stays globally unique (256-bit random). tenantId is stored explicitly
+  // so a bare-token lookup can be tenant-checked (getCurrentUser rejects a token
+  // whose tenantId != the request's subdomain tenant) without a join.
   token     String   @unique
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   userId    String
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // Set when a platform admin is impersonating: the platform user's id. Drives
+  // the persistent "Impersonating" banner and audit trail.
+  impersonatedBy String?
   expiresAt DateTime
   createdAt DateTime @default(now())
 
   // Session FK lookup (e.g. cascade deletes, listing a user's sessions).
   @@index([userId])
+  @@index([tenantId])
 }
 
 // Postgres-backed fixed-window rate limiter (lib/rateLimit.ts). One row per
@@ -123,6 +186,10 @@ model RateLimit {
 // the approving device never has to hand its own session token to the new one.
 model LoginTicket {
   id     String @id @default(cuid())
+  // Token stays globally unique (random); tenant is bound at create and verified
+  // on approve/claim so a ticket can only mint a session for its own tenant.
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   token  String @unique
   // Direction of the handshake:
   //   SCAN_TO_APPROVE — a new device shows the QR; an already-signed-in phone
@@ -152,10 +219,13 @@ model LoginTicket {
   // Status sweeps / lookups: the poll and claim both query by token (unique,
   // already indexed); expiresAt supports cleanup of stale tickets.
   @@index([expiresAt])
+  @@index([tenantId])
 }
 
 model Announcement {
   id         String   @id @default(cuid())
+  tenantId   String
+  tenant     Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   title      String
   body       String
   category   String   @default("General") // General, Product, People, Policy, Event
@@ -172,6 +242,7 @@ model Announcement {
   // The feed orders by (pinned desc, createdAt desc); index the sort key.
   @@index([authorId])
   @@index([createdAt])
+  @@index([tenantId])
 }
 
 model AnnouncementRead {
@@ -217,6 +288,8 @@ model Reaction {
 
 model Document {
   id          String   @id @default(cuid())
+  tenantId    String
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   title       String
   description String?
   category    String   @default("General") // HR, Engineering, Finance, Legal, Brand
@@ -230,10 +303,13 @@ model Document {
   // Library lists newest-first; uploader FK for join + "my uploads".
   @@index([createdAt])
   @@index([uploaderId])
+  @@index([tenantId])
 }
 
 model LeaveRequest {
   id         String    @id @default(cuid())
+  tenantId   String
+  tenant     Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   type       String // Vacation, Sick, Personal, WFH
   startDate  DateTime
   endDate    DateTime
@@ -255,6 +331,7 @@ model LeaveRequest {
   // "My requests" filters ownerId and sorts newest-first — composite serves the
   // filter and the order together.
   @@index([ownerId, createdAt])
+  @@index([tenantId])
 }
 
 // ── Attendance ───────────────────────────────────────────────────────────────
@@ -266,6 +343,8 @@ model LeaveRequest {
 // creating duplicates. See lib/attendance.ts for the recording logic.
 model Attendance {
   id         String    @id @default(cuid())
+  tenantId   String
+  tenant     Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   userId     String
   user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   // Calendar day this record covers, normalized to midnight (server time).
@@ -282,14 +361,18 @@ model Attendance {
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @updatedAt
 
-  // One row per person per day; lets the webhook upsert idempotently.
+  // One row per person per day; lets the webhook upsert idempotently. userId
+  // already implies the tenant, so this stays as-is.
   @@unique([userId, day])
   // Newest-first lookups for the attendance dashboard.
   @@index([day])
+  @@index([tenantId])
 }
 
 model Activity {
   id        String   @id @default(cuid())
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   userId    String
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   verb      String // "posted", "uploaded", "requested", "approved", "joined", "commented"
@@ -300,6 +383,7 @@ model Activity {
   // Dashboard feed reads newest-first; userId for per-person activity joins.
   @@index([createdAt])
   @@index([userId])
+  @@index([tenantId])
 }
 
 // ── Audit log ────────────────────────────────────────────────────────────────
@@ -309,6 +393,10 @@ model Activity {
 // by Super Admin (see lib/permissions.ts → can.viewAuditLog).
 model AuditLog {
   id           String  @id @default(cuid())
+  // Explicit tenantId: actor/target are nullable SetNull, so the log can't
+  // reliably inherit a tenant through a relation.
+  tenantId     String
+  tenant       Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   // Who performed the action. Kept even if the actor is later deleted.
   actorId      String?
   actor        User?   @relation("AuditActor", fields: [actorId], references: [id], onDelete: SetNull)
@@ -334,12 +422,15 @@ model AuditLog {
   @@index([createdAt])
   @@index([action])
   @@index([actorId])
+  @@index([tenantId])
 }
 
 // ── Task board (Trello-style) ──────────────────────────────────────────────
 
 model Board {
   id        String   @id @default(cuid())
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   name      String
   createdAt DateTime @default(now())
 
@@ -361,6 +452,7 @@ model Board {
 
   // The /tasks page loads the oldest board first.
   @@index([createdAt])
+  @@index([tenantId])
 }
 
 // ── Sprints ─────────────────────────────────────────────────────────────────
@@ -397,6 +489,8 @@ model Sprint {
 
 model Project {
   id          String   @id @default(cuid())
+  tenantId    String
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   name        String
   description String?
   createdAt   DateTime @default(now())
@@ -448,6 +542,7 @@ model Project {
   salaryAllocations UserSalaryAllocation[]
 
   @@index([ownerId])
+  @@index([tenantId])
 }
 
 // ── Client submissions ────────────────────────────────────────────────────────
@@ -502,6 +597,8 @@ model ProjectMember {
 // alerted when the app is closed. The Message row is the source of truth.
 model Conversation {
   id   String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   // "dm" | "group" | "project". Stored as a string (matches the Role / kind
   // convention elsewhere; see lib/messaging.ts for the source of truth).
   kind String
@@ -509,10 +606,11 @@ model Conversation {
   // Group/channel display name. Null for DMs (rendered from the other member).
   title String?
 
-  // For DMs: the sorted "minId:maxId" of the two members. @unique so a DM
-  // between A and B can never be created twice (upsert collapses the race).
-  // Null for groups and project channels.
-  dmKey String? @unique
+  // For DMs: the sorted "minId:maxId" of the two members. Unique PER TENANT so a
+  // DM between A and B can never be created twice (upsert collapses the race).
+  // Null for groups and project channels. (member ids are already per-tenant,
+  // but the composite keeps the constraint tenant-local and consistent.)
+  dmKey String?
 
   // For project channels: the backing project (1:1). @unique so a project has
   // at most one channel. Null for DMs/groups.
@@ -531,7 +629,9 @@ model Conversation {
   members  ConversationMember[] @relation("ConvMembers")
   messages Message[]
 
+  @@unique([tenantId, dmKey])
   @@index([lastMessageAt])
+  @@index([tenantId])
 }
 
 // One row per (conversation, user). lastReadAt is a cheap per-member cursor:
@@ -599,6 +699,10 @@ model BoardList {
 
 model Task {
   id          String    @id @default(cuid())
+  // Explicit tenantId (a root): issues.ts runs board-agnostic "my issues"
+  // queries with no board/list in the where, so inheriting via Board isn't safe.
+  tenantId    String
+  tenant      Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   title       String
   description String?
   // Position of the card within its list (top → bottom). Fractional so cards
@@ -673,6 +777,7 @@ model Task {
   // is guaranteed by the atomic Board.issueSeq counter (lib/issues.ts), so this
   // is a plain lookup index, not a constraint.
   @@index([issueNumber])
+  @@index([tenantId])
 }
 
 // ── Issue links ─────────────────────────────────────────────────────────────
@@ -715,6 +820,8 @@ model TaskComment {
 // (SSE) unread badge.
 model Notification {
   id          String    @id @default(cuid())
+  tenantId    String
+  tenant      Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   // Recipient — whose inbox this lands in.
   userId      String
   user        User      @relation("NotifRecipient", fields: [userId], references: [id], onDelete: Cascade)
@@ -739,6 +846,7 @@ model Notification {
   // Newest-first lookups scoped to a recipient, and unread counts.
   @@index([userId, createdAt])
   @@index([userId, readAt])
+  @@index([tenantId])
 }
 
 // A browser/device's Web Push subscription. One row per push endpoint; a user
@@ -747,6 +855,8 @@ model Notification {
 // (the push service returns 404/410 and we prune it). See lib/push.ts.
 model PushSubscription {
   id     String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   userId String
   user   User   @relation("UserPushSubs", fields: [userId], references: [id], onDelete: Cascade)
 
@@ -763,6 +873,7 @@ model PushSubscription {
   createdAt DateTime @default(now())
 
   @@index([userId])
+  @@index([tenantId])
 }
 
 // ── Invoices ──────────────────────────────────────────────────────────────────
@@ -777,9 +888,12 @@ model PushSubscription {
 // changes. See lib/invoices.ts for the math, numbering, and formatting.
 model Invoice {
   id     String @id @default(cuid())
-  // Human-facing sequential number, e.g. "INV-0007". Unique, assigned at
-  // creation by counting existing invoices (see lib/invoices.ts → nextNumber).
-  number String @unique
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  // Human-facing sequential number, e.g. "INV-0007". Unique PER TENANT, assigned
+  // at creation by counting the tenant's existing invoices (lib/invoices.ts →
+  // nextNumber) — so each tenant gets its own INV-0001 sequence.
+  number String
 
   // Free-text client (no portal identity). Email/address are optional.
   clientName    String
@@ -836,6 +950,9 @@ model Invoice {
   // The list orders newest-first; status filters the dashboard counts.
   @@index([createdAt])
   @@index([status])
+  @@index([tenantId])
+  // Invoice numbers are unique within a tenant, not globally.
+  @@unique([tenantId, number])
 }
 
 // A single billable line on an invoice. Amounts are integer minor units.
@@ -881,6 +998,8 @@ model TaskAssignee {
 // See lib/finance.ts for the statuses, categories, money helpers, and validation.
 model Expense {
   id    String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   title String
 
   // One of lib/finance.ts → EXPENSE_CATEGORIES (Travel, Supplies, …). Stored as
@@ -933,6 +1052,7 @@ model Expense {
   // filter and the order from one index instead of filtering then sorting.
   @@index([status, createdAt])
   @@index([projectId, createdAt])
+  @@index([tenantId])
 }
 
 // ── Finance: per-project salaries ──────────────────────────────────────────────
@@ -1042,7 +1162,11 @@ model SalaryPayment {
 model UserSalary {
   id String @id @default(cuid())
 
-  // One salary per user. Cascade-deleted with the user.
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  // One salary per user. Cascade-deleted with the user. userId already implies
+  // the tenant, so this stays a plain global unique.
   userId String @unique
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -1138,4 +1262,34 @@ model ProjectShareLine {
   createdAt DateTime @default(now())
 
   @@index([projectId])
+}
+
+// ── White-label branding ────────────────────────────────────────────────────
+// A per-TENANT override for the brand identity (name, colors, logo, contact).
+// Env vars (lib/brand.ts) provide the defaults so a fresh tenant works before
+// this row exists; an Admin can edit their tenant's row at runtime to rebrand
+// without a redeploy. resolveBrand(tenantId) (lib/branding.ts) merges any
+// non-null field here over the env defaults. One row per tenant (tenantId
+// unique), written via upsert.
+model BrandingSettings {
+  id String @id @default(cuid())
+
+  tenantId String @unique
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  companyName String?
+  tagline     String?
+  legalName   String?
+  website     String?
+  emailDomain String?
+
+  // Hosted logo image URL (Vercel Blob or data URL); null = use the SVG mark.
+  logoUrl String?
+
+  // Theme/brand accent as "#rrggbb". Drives the live --c-accent* CSS vars and
+  // the (print-safe) invoice accent.
+  accentHex String?
+
+  updatedAt DateTime @updatedAt
+  updatedBy String? // user id of the admin who last saved
 }

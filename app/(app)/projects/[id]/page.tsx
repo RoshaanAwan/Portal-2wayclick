@@ -1,5 +1,6 @@
 import Link from "@/components/Link";
 import { notFound } from "next/navigation";
+import { headers } from "next/headers";
 import { ArrowLeft, KanbanSquare, Users } from "lucide-react";
 import { getCurrentUser } from "@/lib/auth";
 import { db } from "@/lib/db";
@@ -26,6 +27,9 @@ export default async function ProjectBoardPage({
   const { id } = await params;
   const user = await getCurrentUser();
   const isAdmin = can.manageProjects(user?.role);
+  // Tenant subdomain (from middleware) so the client share link lands on this
+  // tenant's host rather than the global base URL.
+  const subdomain = (await headers()).get("x-tenant-subdomain");
 
   // Cap comments loaded per card on the initial board render (mirrors the /tasks
   // page). Without this, a card with a long thread loads its entire history on
@@ -246,11 +250,14 @@ export default async function ProjectBoardPage({
         }
       />
 
-      {/* Admins manage the public client link; everyone else just sees the board. */}
+      {/* Admins manage the public client link; everyone else just sees the board.
+          The link is built on this tenant's host (subdomain from middleware). */}
       {isAdmin && (
         <ShareLinkPanel
           projectId={project.id}
-          initialUrl={project.shareToken ? shareUrl(project.shareToken) : null}
+          initialUrl={
+            project.shareToken ? shareUrl(project.shareToken, subdomain) : null
+          }
         />
       )}
 

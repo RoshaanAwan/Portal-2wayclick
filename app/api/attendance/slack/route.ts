@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { timingSafeEqual } from "crypto";
-import { db } from "@/lib/db";
+import { adminDb } from "@/lib/db";
 import { recordCheckIn, recordCheckOut } from "@/lib/attendance";
 import { rateLimit, clientIp, LIMITS } from "@/lib/rateLimit";
+import { runWithTenant } from "@/lib/tenantContext";
 
 // ── Slack attendance webhook ───────────────────────────────────────────────────
 // The local Slack bot forwards check-in / check-out events here. It is NOT a
@@ -87,7 +88,9 @@ export async function POST(req: Request) {
     }
 
     // 3) Resolve the Slack user → portal user (slackUserId first, then email).
-    const user = await db.user.findFirst({
+    // adminDb: the bot has no subdomain/tenant context, so we match across all
+    // tenants. The matched user's tenantId then scopes everything that follows.
+    const user = await adminDb.user.findFirst({
       where: {
         OR: [
           body.slackUserId ? { slackUserId: body.slackUserId } : undefined,
@@ -99,6 +102,7 @@ export async function POST(req: Request) {
         name: true,
         title: true,
         avatarUrl: true,
+        tenantId: true,
         slackUserId: true,
         slackHandle: true,
       },
@@ -118,7 +122,7 @@ export async function POST(req: Request) {
       (body.slackUserId && user.slackUserId !== body.slackUserId) ||
       (body.handle && user.slackHandle !== body.handle)
     ) {
-      await db.user
+      await adminDb.user
         .update({
           where: { id: user.id },
           data: {
@@ -127,17 +131,19 @@ export async function POST(req: Request) {
           },
         })
         .catch(() => {
-          // A slackUserId already linked to someone else hits the @unique
-          // constraint — ignore; the attendance record itself still lands.
+          // A slackUserId already linked per-tenant hits the @@unique constraint
+          // — ignore; the attendance record itself still lands.
         });
     }
 
-    // 5) Record it.
+    // 5) Record it — inside the matched user's tenant context so the Attendance
+    // row (and the activity it logs) is scoped correctly.
     const at = parseTimestamp(body.timestamp);
-    const result =
+    const result = await runWithTenant(user.tenantId, () =>
       body.action === "check_in"
-        ? await recordCheckIn(user, at)
-        : await recordCheckOut(user, at);
+        ? recordCheckIn(user, at)
+        : recordCheckOut(user, at),
+    );
 
     return NextResponse.json({
       ok: true,

@@ -7,6 +7,7 @@ import { Avatar } from "@/components/ui/Avatar";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { timeAgo } from "@/lib/utils";
 import { useActivityStream } from "@/lib/useActivityStream";
+import { useBrand } from "@/components/BrandProvider";
 
 export interface FeedItem {
   id: string;
@@ -34,6 +35,7 @@ const verbColor: Record<string, string> = {
 };
 
 export function PulseFeed({ items: initial }: { items: FeedItem[] }) {
+  const brand = useBrand();
   // Live Activity Wall: seed from the server render, then stream new events in.
   const { items, liveCount } = useActivityStream(initial);
 
@@ -46,7 +48,7 @@ export function PulseFeed({ items: initial }: { items: FeedItem[] }) {
           </div>
           <div>
             <h2 className="font-display text-[15px] font-semibold tracking-tight text-ink">Pulse</h2>
-            <p className="text-[11px] text-ink-400">What&apos;s happening across 2WayClick</p>
+            <p className="text-[11px] text-ink-400">{`What's happening across ${brand.name}`}</p>
           </div>
         </div>
         <div className="flex items-center gap-2">

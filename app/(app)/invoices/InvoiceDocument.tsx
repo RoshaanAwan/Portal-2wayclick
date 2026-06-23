@@ -5,6 +5,7 @@ import {
   type InvoiceDTO,
 } from "@/lib/invoices";
 import { formatDate } from "@/lib/utils";
+import { BRAND } from "@/lib/brand";
 
 // ── The printable invoice ─────────────────────────────────────────────────────
 // A self-contained, paper-style invoice rendered identically in the admin detail
@@ -13,23 +14,44 @@ import { formatDate } from "@/lib/utils";
 // same on a dark portal, a light portal, and a printed PDF. Wrap it in an element
 // with the `print-area` class to make it the only thing that prints.
 
-// Issuer identity shown on every invoice. Edit here to rebrand.
-const ISSUER = {
-  name: "2WayClick",
-  tagline: "Company Portal",
-  website: "2wayclick.com",
-};
+/**
+ * Issuer identity + logo + print accent shown on the invoice. Defaults to the
+ * env brand (lib/brand.ts) so the admin/client-rendered detail page works without
+ * a DB read; the public share page (a server component) passes the *resolved*
+ * brand so a runtime rebrand (BrandingSettings) shows on the page clients see.
+ * The accent is a RESOLVED hex string, not the live --c-accent theme var, so the
+ * invoice prints identically regardless of the viewer's chosen theme.
+ */
+export interface InvoiceIssuer {
+  name: string;
+  tagline: string;
+  website: string;
+  logoUrl?: string | null;
+  /** Print-safe accent as #rrggbb. */
+  accent: string;
+}
 
-// The brand accent (#f5683f). Used inline so it survives the print pipeline
-// regardless of theme — Tailwind theme tokens don't apply to printed output.
-const ACCENT = "#f5683f";
 const exact = {
   printColorAdjust: "exact",
   WebkitPrintColorAdjust: "exact",
 } as const;
 
-export function InvoiceDocument({ invoice }: { invoice: InvoiceDTO }) {
+export function InvoiceDocument({
+  invoice,
+  issuer,
+}: {
+  invoice: InvoiceDTO;
+  issuer?: InvoiceIssuer;
+}) {
   const status = STATUS_META[invoice.status];
+  const ISSUER: InvoiceIssuer = issuer ?? {
+    name: BRAND.name,
+    tagline: BRAND.tagline,
+    website: BRAND.website,
+    logoUrl: BRAND.logoUrl,
+    accent: BRAND.invoiceAccent,
+  };
+  const ACCENT = ISSUER.accent;
 
   return (
     <div
@@ -45,7 +67,7 @@ export function InvoiceDocument({ invoice }: { invoice: InvoiceDTO }) {
           <div className="flex items-center gap-3">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
-              src="/logo.png"
+              src={ISSUER.logoUrl || "/logo.png"}
               alt={ISSUER.name}
               className="h-12 w-auto object-contain"
               style={exact}

@@ -1,5 +1,9 @@
-import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
+import { adminDb, db } from "../lib/db";
+import { runWithTenant } from "../lib/tenantContext";
+
+// All seed data lives in the default tenant.
+const TENANT_ID = "default";
 
 // Roles as string literals (see lib/permissions.ts for the canonical list).
 const Role = {
@@ -13,8 +17,6 @@ const Role = {
 } as const;
 const RequestStatus = { PENDING: "PENDING", APPROVED: "APPROVED", DENIED: "DENIED" } as const;
 
-const db = new PrismaClient();
-
 // Deterministic helpers (no Math.random for reproducible seeds)
 function daysAgo(n: number) {
   return new Date(Date.now() - n * 24 * 60 * 60 * 1000);
@@ -26,6 +28,17 @@ function daysFromNow(n: number) {
 async function main() {
   console.log("🌱 Seeding 2WayClick portal...");
 
+  // Ensure the tenant exists (scripts run outside any request context, so use
+  // the raw adminDb here and pass tenantId explicitly).
+  await adminDb.tenant.upsert({
+    where: { id: TENANT_ID },
+    update: {},
+    create: { id: TENANT_ID, subdomain: "default", name: "2WayClick" },
+  });
+
+  // Everything below runs inside the tenant context so the scoped `db` client
+  // auto-injects tenantId into every create/where.
+  await runWithTenant(TENANT_ID, async () => {
   // Wipe (order matters for FKs)
   await db.projectMember.deleteMany();
   await db.project.deleteMany();
@@ -70,6 +83,7 @@ async function main() {
     const email = p.name.toLowerCase().replace(" ", ".") + "@2wayclick.com";
     const u = await db.user.create({
       data: {
+        tenantId: TENANT_ID,
         email,
         passwordHash: pw,
         name: p.name,
@@ -114,6 +128,7 @@ async function main() {
   for (const a of announcements) {
     const ann = await db.announcement.create({
       data: {
+        tenantId: TENANT_ID,
         title: a.title, body: a.body, category: a.category, pinned: a.pinned,
         coverColor: a.coverColor, authorId: a.author, createdAt: daysAgo(a.days),
       },
@@ -161,7 +176,7 @@ async function main() {
   ];
   for (const d of docs) {
     await db.document.create({
-      data: { title: d.title, description: d.description, category: d.category, fileType: d.fileType, sizeKb: d.sizeKb, uploaderId: d.uploader, createdAt: daysAgo(15 + docs.indexOf(d)) },
+      data: { tenantId: TENANT_ID, title: d.title, description: d.description, category: d.category, fileType: d.fileType, sizeKb: d.sizeKb, uploaderId: d.uploader, createdAt: daysAgo(15 + docs.indexOf(d)) },
     });
   }
 
@@ -176,6 +191,7 @@ async function main() {
   for (const l of leave) {
     await db.leaveRequest.create({
       data: {
+        tenantId: TENANT_ID,
         type: l.type, ownerId: l.owner, reviewerId: l.reviewer, reason: l.reason, status: l.status,
         startDate: l.start >= 0 ? daysFromNow(l.start) : daysAgo(-l.start),
         endDate: l.end >= 0 ? daysFromNow(l.end) : daysAgo(-l.end),
@@ -198,13 +214,13 @@ async function main() {
   ];
   for (const ac of acts) {
     await db.activity.create({
-      data: { userId: ac.user, verb: ac.verb, target: ac.target, createdAt: daysAgo(ac.days) },
+      data: { tenantId: TENANT_ID, userId: ac.user, verb: ac.verb, target: ac.target, createdAt: daysAgo(ac.days) },
     });
   }
 
   // ── Task board (Trello-style) ────────────────────────────────────────────
   const board = await db.board.create({
-    data: { name: "2WayClick 3.0 Launch", createdAt: daysAgo(20) },
+    data: { tenantId: TENANT_ID, name: "2WayClick 3.0 Launch", createdAt: daysAgo(20) },
   });
 
   const listDefs = ["Backlog", "To Do", "In Progress", "Review", "Done"];
@@ -240,6 +256,7 @@ async function main() {
       .indexOf(t);
     const task = await db.task.create({
       data: {
+        tenantId: TENANT_ID,
         title: t.title,
         priority: t.priority,
         position: positionInList * 1000,
@@ -324,11 +341,13 @@ async function main() {
     const memberSet = Array.from(new Set([pd.owner, ...pd.members]));
     const project = await db.project.create({
       data: {
+        tenant: { connect: { id: TENANT_ID } },
         name: pd.name,
         description: pd.description,
         owner: { connect: { id: created[pd.owner] } },
         board: {
           create: {
+            tenant: { connect: { id: TENANT_ID } },
             name: pd.name,
             lists: {
               create: ["Backlog", "To Do", "In Progress", "Review", "Done"].map(
@@ -349,6 +368,7 @@ async function main() {
       for (const c of cards) {
         await db.task.create({
           data: {
+            tenantId: TENANT_ID,
             title: c.title,
             priority: c.priority,
             position: pos,
@@ -368,6 +388,7 @@ async function main() {
   console.log("   marcus.reyes@2wayclick.com   (Manager / VP Eng)");
   console.log("   diego.santos@2wayclick.com   (Employee)");
   console.log("   Password for all: password123\n");
+  });
 }
 
 main()
@@ -375,4 +396,4 @@ main()
     console.error(e);
     process.exit(1);
   })
-  .finally(() => db.$disconnect());
+  .finally(() => adminDb.$disconnect());

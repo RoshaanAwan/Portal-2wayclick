@@ -22,6 +22,8 @@ import {
   Wallet,
   Banknote,
   MessageSquare,
+  Palette,
+  Building2,
   X,
 } from "lucide-react";
 import { useState } from "react";
@@ -30,6 +32,7 @@ import { Logo } from "@/components/ui/Logo";
 import { can, isManagerTier } from "@/lib/permissions";
 import { useMobileNav } from "@/components/MobileNavProvider";
 import { useMessaging } from "@/components/MessagingProvider";
+import { useBrand } from "@/components/BrandProvider";
 import { CHAT_ENABLED } from "@/lib/features";
 
 const NAV = [
@@ -48,7 +51,13 @@ const NAV = [
   { href: "/tools", label: "Tools", icon: Wrench },
 ];
 
-export function Sidebar({ role }: { role?: string | null }) {
+export function Sidebar({
+  role,
+  isPlatformAdmin = false,
+}: {
+  role?: string | null;
+  isPlatformAdmin?: boolean;
+}) {
   const pathname = usePathname();
   const router = useRouter();
   const { open, closeNav } = useMobileNav();
@@ -111,6 +120,14 @@ export function Sidebar({ role }: { role?: string | null }) {
           { href: "/expenses", label: "Expenses", icon: Wallet },
           { href: "/salaries", label: "Salaries", icon: Banknote },
         ]
+      : []),
+    // Branding — admin tier (white-label name, colors, logo).
+    ...(can.manageBranding(role)
+      ? [{ href: "/admin/branding", label: "Branding", icon: Palette }]
+      : []),
+    // Tenants — PLATFORM admins only (cross-tenant management).
+    ...(isPlatformAdmin
+      ? [{ href: "/admin/tenants", label: "Tenants", icon: Building2 }]
       : []),
     ...(can.viewAuditLog(role)
       ? [{ href: "/admin/logs", label: "Audit Log", icon: ScrollText }]
@@ -194,6 +211,7 @@ function SidebarBody({
   onClose?: () => void;
 }) {
   const { adminTierNav, managerNav, adminNav } = sections;
+  const brand = useBrand();
   return (
     <div className="glass relative flex h-full flex-col overflow-hidden px-3 py-4">
       {/* Brand */}
@@ -203,9 +221,9 @@ function SidebarBody({
           onClick={(e) => go(e, "/dashboard")}
           className="group flex min-w-0 flex-1 items-center gap-2.5"
         >
-          <Logo size="sm" />
+          <Logo size="sm" logoUrl={brand.logoUrl} name={brand.name} />
           <span className="truncate font-display text-[18px] font-semibold tracking-tight text-ink">
-            2WayClick
+            {brand.name}
           </span>
           <span className="rounded-md border border-line bg-surface-2 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-ink-400">
             v3
@@ -303,7 +321,7 @@ function SidebarBody({
       <div className="relative mt-4 shrink-0 overflow-hidden rounded-xl border border-line bg-surface-2 p-3.5">
         <div className="relative flex items-center gap-1.5">
           <Sparkles className="h-3.5 w-3.5 text-accent" />
-          <p className="text-xs font-semibold text-ink-700">2WayClick 3.0</p>
+          <p className="text-xs font-semibold text-ink-700">{brand.name} 3.0</p>
         </div>
         <p className="relative mt-1 text-[11px] leading-relaxed text-ink-400">
           Shipping Friday — a faster, cleaner workspace.

@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { db, adminDb } from "@/lib/db";
 import { audit } from "@/lib/audit";
 import { notifyMany } from "@/lib/notifications";
 import { encodeClientComment } from "@/lib/clientShare";
 import { rateLimit, clientIp, LIMITS } from "@/lib/rateLimit";
+import { runWithTenant } from "@/lib/tenantContext";
 
 // ── Public: client comments on an existing card ─────────────────────────────
 // Reached from /shared/<token> with no portal login — the token IS the auth, so
@@ -42,9 +43,11 @@ export async function POST(
       );
     }
 
-    const project = await db.project.findUnique({
+    // The token wins: resolve the project + its owning tenant via adminDb (no
+    // ambient context on this public route), then run all scoped work inside it.
+    const project = await adminDb.project.findUnique({
       where: { shareToken: token },
-      select: { id: true, name: true, ownerId: true },
+      select: { id: true, name: true, ownerId: true, tenantId: true },
     });
     if (!project) {
       return NextResponse.json({ error: "Invalid link" }, { status: 404 });
@@ -52,6 +55,7 @@ export async function POST(
 
     const { taskId, clientName, body } = schema.parse(await req.json());
 
+    return await runWithTenant(project.tenantId, async () => {
     // The card must belong to THIS project's board — never trust a taskId that
     // points elsewhere. Walk task → list → board → project.
     const task = await db.task.findFirst({
@@ -112,6 +116,7 @@ export async function POST(
         isClient: true,
         createdAt: comment.createdAt.toISOString(),
       },
+    });
     });
   } catch (e: any) {
     if (e?.name === "ZodError") {

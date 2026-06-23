@@ -9,15 +9,22 @@ import {
 } from "react";
 
 export type Theme = "dark" | "light";
-/** Accent keys mirror the swatches in Settings → Appearance. */
-export type Accent = "orange" | "violet" | "blue" | "emerald";
+/**
+ * Accent keys mirror the swatches in Settings → Appearance.
+ * `"brand"` is the white-label default: no `data-accent` attribute is set, so the
+ * server-injected brand-accent CSS (lib/brand.ts → app/layout.tsx) applies. The
+ * named presets each set `data-accent` and override the brand default per user.
+ */
+export type Accent = "brand" | "orange" | "violet" | "blue" | "emerald";
 
 const STORAGE_KEY = "2wc-theme";
 const ACCENT_KEY = "2wc-accent";
 const MOTION_KEY = "2wc-reduce-motion";
 
-const DEFAULT_ACCENT: Accent = "orange";
-const ACCENTS: Accent[] = ["orange", "violet", "blue", "emerald"];
+// "brand" means "no override" — the app shows the deploy's brand accent.
+const DEFAULT_ACCENT: Accent = "brand";
+// Concrete presets that map to a [data-accent="…"] block in globals.css.
+const PRESET_ACCENTS: Accent[] = ["orange", "violet", "blue", "emerald"];
 
 interface ThemeContextValue {
   theme: Theme;
@@ -43,11 +50,12 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
 
   // Hydrate from whatever the inline script set on <html> (avoids a flash and
   // keeps SSR/CSR consistent — the attributes are the source of truth on load).
+  // No data-accent attribute = the brand default ("brand").
   useEffect(() => {
     const el = document.documentElement;
     setThemeState((el.getAttribute("data-theme") as Theme | null) ?? "dark");
     const a = el.getAttribute("data-accent") as Accent | null;
-    setAccentState(a && ACCENTS.includes(a) ? a : DEFAULT_ACCENT);
+    setAccentState(a && PRESET_ACCENTS.includes(a) ? a : DEFAULT_ACCENT);
     setReducedMotionState(el.getAttribute("data-reduce-motion") === "1");
   }, []);
 
@@ -67,7 +75,19 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
 
   const setAccent = useCallback((a: Accent) => {
     setAccentState(a);
-    document.documentElement.setAttribute("data-accent", a);
+    const el = document.documentElement;
+    // "brand" = no override: drop the attribute so the server-injected brand
+    // accent applies. Presets set the attribute to win over the brand default.
+    if (a === "brand") {
+      el.removeAttribute("data-accent");
+      try {
+        localStorage.removeItem(ACCENT_KEY);
+      } catch {
+        /* non-fatal */
+      }
+      return;
+    }
+    el.setAttribute("data-accent", a);
     try {
       localStorage.setItem(ACCENT_KEY, a);
     } catch {
@@ -147,11 +167,7 @@ export const themeInitScript = `(function(){try{var d=document.documentElement;v
 )});if(t!=="dark"&&t!=="light"){t=window.matchMedia("(prefers-color-scheme: light)").matches?"light":"dark";}d.setAttribute("data-theme",t);var a=localStorage.getItem(${JSON.stringify(
   ACCENT_KEY,
 )});if(${JSON.stringify(
-  ACCENTS,
-)}.indexOf(a)===-1){a=${JSON.stringify(
-  DEFAULT_ACCENT,
-)};}d.setAttribute("data-accent",a);if(localStorage.getItem(${JSON.stringify(
+  PRESET_ACCENTS,
+)}.indexOf(a)!==-1){d.setAttribute("data-accent",a);}else{d.removeAttribute("data-accent");}if(localStorage.getItem(${JSON.stringify(
   MOTION_KEY,
-)})==="1"){d.setAttribute("data-reduce-motion","1");}}catch(e){document.documentElement.setAttribute("data-theme","dark");document.documentElement.setAttribute("data-accent",${JSON.stringify(
-  DEFAULT_ACCENT,
-)});}})();`;
+)})==="1"){d.setAttribute("data-reduce-motion","1");}}catch(e){document.documentElement.setAttribute("data-theme","dark");}})();`;

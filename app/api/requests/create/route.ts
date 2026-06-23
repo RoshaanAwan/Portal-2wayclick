@@ -45,6 +45,7 @@ export async function POST(req: Request) {
 
     const request = await db.leaveRequest.create({
       data: {
+        tenantId: user.tenantId,
         type,
         startDate: new Date(startDate),
         endDate: new Date(endDate),

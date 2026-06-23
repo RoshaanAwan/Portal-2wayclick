@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { headers } from "next/headers";
 import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { audit } from "@/lib/audit";
@@ -35,12 +36,18 @@ export async function POST(req: Request) {
 
     const project = await db.project.create({
       data: {
+        // This create uses relation inputs (owner/board/members), which selects
+        // Prisma's "checked" create variant — so tenant must be a relation
+        // connect here, not the scalar tenantId. (The runtime extension injects
+        // tenantId too, but typing it explicitly keeps tsc honest.)
+        tenant: { connect: { id: actor.tenantId } },
         name,
         description: description || null,
         shareToken,
         owner: { connect: { id: actor.id } },
         board: {
           create: {
+            tenantId: actor.tenantId,
             name,
             lists: {
               create: DEFAULT_LISTS.map((listName, i) => ({
@@ -67,10 +74,13 @@ export async function POST(req: Request) {
       detail: { name, memberCount: allMemberIds.length },
     });
 
+    // Build the share link on this tenant's host (subdomain from middleware).
+    const subdomain = (await headers()).get("x-tenant-subdomain");
+
     return NextResponse.json({
       ok: true,
       id: project.id,
-      shareUrl: shareUrl(shareToken),
+      shareUrl: shareUrl(shareToken, subdomain),
     });
   } catch (e: any) {
     if (e?.message === "UNAUTHENTICATED")

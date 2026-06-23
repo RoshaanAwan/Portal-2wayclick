@@ -10,8 +10,11 @@ import type { InvoiceDTO, InvoiceStatus } from "./invoices";
  * base URL — keeping lib/invoices.ts free of server-only imports so it can be
  * shared with client components (the form, the detail toolbar).
  */
-export function invoiceShareUrl(token: string): string {
-  return `${appBaseUrl()}/invoices/shared/${token}`;
+export function invoiceShareUrl(
+  token: string,
+  subdomain?: string | null,
+): string {
+  return `${appBaseUrl(subdomain)}/invoices/shared/${token}`;
 }
 
 // ── Invoice read helpers ──────────────────────────────────────────────────────

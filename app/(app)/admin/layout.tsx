@@ -13,7 +13,13 @@ export default async function AdminLayout({
 }) {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
-  if (!can.accessAdmin(user.role) && !can.viewAuditLog(user.role)) {
+  // Platform admins reach /admin (for /admin/tenants) even if their tenant role
+  // weren't admin-tier; otherwise require the tenant-level admin/audit access.
+  if (
+    !user.isPlatformAdmin &&
+    !can.accessAdmin(user.role) &&
+    !can.viewAuditLog(user.role)
+  ) {
     redirect("/dashboard");
   }
 

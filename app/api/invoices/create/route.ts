@@ -39,6 +39,7 @@ export async function POST(req: Request) {
       const count = await tx.invoice.count();
       return tx.invoice.create({
         data: {
+          tenantId: actor.tenantId,
           number: nextNumber(count),
           clientName: input.clientName,
           clientEmail: input.clientEmail || null,

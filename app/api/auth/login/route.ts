@@ -1,10 +1,13 @@
 import { NextResponse } from "next/server";
+import { headers } from "next/headers";
 import { z } from "zod";
 import bcrypt from "bcryptjs";
-import { db } from "@/lib/db";
+import { adminDb } from "@/lib/db";
 import { verifyPassword, createSession } from "@/lib/auth";
 import { audit } from "@/lib/audit";
 import { rateLimit, clientIp, LIMITS } from "@/lib/rateLimit";
+import { tenantIdForSubdomain } from "@/lib/tenant";
+import { runWithTenant } from "@/lib/tenantContext";
 
 // A precomputed bcrypt hash (of a random throwaway string) compared against on
 // the unknown-email path so that path spends ~the same time as a real password
@@ -33,13 +36,26 @@ export async function POST(req: Request) {
     const { email, password } = parsed.data;
     const normEmail = email.toLowerCase();
 
-    // Throttle online password guessing: cap attempts per IP AND per email so a
-    // single source can't brute-force, and a single account can't be targeted
-    // from many IPs. Failing open is handled inside rateLimit().
+    // Resolve which tenant this login is for from the request subdomain. Login is
+    // always scoped to the subdomain it arrived on, so the same email can exist
+    // in multiple tenants. An unknown/suspended subdomain → generic 401.
+    const hdrs = await headers();
+    const tenantId = await tenantIdForSubdomain(
+      hdrs.get("x-tenant-subdomain"),
+    );
+    if (!tenantId) {
+      return NextResponse.json(
+        { error: "Invalid email or password" },
+        { status: 401 },
+      );
+    }
+
+    // Throttle online password guessing: cap attempts per IP AND per email, both
+    // scoped to the tenant so one tenant's traffic can't lock out another's.
     const ip = clientIp(req);
     const [ipLimit, emailLimit] = await Promise.all([
-      rateLimit(`login:ip:${ip}`, LIMITS.login.limit, LIMITS.login.windowMs),
-      rateLimit(`login:email:${normEmail}`, LIMITS.login.limit, LIMITS.login.windowMs),
+      rateLimit(`login:ip:${tenantId}:${ip}`, LIMITS.login.limit, LIMITS.login.windowMs),
+      rateLimit(`login:email:${tenantId}:${normEmail}`, LIMITS.login.limit, LIMITS.login.windowMs),
     ]);
     if (!ipLimit.ok || !emailLimit.ok) {
       const retryAfter = Math.max(ipLimit.retryAfter, emailLimit.retryAfter);
@@ -49,7 +65,9 @@ export async function POST(req: Request) {
       );
     }
 
-    const user = await db.user.findUnique({ where: { email: normEmail } });
+    const user = await adminDb.user.findUnique({
+      where: { tenantId_email: { tenantId, email: normEmail } },
+    });
     // Always run a bcrypt compare — against the real hash if the user exists, or
     // a dummy hash otherwise — so the unknown-email and wrong-password paths take
     // the same time (no timing-based account enumeration). The result for an
@@ -78,15 +96,19 @@ export async function POST(req: Request) {
       );
     }
 
-    await createSession(user.id);
+    await createSession(user.id, tenantId);
 
-    await audit({
-      actor: { id: user.id, name: user.name, role: user.role },
-      action: "auth.login",
-      entity: "Session",
-      targetUserId: user.id,
-      summary: `${user.name} signed in`,
-    });
+    // audit() writes a tenant-scoped AuditLog row, so run it inside the tenant
+    // context (login has no getCurrentUser-established store yet).
+    await runWithTenant(tenantId, () =>
+      audit({
+        actor: { id: user.id, name: user.name, role: user.role },
+        action: "auth.login",
+        entity: "Session",
+        targetUserId: user.id,
+        summary: `${user.name} signed in`,
+      }),
+    );
 
     return NextResponse.json({ ok: true });
   } catch (e) {

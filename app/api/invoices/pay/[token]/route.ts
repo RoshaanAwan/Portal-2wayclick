@@ -1,9 +1,11 @@
 import { NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { headers } from "next/headers";
+import { db, adminDb } from "@/lib/db";
 import { audit } from "@/lib/audit";
 import { getStripe, isStripeConfigured } from "@/lib/stripe";
 import { invoiceShareUrl } from "@/lib/invoiceQueries";
 import { rateLimit, clientIp, LIMITS } from "@/lib/rateLimit";
+import { runWithTenant } from "@/lib/tenantContext";
 
 // POST /api/invoices/pay/[token] — start a Stripe Checkout Session for the
 // invoice behind this public share token. UNAUTHENTICATED on purpose: the client
@@ -40,10 +42,13 @@ export async function POST(
       );
     }
 
-    const invoice = await db.invoice.findUnique({
+    // The token wins: resolve the invoice (and its owning tenant) via adminDb,
+    // since this public route has no ambient tenant context.
+    const invoice = await adminDb.invoice.findUnique({
       where: { shareToken: token },
       select: {
         id: true,
+        tenantId: true,
         number: true,
         status: true,
         currency: true,
@@ -78,7 +83,10 @@ export async function POST(
     }
 
     const stripe = getStripe();
-    const returnBase = invoiceShareUrl(token);
+    // Return the payer to the invoice on the SAME tenant host they paid from
+    // (subdomain forwarded by middleware), not the global base URL.
+    const subdomain = (await headers()).get("x-tenant-subdomain");
+    const returnBase = invoiceShareUrl(token, subdomain);
 
     const session = await stripe.checkout.sessions.create({
       mode: "payment",
@@ -116,20 +124,22 @@ export async function POST(
       );
     }
 
-    // Remember the session so the webhook (and a resumed payment) can correlate.
-    await db.invoice.update({
-      where: { id: invoice.id },
-      data: { stripeSessionId: session.id },
-    });
-
-    // System-actor audit entry (no logged-in user — the client did this).
-    await audit({
-      actor: { id: null, name: "Client", role: "PUBLIC" },
-      action: "invoice.payment_started",
-      entity: "Invoice",
-      entityId: invoice.id,
-      summary: `Client started a Stripe payment for invoice ${invoice.number}`,
-      detail: { sessionId: session.id, totalCents: invoice.totalCents },
+    // Remember the session + audit, inside the invoice's tenant context so the
+    // scoped update and the (tenant-scoped) audit row land correctly.
+    await runWithTenant(invoice.tenantId, async () => {
+      await db.invoice.update({
+        where: { id: invoice.id },
+        data: { stripeSessionId: session.id },
+      });
+      // System-actor audit entry (no logged-in user — the client did this).
+      await audit({
+        actor: { id: null, name: "Client", role: "PUBLIC" },
+        action: "invoice.payment_started",
+        entity: "Invoice",
+        entityId: invoice.id,
+        summary: `Client started a Stripe payment for invoice ${invoice.number}`,
+        detail: { sessionId: session.id, totalCents: invoice.totalCents },
+      });
     });
 
     return NextResponse.json({ url: session.url });

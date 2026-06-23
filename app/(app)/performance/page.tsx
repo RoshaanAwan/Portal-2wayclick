@@ -3,9 +3,10 @@ import { Gauge } from "lucide-react";
 import { getCurrentUser } from "@/lib/auth";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { buildPerformance, canViewPerformance } from "@/lib/performance";
+import { pageTitle } from "@/lib/brand";
 import { PerformanceBoard } from "./PerformanceBoard";
 
-export const metadata = { title: "Performance — 2WayClick" };
+export const metadata = { title: pageTitle("Performance") };
 
 export default async function PerformancePage() {
   const user = await getCurrentUser();

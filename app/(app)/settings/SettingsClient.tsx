@@ -26,6 +26,7 @@ import { Button } from "@/components/ui/Button";
 import { Avatar } from "@/components/ui/Avatar";
 import { Reveal, RevealItem } from "@/components/ui/Reveal";
 import { useTheme, type Theme, type Accent } from "@/components/ThemeProvider";
+import { useBrand } from "@/components/BrandProvider";
 import { usePushSubscription } from "@/lib/usePushSubscription";
 import { cn } from "@/lib/utils";
 
@@ -54,6 +55,9 @@ const SECTIONS = [
 ] as const;
 
 const ACCENTS: { key: Accent; label: string; color: string }[] = [
+  // "Brand" = the deploy's configured accent (no override); its swatch reads the
+  // live --c-accent var so it shows whatever the brand is set to.
+  { key: "brand", label: "Brand", color: "rgb(var(--c-accent))" },
   { key: "orange", label: "Coral", color: "#f5683f" },
   { key: "violet", label: "Violet", color: "#8b5cf6" },
   { key: "blue", label: "Azure", color: "#3b82f6" },
@@ -119,6 +123,7 @@ export function SettingsClient({
   canViewProfile?: boolean;
 }) {
   const router = useRouter();
+  const brand = useBrand();
   const { theme, setTheme, accent, setAccent, reducedMotion, setReducedMotion } =
     useTheme();
   const [active, setActive] = useState<(typeof SECTIONS)[number]["id"]>("profile");
@@ -594,7 +599,7 @@ export function SettingsClient({
                     </Row>
                     <Row
                       title="Weekly digest"
-                      desc="A Monday summary of what happened across 2WayClick."
+                      desc={`A Monday summary of what happened across ${brand.name}.`}
                     >
                       <Toggle
                         on={prefs.weeklyDigest}
@@ -710,6 +715,7 @@ export function SettingsClient({
 // Real push toggle (the rows below it are session-only demos). Subscribes this
 // browser to Web Push and persists it server-side; see lib/usePushSubscription.
 function PushNotificationsCard() {
+  const brand = useBrand();
   const { status, busy, error, enable, disable } = usePushSubscription();
 
   const enabled = status === "enabled";
@@ -721,7 +727,7 @@ function PushNotificationsCard() {
       : status === "denied"
         ? "Notifications are blocked. Allow them in your browser settings, then try again."
         : enabled
-          ? "You'll get notifications on this device, even when 2WayClick is closed."
+          ? `You'll get notifications on this device, even when ${brand.name} is closed.`
           : "Get notified on this device even when the app is closed.";
 
   return (

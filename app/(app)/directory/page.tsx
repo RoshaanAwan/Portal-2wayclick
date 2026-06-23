@@ -6,10 +6,11 @@ import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
 import { isAdminTier } from "@/lib/permissions";
 import { PageHeader } from "@/components/ui/PageHeader";
+import { BRAND, pageTitle } from "@/lib/brand";
 import { DirectoryClient, type DirectoryPerson } from "./DirectoryClient";
 
 export const metadata = {
-  title: "Directory — 2WayClick",
+  title: pageTitle("Directory"),
 };
 
 const PAGE_SIZE = 12;
@@ -89,7 +90,7 @@ export default async function DirectoryPage({
     <div className="mx-auto max-w-7xl">
       <PageHeader
         title="People Directory"
-        subtitle={`${headcount} people across the 2WayClick team`}
+        subtitle={`${headcount} people across the ${BRAND.name} team`}
         icon={Users}
         action={
           <Link

@@ -1,4 +1,5 @@
 import { notFound, redirect } from "next/navigation";
+import { headers } from "next/headers";
 import { getCurrentUser } from "@/lib/auth";
 import { can } from "@/lib/permissions";
 import { getInvoice, invoiceShareUrl } from "@/lib/invoiceQueries";
@@ -17,9 +18,10 @@ export default async function InvoiceDetailPage({
   if (!invoice) notFound();
 
   // Resolve the absolute share URL here (server) so the client panel doesn't
-  // need to know how links are built.
+  // need to know how links are built — on this tenant's host (subdomain).
+  const subdomain = (await headers()).get("x-tenant-subdomain");
   const shareUrl = invoice.shareToken
-    ? invoiceShareUrl(invoice.shareToken)
+    ? invoiceShareUrl(invoice.shareToken, subdomain)
     : null;
 
   return <InvoiceDetailClient invoice={invoice} shareUrl={shareUrl} />;

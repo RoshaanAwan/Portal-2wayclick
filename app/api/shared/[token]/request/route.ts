@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { db, adminDb } from "@/lib/db";
+import { runWithTenant } from "@/lib/tenantContext";
 import { audit } from "@/lib/audit";
 import { notifyMany } from "@/lib/notifications";
 import { rateLimit, clientIp, LIMITS } from "@/lib/rateLimit";
@@ -52,10 +53,17 @@ export async function POST(
       );
     }
 
-    const project = await db.project.findUnique({
+    // PUBLIC route: no portal login, so no tenant context is established yet.
+    // Resolve the project by its (globally-unique) share token with the
+    // UN-SCOPED adminDb, then read its tenantId — that's the tenant this work
+    // belongs to. Everything that touches a tenant-scoped model (the Task
+    // create, plus audit()/notifyMany() which call requireTenantId()) is run
+    // inside runWithTenant(project.tenantId, …) below.
+    const project = await adminDb.project.findUnique({
       where: { shareToken: token },
       select: {
         id: true,
+        tenantId: true,
         name: true,
         ownerId: true,
         members: { select: { userId: true } },
@@ -78,6 +86,8 @@ export async function POST(
     const { clientName, title, body, listId, issueType } = schema.parse(
       await req.json(),
     );
+
+    return await runWithTenant(project.tenantId, async () => {
 
     // Honour the client's chosen list ONLY if it belongs to this board; never
     // trust a listId that points elsewhere. Otherwise fall back to Backlog,
@@ -115,6 +125,7 @@ export async function POST(
       const issueNumber = await nextIssueNumber(project.board.id, tx);
       return tx.task.create({
         data: {
+          tenantId: project.tenantId,
           title: `${title} (client)`,
           description,
           priority: "MEDIUM",
@@ -182,6 +193,7 @@ export async function POST(
         issueType: task.issueType,
         comments: [],
       },
+    });
     });
   } catch (e: any) {
     if (e?.name === "ZodError") {

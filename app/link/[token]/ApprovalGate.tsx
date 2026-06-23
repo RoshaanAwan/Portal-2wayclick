@@ -34,12 +34,15 @@ export function ApprovalGate({
   device,
   ipAddress,
   loginHref,
+  brandName,
 }: {
   token: string;
   alreadyApproved: boolean;
   device: string;
   ipAddress: string | null;
   loginHref: string;
+  /** The resolved brand name, passed from the server page (no provider here). */
+  brandName: string;
 }) {
   const [state, setState] = useState<State>({ phase: "checking" });
 
@@ -81,7 +84,7 @@ export function ApprovalGate({
             Sign in to approve
           </h1>
           <p className="mt-1.5 text-sm text-ink-500">
-            Sign in to 2WayClick on this device to approve the sign-in you
+            Sign in to {brandName} on this device to approve the sign-in you
             scanned.
           </p>
         </div>
@@ -108,7 +111,7 @@ export function ApprovalGate({
           Approve sign-in?
         </h1>
         <p className="mt-1.5 text-sm text-ink-500">
-          A device is trying to sign in to 2WayClick as you.
+          A device is trying to sign in to {brandName} as you.
         </p>
       </div>
 

@@ -76,6 +76,10 @@ export interface AttendanceActor {
   name: string;
   title: string;
   avatarUrl?: string | null;
+  // The user's tenant — stamped onto the Attendance row. The Slack webhook
+  // resolves this from the matched user (it has no subdomain), and runs the
+  // record inside that tenant's context.
+  tenantId: string;
 }
 
 /**
@@ -93,6 +97,7 @@ export async function recordCheckIn(
   const row = await db.attendance.upsert({
     where: { userId_day: { userId: actor.id, day } },
     create: {
+      tenantId: actor.tenantId,
       userId: actor.id,
       day,
       checkInAt: at,
@@ -143,6 +148,7 @@ export async function recordCheckOut(
   await db.attendance.upsert({
     where: { userId_day: { userId: actor.id, day } },
     create: {
+      tenantId: actor.tenantId,
       userId: actor.id,
       day,
       checkOutAt: at,

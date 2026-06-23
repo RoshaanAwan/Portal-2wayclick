@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server";
 import type Stripe from "stripe";
-import { db } from "@/lib/db";
+import { db, adminDb } from "@/lib/db";
 import { audit } from "@/lib/audit";
 import { notify } from "@/lib/notifications";
 import { getStripe, stripeWebhookSecret } from "@/lib/stripe";
 import { formatMoney } from "@/lib/invoices";
+import { runWithTenant } from "@/lib/tenantContext";
 
 // ── Stripe webhook ─────────────────────────────────────────────────────────────
 // The SOURCE OF TRUTH for "did the client pay". Stripe POSTs events here; we
@@ -86,10 +87,13 @@ async function markInvoicePaid(session: Stripe.Checkout.Session): Promise<void> 
     return;
   }
 
-  const invoice = await db.invoice.findUnique({
+  // The webhook has no session/host, so resolve the invoice + its owning tenant
+  // via adminDb, then do all scoped writes inside that tenant's context.
+  const invoice = await adminDb.invoice.findUnique({
     where: { id: invoiceId },
     select: {
       id: true,
+      tenantId: true,
       number: true,
       status: true,
       currency: true,
@@ -110,35 +114,37 @@ async function markInvoicePaid(session: Stripe.Checkout.Session): Promise<void> 
       ? session.payment_intent
       : (session.payment_intent?.id ?? null);
 
-  await db.invoice.update({
-    where: { id: invoice.id },
-    data: {
-      status: "PAID",
-      paidAt: new Date(),
-      stripePaymentIntentId: paymentIntentId,
-      stripeSessionId: session.id,
-    },
-  });
-
-  await audit({
-    actor: { id: null, name: "Stripe", role: "SYSTEM" },
-    action: "invoice.paid",
-    entity: "Invoice",
-    entityId: invoice.id,
-    summary: `Invoice ${invoice.number} was paid online (${formatMoney(
-      invoice.totalCents,
-      invoice.currency,
-    )})`,
-    detail: { sessionId: session.id, paymentIntentId },
-  });
-
-  // Tell whoever raised the invoice that it's been paid.
-  if (invoice.creatorId) {
-    await notify({
-      userId: invoice.creatorId,
-      type: "invoice.paid",
-      message: `Invoice ${invoice.number} was paid by ${invoice.clientName}`,
-      link: `/invoices/${invoice.id}`,
+  await runWithTenant(invoice.tenantId, async () => {
+    await db.invoice.update({
+      where: { id: invoice.id },
+      data: {
+        status: "PAID",
+        paidAt: new Date(),
+        stripePaymentIntentId: paymentIntentId,
+        stripeSessionId: session.id,
+      },
     });
-  }
+
+    await audit({
+      actor: { id: null, name: "Stripe", role: "SYSTEM" },
+      action: "invoice.paid",
+      entity: "Invoice",
+      entityId: invoice.id,
+      summary: `Invoice ${invoice.number} was paid online (${formatMoney(
+        invoice.totalCents,
+        invoice.currency,
+      )})`,
+      detail: { sessionId: session.id, paymentIntentId },
+    });
+
+    // Tell whoever raised the invoice that it's been paid.
+    if (invoice.creatorId) {
+      await notify({
+        userId: invoice.creatorId,
+        type: "invoice.paid",
+        message: `Invoice ${invoice.number} was paid by ${invoice.clientName}`,
+        link: `/invoices/${invoice.id}`,
+      });
+    }
+  });
 }

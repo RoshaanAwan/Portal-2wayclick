@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { adminDb } from "@/lib/db";
 import { createSession } from "@/lib/auth";
 import { audit } from "@/lib/audit";
+import { runWithTenant } from "@/lib/tenantContext";
 import { TICKET_STATUS } from "@/lib/qrLogin";
 import { rateLimit, clientIp, LIMITS } from "@/lib/rateLimit";
 
@@ -31,7 +32,9 @@ export async function POST(req: Request) {
     );
   }
 
-  const ticket = await db.loginTicket.findUnique({
+  // adminDb: the token is the global credential; no tenant context yet. The
+  // ticket's own tenantId is the source of truth for the session we mint.
+  const ticket = await adminDb.loginTicket.findUnique({
     where: { token: parsed.data.token },
   });
 
@@ -46,7 +49,8 @@ export async function POST(req: Request) {
   }
 
   // Atomic single-use guard: only succeeds if the row is still APPROVED.
-  const consumed = await db.loginTicket.updateMany({
+  // adminDb: keyed by the global token, before any tenant context.
+  const consumed = await adminDb.loginTicket.updateMany({
     where: { token: ticket.token, status: TICKET_STATUS.APPROVED },
     data: { status: TICKET_STATUS.CONSUMED },
   });
@@ -54,11 +58,17 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Already used" }, { status: 409 });
   }
 
-  const approver = await db.user.findUnique({
+  // adminDb: no tenant context yet. We verify the approver belongs to the
+  // ticket's tenant below — a cross-tenant approver must never get a session.
+  const approver = await adminDb.user.findUnique({
     where: { id: ticket.approvedById },
   });
   if (!approver) {
     return NextResponse.json({ error: "Account no longer exists" }, { status: 410 });
+  }
+  // The approver must belong to the same tenant the ticket was created in.
+  if (approver.tenantId !== ticket.tenantId) {
+    return NextResponse.json({ error: "Invalid" }, { status: 403 });
   }
   // An account disabled between approval and claim must not get a session.
   if (approver.disabledAt) {
@@ -69,15 +79,18 @@ export async function POST(req: Request) {
   }
 
   // Mint a normal session — sets the httpOnly cookie on this (the new) device.
-  await createSession(approver.id);
+  // The session belongs to the ticket's tenant.
+  await createSession(approver.id, ticket.tenantId);
 
-  await audit({
-    actor: { id: approver.id, name: approver.name, role: approver.role },
-    action: "auth.qr_login",
-    entity: "Session",
-    targetUserId: approver.id,
-    summary: `${approver.name} signed in via QR on a new device`,
-  });
+  await runWithTenant(ticket.tenantId, () =>
+    audit({
+      actor: { id: approver.id, name: approver.name, role: approver.role },
+      action: "auth.qr_login",
+      entity: "Session",
+      targetUserId: approver.id,
+      summary: `${approver.name} signed in via QR on a new device`,
+    }),
+  );
 
   return NextResponse.json({ ok: true });
 }

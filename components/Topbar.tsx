@@ -22,6 +22,7 @@ import { ApproveScannerButton } from "@/components/ApproveScanner";
 import { timeAgo } from "@/lib/utils";
 import { useNotifications } from "@/lib/useNotifications";
 import { useMobileNav } from "@/components/MobileNavProvider";
+import { useBrand } from "@/components/BrandProvider";
 import { isAdminTier } from "@/lib/permissions";
 import type { SafeUser } from "@/lib/auth";
 
@@ -36,6 +37,7 @@ const typeColor: Record<string, string> = {
 
 export function Topbar({ user }: { user: SafeUser }) {
   const router = useRouter();
+  const brand = useBrand();
   const { openNav } = useMobileNav();
   const [menuOpen, setMenuOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
@@ -85,7 +87,7 @@ export function Topbar({ user }: { user: SafeUser }) {
           <Menu className="h-5 w-5" />
         </button>
         <span className="flex shrink-0 items-center lg:hidden">
-          <Logo size="sm" />
+          <Logo size="sm" logoUrl={brand.logoUrl} name={brand.name} />
         </span>
 
         {/* Command-bar search */}

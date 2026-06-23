@@ -31,10 +31,30 @@ const PATHS = [
 export function Logo({
   size = "sm",
   className,
+  logoUrl,
+  name = "Logo",
 }: {
   size?: keyof typeof sizes;
   className?: string;
+  /** When set, render this hosted image instead of the built-in SVG mark. */
+  logoUrl?: string | null;
+  /** Accessible label / alt text — pass the brand name. */
+  name?: string;
 }) {
+  // A white-labeled deploy can supply a custom logo image; render it in place of
+  // the auto-tinting SVG mark. (The SVG re-tints with the accent for free; an
+  // uploaded image is shown as-is.)
+  if (logoUrl) {
+    // eslint-disable-next-line @next/next/no-img-element
+    return (
+      <img
+        src={logoUrl}
+        alt={name}
+        className={cn("object-contain", sizes[size], className)}
+      />
+    );
+  }
+
   // Suffix the gradient ids so multiple logos (e.g. sidebar + drawer) don't
   // share a <defs> id and bleed into each other.
   const topId = `logo-top-${size}`;
@@ -45,7 +65,7 @@ export function Logo({
     <svg
       viewBox="0 0 386 498"
       role="img"
-      aria-label="2WayClick"
+      aria-label={name}
       className={cn("object-contain", sizes[size], className)}
     >
       <defs>

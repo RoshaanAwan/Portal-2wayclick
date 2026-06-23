@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { ShieldCheck } from "lucide-react";
 import { useQrLogin } from "@/lib/useQrLogin";
 import { QrCodeSurface } from "@/components/QrCodeSurface";
+import { useBrand } from "@/components/BrandProvider";
 
 /**
  * The "scan to sign in" panel on the login screen (new-device side).
@@ -16,6 +17,7 @@ import { QrCodeSurface } from "@/components/QrCodeSurface";
  */
 export function QrLogin() {
   const router = useRouter();
+  const brand = useBrand();
 
   const onSignedIn = useCallback(() => {
     // Brief beat so the success state is visible, then into the app.
@@ -35,7 +37,7 @@ export function QrLogin() {
         </h2>
         <p className="mt-1.5 text-sm text-ink-500">
           Use a phone that&apos;s <span className="font-medium text-ink-700">already
-          signed in</span> to 2WayClick to log in here without a password.
+          signed in</span> to {brand.name} to log in here without a password.
         </p>
       </div>
 
@@ -47,7 +49,7 @@ export function QrLogin() {
         <ol className="w-full space-y-1.5 text-xs text-ink-500">
           <li className="flex gap-2">
             <Step n={1} />
-            On your phone, open 2WayClick and make sure you&apos;re signed in.
+            On your phone, open {brand.name} and make sure you&apos;re signed in.
           </li>
           <li className="flex gap-2">
             <Step n={2} />
@@ -61,7 +63,7 @@ export function QrLogin() {
 
         <p className="flex items-center gap-1.5 text-center text-[11px] text-ink-400">
           <ShieldCheck className="h-3.5 w-3.5 shrink-0 text-ink-300" />
-          New phone? Open 2WayClick on it and sign in once with your password
+          New phone? Open {brand.name} on it and sign in once with your password
           first — then this works.
         </p>
       </div>

@@ -5,6 +5,7 @@ import { motion } from "framer-motion";
 import { ShieldCheck, Zap, Users } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import { Logo } from "@/components/ui/Logo";
+import { useBrand } from "@/components/BrandProvider";
 
 /* The branded left panel of the split login. A vibrant accent gradient with
    soft floating orbs, the brand mark, a headline, and a few value props.
@@ -13,6 +14,7 @@ import { Logo } from "@/components/ui/Logo";
    visitor has saved — keeping both halves of the split login in sync.
    Hidden below the lg breakpoint — the form takes over on small screens. */
 export function LoginHero() {
+  const brand = useBrand();
   const features = [
     { icon: Zap, label: "Fast, focused workspace" },
     { icon: Users, label: "Built for your whole team" },
@@ -78,10 +80,10 @@ export function LoginHero() {
         {/* Solid white chip: the logo is orange and the hero panel is an orange
             gradient, so a translucent box would let the mark blend in. */}
         <div className="grid h-12 w-12 place-items-center rounded-2xl bg-white shadow-sm ring-1 ring-white/40">
-          <Logo size="md" />
+          <Logo size="md" logoUrl={brand.logoUrl} name={brand.name} />
         </div>
         <span className="font-display text-lg font-semibold tracking-tight text-white">
-          2WayClick
+          {brand.name}
         </span>
       </motion.div>
 
@@ -143,10 +145,10 @@ export function LoginHero() {
         <div className="min-w-0">
           <p className="text-sm font-medium text-white">Open on your phone</p>
           <p className="mt-0.5 text-xs leading-relaxed text-white/70">
-            Scan to launch 2WayClick on a mobile device.
+            Scan to launch {brand.name} on a mobile device.
           </p>
           <p className="mt-2 text-[11px] text-white/50">
-            © {new Date().getFullYear()} 2WayClick. All rights reserved.
+            © {new Date().getFullYear()} {brand.legalName}. All rights reserved.
           </p>
         </div>
       </motion.div>

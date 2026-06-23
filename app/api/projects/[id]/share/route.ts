@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { headers } from "next/headers";
 import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { audit } from "@/lib/audit";
@@ -29,6 +30,10 @@ export async function POST(
 
     const { id } = await params;
     const { action } = schema.parse(await req.json());
+
+    // The shared link must land on THIS tenant's host (subdomain), not the
+    // global base. The subdomain is forwarded by middleware on every request.
+    const subdomain = (await headers()).get("x-tenant-subdomain");
 
     const project = await db.project.findUnique({
       where: { id },
@@ -66,7 +71,10 @@ export async function POST(
       entityId: project.id,
       summary: `${actor.name} regenerated the client share link for “${project.name}”`,
     });
-    return NextResponse.json({ ok: true, shareUrl: shareUrl(shareToken) });
+    return NextResponse.json({
+      ok: true,
+      shareUrl: shareUrl(shareToken, subdomain),
+    });
   } catch (e: any) {
     if (e?.message === "UNAUTHENTICATED")
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

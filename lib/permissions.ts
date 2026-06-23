@@ -111,6 +111,8 @@ export const can = {
     isAdminTier(role) || role === "PROJECT_MANAGER",
   /** See the whole company's attendance (not just one's own). Manager tier. */
   viewAllAttendance: (role?: string | null) => isManagerTier(role),
+  /** Edit the white-label brand (name, colors, logo, contact). Admin tier. */
+  manageBranding: (role?: string | null) => isAdminTier(role),
 };
 
 // ── User-creation authorization ──────────────────────────────────────────────

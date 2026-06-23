@@ -52,8 +52,10 @@ export async function POST(req: Request) {
       );
     }
 
-    // 3. Email must be unique.
-    const existing = await db.user.findUnique({ where: { email: data.email } });
+    // 3. Email must be unique *within the tenant* (email is now per-tenant
+    //    unique: @@unique([tenantId, email])). findFirst is auto-scoped to the
+    //    actor's tenant, so this checks for a clash inside this tenant only.
+    const existing = await db.user.findFirst({ where: { email: data.email } });
     if (existing) {
       return NextResponse.json(
         { error: "A user with that email already exists." },
@@ -65,6 +67,8 @@ export async function POST(req: Request) {
 
     const created = await db.user.create({
       data: {
+        // New user joins the SAME tenant as the admin creating them.
+        tenantId: actor.tenantId,
         name: data.name,
         email: data.email,
         passwordHash,

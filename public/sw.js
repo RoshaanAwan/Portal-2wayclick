@@ -1,4 +1,4 @@
-/* 2WayClick service worker — installable PWA + offline shell.
+/* Service worker — installable PWA + offline shell.
  *
  * Deliberately conservative for an auth-gated, data-heavy portal:
  *  - Navigations are network-first; on failure we show a generic offline page.
@@ -12,9 +12,9 @@
  * Bump CACHE_VERSION to invalidate the precache on the next deploy.
  */
 
-const CACHE_VERSION = "v3";
-const PRECACHE = `2wc-precache-${CACHE_VERSION}`;
-const RUNTIME = `2wc-runtime-${CACHE_VERSION}`;
+const CACHE_VERSION = "v4";
+const PRECACHE = `app-precache-${CACHE_VERSION}`;
+const RUNTIME = `app-runtime-${CACHE_VERSION}`;
 const OFFLINE_URL = "/offline";
 
 // Assets safe to precache: the offline page and brand/icon files. These exist
@@ -142,11 +142,14 @@ self.addEventListener("push", (event) => {
   try {
     data = event.data ? event.data.json() : {};
   } catch {
-    // Fall back to plain text if the payload isn't JSON.
-    data = { title: "2WayClick", body: event.data ? event.data.text() : "" };
+    // Fall back to plain text if the payload isn't JSON. The brand name can't be
+    // read here (the SW is a static file with no env/DB access), so use a neutral
+    // label — in practice every push from lib/push.ts sends a real `title`, so
+    // this fallback only shows for a malformed payload.
+    data = { title: "Notification", body: event.data ? event.data.text() : "" };
   }
 
-  const title = data.title || "2WayClick";
+  const title = data.title || "Notification";
   const options = {
     body: data.body || "",
     icon: "/icons/icon-192.png",

@@ -1,5 +1,6 @@
 import "server-only";
 import Stripe from "stripe";
+import { BRAND } from "./brand";
 
 // The apiVersion literal the installed SDK accepts. Derived from the Stripe
 // constructor's own config type so it tracks the SDK without us hard-coding the
@@ -43,7 +44,7 @@ export function getStripe(): Stripe {
       // installed SDK's types only name its own latest version, so we cast to
       // keep the intended pin without bumping the live API version.
       apiVersion: "2025-09-30.clover" as StripeApiVersion,
-      appInfo: { name: "2WayClick Portal" },
+      appInfo: { name: `${BRAND.name} Portal` },
     });
   }
   return cached;

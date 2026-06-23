@@ -38,6 +38,7 @@ export async function POST(req: Request) {
 
     const expense = await db.expense.create({
       data: {
+        tenantId: actor.tenantId,
         title: input.title,
         category: input.category,
         amountCents,

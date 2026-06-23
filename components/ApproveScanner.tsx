@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { ScanLine, X, Loader2, AlertTriangle, CheckCircle2 } from "lucide-react";
 import type { IScannerControls } from "@zxing/browser";
+import { useBrand } from "@/components/BrandProvider";
 
 type State = "starting" | "scanning" | "approving" | "done" | "error";
 
@@ -20,6 +21,7 @@ type State = "starting" | "scanning" | "approving" | "done" | "error";
  * /api/auth/qr/approve as a same-origin fetch that DOES carry the session cookie.
  */
 function ApproveScannerModal({ onClose }: { onClose: () => void }) {
+  const brand = useBrand();
   const videoRef = useRef<HTMLVideoElement>(null);
   const controlsRef = useRef<IScannerControls | null>(null);
   const handledRef = useRef(false);
@@ -198,7 +200,7 @@ function ApproveScannerModal({ onClose }: { onClose: () => void }) {
             </button>
           ) : (
             <p className="mt-4 text-[11px] leading-relaxed text-ink-400">
-              On the other device, open the 2WayClick sign-in page and choose
+              On the other device, open the {brand.name} sign-in page and choose
               “Scan QR” to show its code.
             </p>
           )}

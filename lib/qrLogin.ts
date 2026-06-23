@@ -1,6 +1,6 @@
 import "server-only";
 import { randomBytes } from "crypto";
-import { db } from "./db";
+import { adminDb } from "./db";
 
 // ── QR "scan to sign in" handshake ───────────────────────────────────────────
 // A new device creates a LoginTicket and shows its token as a QR code. An
@@ -54,7 +54,10 @@ export type TicketPublicState =
 export async function readTicketState(
   token: string,
 ): Promise<TicketPublicState> {
-  const ticket = await db.loginTicket.findUnique({ where: { token } });
+  // adminDb: the poller is unauthenticated and has no tenant context; the token
+  // is the global credential. The state returned is deliberately coarse and
+  // exposes no tenant/identity material, so an un-scoped lookup is safe.
+  const ticket = await adminDb.loginTicket.findUnique({ where: { token } });
   if (!ticket) return { state: "not_found" };
   if (ticket.status === TICKET_STATUS.CONSUMED) return { state: "consumed" };
   if (ticket.expiresAt <= new Date()) return { state: "expired" };

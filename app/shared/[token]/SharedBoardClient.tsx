@@ -55,9 +55,12 @@ const NAME_KEY = "twayclick.clientName";
 export function SharedBoardClient({
   token,
   board,
+  brand,
 }: {
   token: string;
   board: ClientBoardDTO;
+  /** Owning tenant's brand — the logo/name the client sees on this board. */
+  brand?: { name: string; logoUrl: string | null };
 }) {
   const [clientName, setClientName] = useState("");
   const [lists, setLists] = useState(board.lists);
@@ -253,7 +256,7 @@ export function SharedBoardClient({
             <Plus className="h-4 w-4" />
             Add card
           </Button>
-          <Logo size="sm" />
+          <Logo size="sm" logoUrl={brand?.logoUrl} name={brand?.name} />
         </div>
       </header>
 

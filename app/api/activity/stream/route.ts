@@ -1,21 +1,22 @@
 import { requireUser } from "@/lib/auth";
 import { subscribeActivity, type LiveActivity } from "@/lib/notifications";
 
-// Server-Sent Events stream for the company-wide Live Activity Wall. Any signed-in
-// user opens this with an EventSource; whenever recordActivity() fires anywhere
-// in the app, the new entry is pushed down the wire and the dashboard wall
-// animates it in — no refresh. Mirrors /api/notifications/stream, but the channel
-// is shared (everyone sees the same public pulse) rather than per-user.
+// Server-Sent Events stream for the per-TENANT Live Activity Wall. Any signed-in
+// user opens this with an EventSource; whenever recordActivity() fires in their
+// tenant, the new entry is pushed down the wire and the dashboard wall animates
+// it in — no refresh. The channel is scoped to the user's tenant so one tenant's
+// activity never reaches another's wall.
 //
 // Must stay dynamic and never be cached — it's an open connection, not a doc.
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 export async function GET(req: Request) {
-  // Auth-gate the stream — the wall is for signed-in staff only — but every
-  // subscriber receives the same company-wide feed.
+  // Auth-gate the stream — the wall is for signed-in staff only. requireUser()
+  // also establishes the tenant context; we subscribe to that tenant's channel.
   const user = await requireUser().catch(() => null);
   if (!user) return new Response("Unauthorized", { status: 401 });
+  const tenantId = user.tenantId;
 
   const encoder = new TextEncoder();
 
@@ -37,7 +38,7 @@ export async function GET(req: Request) {
       send("ready", { ok: true });
 
       const onActivity = (a: LiveActivity) => send("activity", a);
-      const unsubscribe = subscribeActivity(onActivity);
+      const unsubscribe = subscribeActivity(tenantId, onActivity);
 
       // Heartbeat: a comment line every 25s keeps proxies/load balancers from
       // dropping an otherwise-idle connection.

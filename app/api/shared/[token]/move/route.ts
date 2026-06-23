@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { db, adminDb } from "@/lib/db";
 import { audit } from "@/lib/audit";
 import { notifyMany } from "@/lib/notifications";
 import { rateLimit, clientIp, LIMITS } from "@/lib/rateLimit";
 import { statusForList } from "@/lib/issues";
+import { runWithTenant } from "@/lib/tenantContext";
 
 // ── Public: client moves a card ─────────────────────────────────────────────
 // Reached from /shared/<token> with no portal login — the token is the auth.
@@ -42,13 +43,16 @@ export async function POST(
       );
     }
 
-    const project = await db.project.findUnique({
+    // The token wins: resolve project + owning tenant via adminDb (no ambient
+    // context), then run all scoped work inside that tenant.
+    const project = await adminDb.project.findUnique({
       where: { shareToken: token },
       select: {
         id: true,
         name: true,
         ownerId: true,
         boardId: true,
+        tenantId: true,
         members: { select: { userId: true } },
       },
     });
@@ -60,6 +64,7 @@ export async function POST(
       await req.json(),
     );
 
+    return await runWithTenant(project.tenantId, async () => {
     // Both the card and the destination list must live on THIS project's board.
     const [task, list] = await Promise.all([
       db.task.findFirst({
@@ -148,6 +153,7 @@ export async function POST(
     });
 
     return NextResponse.json({ ok: true, position });
+    });
   } catch (e: any) {
     if (e?.name === "ZodError") {
       return NextResponse.json({ error: "Invalid input" }, { status: 400 });

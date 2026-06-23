@@ -154,10 +154,33 @@
 }
 
 /* ── Accent palettes ───────────────────────────────────────────────────────
-   The default accent (coral) lives in the theme blocks above. Selecting a
-   different accent in Settings sets <html data-accent="…">, and these rules
-   override the --c-accent* tokens so the whole app re-tints at once. They sit
-   after the theme blocks so they win regardless of dark/light. */
+   The brand accent is injected server-side (lib/brand.ts → app/layout.tsx) as
+   the DEFAULT, scoped to :not([data-accent]) so it applies only when the user
+   hasn't picked a preset. Selecting a preset in Settings sets <html
+   data-accent="…">, and these rules override the --c-accent* tokens so the whole
+   app re-tints at once. They sit after the theme blocks and outrank the brand
+   default by specificity ([data-accent] beats :not([data-accent])).
+
+   "Coral" (data-accent="orange") is the original 2WayClick accent, kept as an
+   explicit preset a user can pick even under a different brand. Its values mirror
+   the historical :root coral. */
+[data-accent="orange"] {
+  --c-accent: 245 104 63; /* #f5683f */
+  --c-accent-600: 232 84 44; /* #e8542c */
+  --c-accent-500: 245 104 63; /* #f5683f */
+  --c-accent-400: 255 129 89; /* #ff8159 */
+  --c-accent-soft: 42 26 22; /* #2a1a16 */
+  --c-accent-ink: 255 129 89; /* #ff8159 */
+}
+[data-theme="light"][data-accent="orange"] {
+  --c-accent: 233 84 44; /* #e9542c */
+  --c-accent-600: 211 71 35; /* #d34723 */
+  --c-accent-500: 245 104 63; /* #f5683f */
+  --c-accent-400: 255 129 89; /* #ff8159 */
+  --c-accent-soft: 250 226 216; /* #fae2d8 */
+  --c-accent-ink: 194 60 26; /* #c23c1a */
+}
+
 [data-accent="violet"] {
   --c-accent: 139 92 246; /* #8b5cf6 */
   --c-accent-600: 124 58 237; /* #7c3aed */

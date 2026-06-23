@@ -12,9 +12,10 @@ import {
   ROLE_LABELS,
 } from "@/lib/permissions";
 import { DEPARTMENTS } from "@/lib/constants";
+import { pageTitle } from "@/lib/brand";
 import { UsersClient, type AdminUserRow } from "./UsersClient";
 
-export const metadata = { title: "User Management — 2WayClick" };
+export const metadata = { title: pageTitle("User Management") };
 
 const PAGE_SIZE = 12;
 

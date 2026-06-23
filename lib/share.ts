@@ -18,14 +18,29 @@ export function newShareToken(): string {
 
 /**
  * The site's base URL (no trailing slash), built from a trusted source — NOT
- * the incoming Host header, which a caller can spoof. Resolution order:
+ * the incoming Host header, which a caller can spoof.
+ *
+ * Multi-tenant: pass the current tenant's `subdomain` so the link lands on that
+ * tenant's host. When a subdomain is given AND NEXT_PUBLIC_PORTAL_DOMAIN is set,
+ * the URL is `${proto}://${subdomain}.${PORTAL_DOMAIN}` (http for a localhost
+ * base, https otherwise). Without a subdomain (or domain), resolution order is:
  *   1. NEXT_PUBLIC_APP_URL / APP_URL — set this for a custom domain.
  *   2. VERCEL_PROJECT_PRODUCTION_URL — the stable prod domain Vercel injects
  *      automatically (host only, no scheme), so links are correct on Vercel
  *      with zero config.
  *   3. localhost — local dev fallback.
  */
-export function appBaseUrl(): string {
+export function appBaseUrl(subdomain?: string | null): string {
+  // Per-tenant host wins when we know both the subdomain and the base domain.
+  const portalDomain = (process.env.NEXT_PUBLIC_PORTAL_DOMAIN ?? "").replace(
+    /\/+$/,
+    "",
+  );
+  if (subdomain && portalDomain) {
+    const proto = portalDomain.startsWith("localhost") ? "http" : "https";
+    return `${proto}://${subdomain}.${portalDomain}`;
+  }
+
   const explicit = process.env.NEXT_PUBLIC_APP_URL || process.env.APP_URL;
   if (explicit) return explicit.replace(/\/+$/, "");
 
@@ -35,7 +50,10 @@ export function appBaseUrl(): string {
   return "http://localhost:3000";
 }
 
-/** Absolute URL a client opens for a given share token. */
-export function shareUrl(token: string): string {
-  return `${appBaseUrl()}/shared/${token}`;
+/**
+ * Absolute URL a client opens for a given share token. Pass the current
+ * tenant's subdomain so the link points at that tenant's host.
+ */
+export function shareUrl(token: string, subdomain?: string | null): string {
+  return `${appBaseUrl(subdomain)}/shared/${token}`;
 }

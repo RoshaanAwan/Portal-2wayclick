@@ -29,6 +29,9 @@ export async function POST() {
     await db.loginTicket.create({
       data: {
         token,
+        // getCurrentUser established the tenant context; bind the ticket to the
+        // creating user's tenant explicitly (the create type requires it).
+        tenantId: user.tenantId,
         kind: TICKET_KIND.DIRECT_LINK,
         // Pre-authorized by its creator: bind the user and mark APPROVED so the
         // phone can sign in directly when it opens the link.

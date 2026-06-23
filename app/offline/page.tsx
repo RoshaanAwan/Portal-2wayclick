@@ -1,10 +1,11 @@
 import type { Metadata } from "next";
 import { WifiOff } from "lucide-react";
 import { Logo } from "@/components/ui/Logo";
+import { BRAND, pageTitle } from "@/lib/brand";
 import { OfflineRetry } from "./OfflineRetry";
 
 export const metadata: Metadata = {
-  title: "Offline — 2WayClick",
+  title: pageTitle("Offline"),
 };
 
 // Static fallback shown by the service worker when a navigation fails with no
@@ -26,7 +27,7 @@ export default function OfflinePage() {
           You&apos;re offline
         </h1>
         <p className="mt-2 text-sm leading-relaxed text-ink-500">
-          We couldn&apos;t reach the 2WayClick servers. Check your connection —
+          We couldn&apos;t reach the {BRAND.name} servers. Check your connection —
           your workspace will load again as soon as you&apos;re back online.
         </p>
 

@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { adminDb } from "@/lib/db";
 import { createSession } from "@/lib/auth";
 import { audit } from "@/lib/audit";
+import { runWithTenant } from "@/lib/tenantContext";
 import { TICKET_STATUS, TICKET_KIND } from "@/lib/qrLogin";
 import { rateLimit, clientIp, LIMITS } from "@/lib/rateLimit";
 
@@ -31,7 +32,9 @@ export async function POST(req: Request) {
     );
   }
 
-  const ticket = await db.loginTicket.findUnique({
+  // adminDb: keyed by the global token, before any tenant context. The ticket's
+  // own tenantId is the source of truth for the session we mint.
+  const ticket = await adminDb.loginTicket.findUnique({
     where: { token: parsed.data.token },
   });
 
@@ -46,7 +49,8 @@ export async function POST(req: Request) {
   }
 
   // Atomic single-use guard: only the request that flips the row proceeds.
-  const consumed = await db.loginTicket.updateMany({
+  // adminDb: keyed by the global token, before any tenant context.
+  const consumed = await adminDb.loginTicket.updateMany({
     where: { token: ticket.token, status: TICKET_STATUS.APPROVED },
     data: { status: TICKET_STATUS.CONSUMED },
   });
@@ -54,10 +58,12 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "This code has already been used" }, { status: 409 });
   }
 
-  const boundUser = await db.user.findUnique({
+  // adminDb: no tenant context yet. The bound user must belong to the ticket's
+  // tenant — guard against a stale/forged cross-tenant binding.
+  const boundUser = await adminDb.user.findUnique({
     where: { id: ticket.approvedById },
   });
-  if (!boundUser) {
+  if (!boundUser || boundUser.tenantId !== ticket.tenantId) {
     return NextResponse.json({ error: "Account no longer exists" }, { status: 410 });
   }
   // An account disabled after the QR was shown must not be able to sign in.
@@ -69,15 +75,18 @@ export async function POST(req: Request) {
   }
 
   // Mint a normal session — sets the httpOnly cookie on THIS (the phone's) device.
-  await createSession(boundUser.id);
+  // The session belongs to the ticket's tenant.
+  await createSession(boundUser.id, ticket.tenantId);
 
-  await audit({
-    actor: { id: boundUser.id, name: boundUser.name, role: boundUser.role },
-    action: "auth.qr_login",
-    entity: "Session",
-    targetUserId: boundUser.id,
-    summary: `${boundUser.name} signed in by scanning a device-link QR`,
-  });
+  await runWithTenant(ticket.tenantId, () =>
+    audit({
+      actor: { id: boundUser.id, name: boundUser.name, role: boundUser.role },
+      action: "auth.qr_login",
+      entity: "Session",
+      targetUserId: boundUser.id,
+      summary: `${boundUser.name} signed in by scanning a device-link QR`,
+    }),
+  );
 
   return NextResponse.json({ ok: true });
 }

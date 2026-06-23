@@ -1,18 +1,35 @@
 import type { Metadata } from "next";
 import { Smartphone, ShieldCheck, LogIn } from "lucide-react";
 import { getCurrentUser } from "@/lib/auth";
-import { db } from "@/lib/db";
+import { adminDb } from "@/lib/db";
 import { Logo } from "@/components/ui/Logo";
 import { Avatar } from "@/components/ui/Avatar";
 import { describeDevice, TICKET_STATUS, TICKET_KIND } from "@/lib/qrLogin";
 import { ApproveActions } from "./ApproveActions";
 import { DirectSignInActions } from "./DirectSignInActions";
 import { ApprovalGate } from "./ApprovalGate";
+import { pageTitle } from "@/lib/brand";
+import { resolveBrand, resolveBrandForTenant } from "@/lib/branding";
 
-export const metadata: Metadata = {
-  title: "Sign in — 2WayClick",
-  robots: { index: false, follow: false },
-};
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ token: string }>;
+}): Promise<Metadata> {
+  const { token } = await params;
+  // The token wins: the ticket's tenant decides the brand, not the request host.
+  const ticket = await adminDb.loginTicket.findUnique({
+    where: { token },
+    select: { tenantId: true },
+  });
+  const brand = ticket
+    ? await resolveBrandForTenant(ticket.tenantId)
+    : await resolveBrand();
+  return {
+    title: pageTitle("Sign in", brand.name),
+    robots: { index: false, follow: false },
+  };
+}
 
 // The page the phone opens after scanning a QR. Two flows, by ticket kind:
 //   DIRECT_LINK    — the QR was shown on a signed-in dashboard and is bound to
@@ -27,7 +44,14 @@ export default async function LinkPage({
   params: Promise<{ token: string }>;
 }) {
   const { token } = await params;
-  const ticket = await db.loginTicket.findUnique({ where: { token } });
+  // adminDb: the token is the global credential and this page may be opened by an
+  // unauthenticated phone (DIRECT_LINK), so there's no tenant context to scope by.
+  const ticket = await adminDb.loginTicket.findUnique({ where: { token } });
+  // The token wins: show the OWNING tenant's brand (from the ticket), falling
+  // back to the env brand only when the token is unknown/expired.
+  const brand = ticket
+    ? await resolveBrandForTenant(ticket.tenantId)
+    : await resolveBrand();
 
   const isDirect = ticket?.kind === TICKET_KIND.DIRECT_LINK;
 
@@ -40,7 +64,7 @@ export default async function LinkPage({
     <main className="grid min-h-screen place-items-center bg-paper px-5 py-12">
       <div className="w-full max-w-sm">
         <div className="mb-8 flex justify-center">
-          <Logo size="lg" />
+          <Logo size="lg" logoUrl={brand.logoUrl} name={brand.name} />
         </div>
         <div className="glass p-6">{children}</div>
       </div>
@@ -63,11 +87,19 @@ export default async function LinkPage({
   if (isDirect) {
     if (expired) return shell(expiredBlock);
 
+    // adminDb: no tenant context (this phone may be signed out). Confirm the
+    // bound user belongs to the ticket's tenant before showing them.
     const boundUser = ticket!.approvedById
-      ? await db.user.findUnique({ where: { id: ticket!.approvedById } })
+      ? await adminDb.user.findUnique({ where: { id: ticket!.approvedById } })
       : null;
 
-    if (!boundUser || boundUser.disabledAt) return shell(expiredBlock);
+    if (
+      !boundUser ||
+      boundUser.disabledAt ||
+      boundUser.tenantId !== ticket!.tenantId
+    ) {
+      return shell(expiredBlock);
+    }
 
     return shell(
       <>
@@ -79,7 +111,7 @@ export default async function LinkPage({
             Sign in on this device?
           </h1>
           <p className="mt-1.5 text-sm text-ink-500">
-            You scanned a sign-in code from 2WayClick. Confirm to sign in here.
+            You scanned a sign-in code from {brand.name}. Confirm to sign in here.
           </p>
         </div>
 
@@ -97,7 +129,7 @@ export default async function LinkPage({
 
         <p className="mt-4 flex items-start gap-1.5 text-[11px] leading-relaxed text-ink-400">
           <ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0 text-ink-300" />
-          Only continue if you scanned this code from your own 2WayClick screen.
+          Only continue if you scanned this code from your own {brand.name} screen.
         </p>
       </>,
     );
@@ -125,7 +157,7 @@ export default async function LinkPage({
           Approve sign-in?
         </h1>
         <p className="mt-1.5 text-sm text-ink-500">
-          A device is trying to sign in to 2WayClick as you.
+          A device is trying to sign in to {brand.name} as you.
         </p>
       </div>
 
@@ -180,6 +212,7 @@ export default async function LinkPage({
       device={device}
       ipAddress={ticket?.ipAddress ?? null}
       loginHref={`/login?next=${encodeURIComponent(`/link/${token}`)}`}
+      brandName={brand.name}
     />,
   );
 }

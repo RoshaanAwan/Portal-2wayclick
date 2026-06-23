@@ -97,6 +97,7 @@ export async function POST(req: Request) {
       const issueNumber = await nextIssueNumber(list.boardId, tx);
       return tx.task.create({
         data: {
+          tenantId: user.tenantId,
           title,
           description: description || null,
           priority,
