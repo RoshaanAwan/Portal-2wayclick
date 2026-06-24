@@ -30,14 +30,21 @@ export default async function IssuePage({
 }) {
   await getCurrentUser();
   const { key } = await params;
-  const parsed = parseIssueKey(decodeURIComponent(key));
-  if (!parsed) notFound();
+  const decoded = decodeURIComponent(key);
+  const parsed = parseIssueKey(decoded);
+
+  // Resolve either a human issue key (2WAYCL-19) or a raw card id. The id form
+  // is what the dashboard links by, so cards that haven't been assigned an
+  // issueNumber yet (key renders as "—") still deep-link correctly.
+  const where = parsed
+    ? {
+        issueNumber: parsed.number,
+        list: { board: { keyPrefix: parsed.prefix } },
+      }
+    : { id: decoded };
 
   const task = await db.task.findFirst({
-    where: {
-      issueNumber: parsed.number,
-      list: { board: { keyPrefix: parsed.prefix } },
-    },
+    where,
     include: {
       list: { select: { name: true, board: { select: { keyPrefix: true, name: true } } } },
       creator: { select: { id: true, name: true, avatarUrl: true } },
