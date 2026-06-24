@@ -1,10 +1,8 @@
 import { FolderKanban } from "lucide-react";
 import { Prisma } from "@prisma/client";
-import { unstable_cache } from "next/cache";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { getCurrentUser } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { runWithTenant } from "@/lib/tenantContext";
 import { can } from "@/lib/permissions";
 import { ProjectsClient, type ProjectDTO } from "./ProjectsClient";
 
@@ -84,64 +82,42 @@ export default async function ProjectsPage({
   const requested = Number.parseInt(sp.page ?? "1", 10);
   const safePage = Number.isFinite(requested) ? Math.max(requested, 1) : 1;
 
-  // unstable_cache runs its callback OUTSIDE the request scope: Next strips
-  // access to request APIs (cookies/headers) and the AsyncLocalStorage tenant
-  // store does not cross into it. So the scoped `db` client's usual fallbacks —
-  // tenantStore.getStore() and the session-cookie resolver — both come back
-  // empty inside the callback, the extension FAILS CLOSED, and the query throws
-  // (the live-server "no projects" bug). Resolve the tenant out here and
-  // re-establish it explicitly with runWithTenant() inside the callback so the
-  // scoped queries have a context that doesn't depend on the request scope.
-  const tenantId = user?.tenantId ?? "";
-
-  // Cache key: tenantId + all query dimensions. 30s TTL — fresh enough for live
-  // use, cheap enough to absorb repeated reloads. Mutations call
-  // revalidateTag("projects:<tenantId>") to bust immediately.
-  const fetchProjects = unstable_cache(
-    async () =>
-      runWithTenant(tenantId, () =>
-        Promise.all([
-        db.project.groupBy({
-          by: ["active", "completedAt"],
-          where: countBase,
-          _count: { _all: true },
-        }),
-        db.project.findMany({
-          orderBy: { createdAt: "desc" },
-          where,
-          skip: (safePage - 1) * PAGE_SIZE,
-          take: PAGE_SIZE,
+  // Query directly within the live request scope (no unstable_cache) so the
+  // scoped `db` client resolves the tenant from the request context the same way
+  // every other page does. The status-count groupBy and the first-page fetch are
+  // independent, so run them in parallel.
+  mark = performance.now();
+  const [grouped, projects] = await Promise.all([
+    db.project.groupBy({
+      by: ["active", "completedAt"],
+      where: countBase,
+      _count: { _all: true },
+    }),
+    db.project.findMany({
+      orderBy: { createdAt: "desc" },
+      where,
+      skip: (safePage - 1) * PAGE_SIZE,
+      take: PAGE_SIZE,
+      include: {
+        owner: { select: { id: true, name: true, avatarUrl: true } },
+        _count: { select: { members: true } },
+        members: {
+          take: 5,
           include: {
-            owner: { select: { id: true, name: true, avatarUrl: true } },
-            _count: { select: { members: true } },
-            members: {
-              take: 5,
-              include: {
-                user: {
-                  select: { id: true, name: true, avatarUrl: true, title: true },
-                },
-              },
-            },
-            board: {
-              select: {
-                id: true,
-                _count: { select: { lists: true } },
-              },
+            user: {
+              select: { id: true, name: true, avatarUrl: true, title: true },
             },
           },
-        }),
-        ]),
-      ),
-    // Cache key: one entry per tenant + filter combination.
-    [`projects`, tenantId, status, q, String(safePage)],
-    {
-      revalidate: 30,
-      tags: [`projects:${tenantId}`],
-    },
-  );
-
-  mark = performance.now();
-  const [grouped, projects] = await fetchProjects();
+        },
+        board: {
+          select: {
+            id: true,
+            _count: { select: { lists: true } },
+          },
+        },
+      },
+    }),
+  ]);
 
   lap("groupBy + findMany (parallel, cached)", mark);
 
@@ -199,11 +175,8 @@ export default async function ProjectsPage({
     name: p.name,
     description: p.description,
     active: p.active,
-    // `unstable_cache` serializes its result through JSON, so on a cache HIT
-    // these arrive as ISO strings, while on a MISS they're Date objects.
-    // Normalize both via `new Date(...)` before calling toISOString().
-    completedAt: p.completedAt ? new Date(p.completedAt).toISOString() : null,
-    createdAt: new Date(p.createdAt).toISOString(),
+    completedAt: p.completedAt ? p.completedAt.toISOString() : null,
+    createdAt: p.createdAt.toISOString(),
     owner: {
       id: p.owner.id,
       name: p.owner.name,
