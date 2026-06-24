@@ -61,7 +61,7 @@ export function isBypass(): boolean {
  */
 export function enterTenant(tenantId: string): void {
   const cur = tenantStore.getStore();
-  if (cur?.tenantId === tenantId && !cur.bypass) return;
+  if (cur?.tenantId === tenantId && !cur?.bypass) return;
   tenantStore.enterWith({ tenantId });
 }
 

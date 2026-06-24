@@ -28,12 +28,39 @@ function daysFromNow(n: number) {
 async function main() {
   console.log("🌱 Seeding 2WayClick portal...");
 
-  // Ensure the tenant exists (scripts run outside any request context, so use
-  // the raw adminDb here and pass tenantId explicitly).
+  // Ensure both tenants exist.
+  await adminDb.tenant.upsert({
+    where: { id: "system" },
+    update: {},
+    create: { id: "system", subdomain: "system", name: "Platform" },
+  });
   await adminDb.tenant.upsert({
     where: { id: TENANT_ID },
     update: {},
     create: { id: TENANT_ID, subdomain: "default", name: "2WayClick" },
+  });
+
+  // Seed the System Owner into the system tenant (outside runWithTenant so we
+  // can set tenantId + isSystemOwner explicitly via adminDb).
+  const pw = await bcrypt.hash("password123", 10);
+  await adminDb.user.upsert({
+    where: { tenantId_email: { tenantId: "system", email: "root.admin@2wayclick.com" } },
+    update: {},
+    create: {
+      tenantId: "system",
+      email: "root.admin@2wayclick.com",
+      passwordHash: pw,
+      name: "Root Admin",
+      title: "Platform Owner",
+      department: "Platform",
+      role: Role.SUPER_ADMIN,
+      isSystemOwner: true,
+      location: "Remote",
+      avatarUrl: "https://i.pravatar.cc/200?img=1",
+      phone: "+1 (555) 100-1000",
+      bio: "Platform administrator.",
+      startDate: new Date(),
+    },
   });
 
   // Everything below runs inside the tenant context so the scoped `db` client
@@ -57,11 +84,7 @@ async function main() {
   await db.session.deleteMany();
   await db.user.deleteMany();
 
-  const pw = await bcrypt.hash("password123", 10);
-
   const people = [
-    // Dedicated platform owner — full access + all audit logs.
-    { name: "Root Admin", title: "Platform Owner", department: "Executive", role: Role.SUPER_ADMIN, location: "Remote", avatar: 1 },
     { name: "Ava Chen", title: "CEO", department: "Executive", role: Role.SUPER_ADMIN, location: "San Francisco", avatar: 12 },
     { name: "Marcus Reyes", title: "VP Engineering", department: "Engineering", role: Role.ADMIN, location: "Austin", avatar: 13 },
     { name: "Priya Nair", title: "Head of People", department: "People", role: Role.HR, location: "Remote", avatar: 5 },

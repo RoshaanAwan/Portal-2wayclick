@@ -2,6 +2,8 @@ import { getCurrentUser } from "@/lib/auth";
 import { isAdminTier } from "@/lib/permissions";
 import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
+import { runWithTenant } from "@/lib/tenantContext";
+import { currentRequestTenantId } from "@/lib/tenant";
 import { DONE_LIST_KEYWORDS } from "@/lib/teamPulse";
 import { Hero } from "./Hero";
 import { StatTiles } from "./StatTiles";
@@ -10,8 +12,8 @@ import { RightRail } from "./RightRail";
 import { HeadcountChartLazy } from "./HeadcountChartLazy";
 
 export default async function DashboardPage() {
-  const user = await getCurrentUser();
-  if (!user) redirect("/login");
+  const [user, tenantId] = await Promise.all([getCurrentUser(), currentRequestTenantId()]);
+  if (!user || !tenantId) redirect("/login");
 
   // Directory is admin tier only — drives whether we surface links to it.
   const canSeeDirectory = isAdminTier(user.role);
@@ -19,6 +21,8 @@ export default async function DashboardPage() {
   const now = new Date();
 
   // Fetch everything in parallel — this is the landing page, keep it snappy.
+  // runWithTenant ensures the ALS tenant context is propagated to all concurrent
+  // branches of Promise.all (enterWith from getCurrentUser may not reach them).
   const [
     userCount,
     openAnnouncements,
@@ -30,7 +34,7 @@ export default async function DashboardPage() {
     deptGroups,
     outTodayCount,
     openTaskCount,
-  ] = await Promise.all([
+  ] = await runWithTenant(tenantId, () => Promise.all([
     db.user.count(),
     db.announcement.count(),
     db.leaveRequest.count({ where: { status: "PENDING" } }),
@@ -77,7 +81,7 @@ export default async function DashboardPage() {
         },
       },
     }),
-  ]);
+  ]));
 
   // "Available now" = everyone not on leave today. Snapshot for the hero pills.
   const todayStats = {
