@@ -10,24 +10,32 @@ import type { MemberDTO, ProjectDTO } from "./ProjectsClient";
 
 export function MemberManager({
   project,
-  roster,
   onClose,
 }: {
   project: ProjectDTO | null;
-  roster: MemberDTO[];
   onClose: () => void;
 }) {
   const router = useRouter();
   const [query, setQuery] = useState("");
-  // Optimistic set of member ids for the open project.
   const [memberIds, setMemberIds] = useState<Set<string>>(new Set());
   const [pending, setPending] = useState<string | null>(null);
+  const [roster, setRoster] = useState<MemberDTO[]>([]);
 
-  // Re-seed the optimistic set whenever a different project opens.
+  // Re-seed member ids + fetch roster when a different project opens.
   useEffect(() => {
-    if (project) setMemberIds(new Set(project.members.map((m) => m.id)));
+    if (!project) return;
     setQuery("");
-  }, [project]);
+    // Fetch full member id list (page only carries 5 avatars for the stack).
+    fetch(`/api/projects/${project.id}/members`)
+      .then((r) => r.json())
+      .then((data) => Array.isArray(data) && setMemberIds(new Set(data)))
+      .catch(() => setMemberIds(new Set(project.members.map((m) => m.id))));
+    // Fetch roster in parallel.
+    fetch("/api/projects/roster")
+      .then((r) => r.json())
+      .then((data) => Array.isArray(data) && setRoster(data))
+      .catch(() => {});
+  }, [project?.id]);
 
   // Close on Escape.
   useEffect(() => {
@@ -43,7 +51,7 @@ export function MemberManager({
 
   async function toggle(member: MemberDTO, add: boolean) {
     if (!project || pending) return;
-    if (!add && member.id === project.owner.id) return; // owner is locked in
+    if (!add && member.id === project.owner.id) return;
 
     setPending(member.id);
     setMemberIds((prev) => {
@@ -61,7 +69,6 @@ export function MemberManager({
     if (res.ok) {
       router.refresh();
     } else {
-      // Roll back on failure.
       setMemberIds((prev) => {
         const next = new Set(prev);
         add ? next.delete(member.id) : next.add(member.id);
@@ -137,7 +144,11 @@ export function MemberManager({
               </div>
 
               <div className="max-h-[55vh] space-y-0.5 overflow-y-auto">
-                {filtered.length === 0 ? (
+                {roster.length === 0 ? (
+                  <p className="px-2 py-6 text-center text-xs text-ink-400">
+                    Loading…
+                  </p>
+                ) : filtered.length === 0 ? (
                   <p className="px-2 py-6 text-center text-xs text-ink-400">
                     No matches
                   </p>
@@ -153,9 +164,7 @@ export function MemberManager({
                         onClick={() => toggle(m, !isMember)}
                         className={cn(
                           "flex w-full items-center gap-3 rounded-xl px-2.5 py-2 text-left transition-colors",
-                          isOwner
-                            ? "cursor-default"
-                            : "hover-surface",
+                          isOwner ? "cursor-default" : "hover-surface",
                           isMember && "bg-accent-soft/40",
                         )}
                       >

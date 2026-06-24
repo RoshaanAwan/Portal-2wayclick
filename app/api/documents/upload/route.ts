@@ -1,16 +1,20 @@
 import { NextResponse } from "next/server";
-import { put } from "@vercel/blob";
 import { requireTenantUser } from "@/lib/auth";
 import { audit } from "@/lib/audit";
+import {
+  uploadToTenantDrive,
+  DriveNotConnectedError,
+  DriveError,
+} from "@/lib/integrations/driveStorage";
 
-// Uploads a document file (multipart/form-data, field "file") to Vercel Blob and
-// returns the hosted URL plus metadata derived from the file itself (type key +
-// size in KB). Mirrors the avatar upload route: when BLOB_READ_WRITE_TOKEN isn't
-// set (local dev), it falls back to an inline data URL so uploads still work
-// end-to-end without extra setup.
+// Uploads a document file (multipart/form-data, field "file") into the TENANT'S
+// Google Drive (the company owner's connected Drive — the workspace storage
+// backend) and returns the file's link + metadata. No Vercel/base64 fallback:
+// if the owner hasn't connected a Drive, the upload is blocked with a clear
+// message asking them to connect it.
 //
 // The /api/documents/create step persists the returned url/sizeKb/fileType onto
-// the Document row — so a card's "Download" actually downloads.
+// the Document row — so a card's "Download" actually opens the file in Drive.
 
 const MAX_BYTES = 25 * 1024 * 1024; // 25 MB — generous for a shared doc.
 
@@ -58,44 +62,37 @@ export async function POST(req: Request) {
     const fileType = detectFileType(file.name, file.type);
     const sizeKb = Math.max(1, Math.round(file.size / 1024));
 
-    if (process.env.BLOB_READ_WRITE_TOKEN) {
-      // Preserve the original filename under a per-user path; random suffix keeps
-      // re-uploads of the same name from clobbering each other.
-      const safeName = file.name.replace(/[^\w.\-]+/g, "_").slice(0, 80) || "file";
-      const blob = await put(`documents/${user.id}/${safeName}`, file, {
-        access: "public",
-        addRandomSuffix: true,
-        contentType: file.type || "application/octet-stream",
-      });
-
-      await audit({
-        actor: user,
-        action: "document.upload",
-        entity: "Document",
-        summary: `${user.name} uploaded a document file`,
-        detail: { name: file.name, fileType, sizeKb },
-      });
-
-      return NextResponse.json({ ok: true, url: blob.url, fileType, sizeKb, name: file.name });
-    }
-
-    // Local-dev fallback: inline data URL (works for download, stays in the row).
     const bytes = Buffer.from(await file.arrayBuffer());
-    const mime = file.type || "application/octet-stream";
-    const dataUrl = `data:${mime};base64,${bytes.toString("base64")}`;
+    const uploaded = await uploadToTenantDrive(user.tenantId, {
+      name: file.name || "document",
+      mimeType: file.type || "application/octet-stream",
+      bytes,
+    });
 
     await audit({
       actor: user,
       action: "document.upload",
       entity: "Document",
       summary: `${user.name} uploaded a document file`,
-      detail: { name: file.name, fileType, sizeKb },
+      detail: { name: file.name, fileType, sizeKb, driveId: uploaded.id },
     });
 
-    return NextResponse.json({ ok: true, url: dataUrl, fileType, sizeKb, name: file.name });
+    return NextResponse.json({
+      ok: true,
+      url: uploaded.webViewLink ?? "#",
+      fileType,
+      sizeKb,
+      name: file.name,
+    });
   } catch (e: any) {
     if (e?.message === "UNAUTHENTICATED") {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    if (e instanceof DriveNotConnectedError) {
+      return NextResponse.json({ error: e.message }, { status: 400 });
+    }
+    if (e instanceof DriveError) {
+      return NextResponse.json({ error: e.message }, { status: e.status });
     }
     console.error("[documents.upload]", e);
     return NextResponse.json({ error: "Upload failed" }, { status: 500 });

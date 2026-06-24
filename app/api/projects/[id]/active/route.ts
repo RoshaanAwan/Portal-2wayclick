@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { revalidateTag } from "next/cache";
 import { requireTenantUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { audit } from "@/lib/audit";
@@ -44,6 +45,7 @@ export async function PATCH(
       detail: { active },
     });
 
+    revalidateTag(`projects:${actor.tenantId}`, "default");
     return NextResponse.json({ ok: true });
   } catch (e: any) {
     if (e?.message === "UNAUTHENTICATED")

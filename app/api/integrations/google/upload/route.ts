@@ -1,19 +1,19 @@
 import { NextResponse } from "next/server";
 import { requireTenantUser } from "@/lib/auth";
 import { audit } from "@/lib/audit";
+import { runWithTenant } from "@/lib/tenantContext";
 import {
   uploadToTenantDrive,
   DriveNotConnectedError,
   DriveError,
 } from "@/lib/integrations/driveStorage";
 
-// Accepts a single image file (multipart/form-data, field "file") and saves it
-// into the TENANT'S Google Drive (the company owner's connected Drive), returning
-// a link to store on user.avatarUrl. No Vercel/base64 fallback: if the owner
-// hasn't connected a Drive, the upload is blocked with a clear message.
+// Uploads a file from the portal into the TENANT'S Google Drive (the company
+// owner's connected Drive — the workspace storage). Any member can upload; it
+// lands in the owner's Drive. The file never persists on the portal — it streams
+// straight to Drive. Cap the size so a request can't buffer something huge.
 
-const MAX_BYTES = 4 * 1024 * 1024; // 4 MB — generous for a profile photo.
-const ALLOWED = new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]);
+const MAX_BYTES = 25 * 1024 * 1024; // 25 MB
 
 export async function POST(req: Request) {
   try {
@@ -21,40 +21,36 @@ export async function POST(req: Request) {
 
     const form = await req.formData();
     const file = form.get("file");
-
     if (!(file instanceof File)) {
       return NextResponse.json({ error: "No file uploaded." }, { status: 400 });
     }
-    if (!ALLOWED.has(file.type)) {
-      return NextResponse.json(
-        { error: "Use a JPEG, PNG, WebP, or GIF image." },
-        { status: 400 },
-      );
-    }
     if (file.size > MAX_BYTES) {
       return NextResponse.json(
-        { error: "Image must be 4 MB or smaller." },
+        { error: "File must be 25 MB or smaller." },
         { status: 400 },
       );
     }
 
     const bytes = Buffer.from(await file.arrayBuffer());
     const uploaded = await uploadToTenantDrive(user.tenantId, {
-      name: `avatar-${user.id}.${file.type.split("/")[1]?.replace("jpeg", "jpg") ?? "png"}`,
-      mimeType: file.type,
+      name: file.name || "upload",
+      mimeType: file.type || "application/octet-stream",
       bytes,
     });
 
-    await audit({
-      actor: user,
-      action: "user.avatar_update",
-      entity: "User",
-      entityId: user.id,
-      targetUserId: user.id,
-      summary: `${user.name} updated their profile photo`,
-      detail: { driveId: uploaded.id },
-    });
-    return NextResponse.json({ ok: true, url: uploaded.webViewLink ?? "#" });
+    await runWithTenant(user.tenantId, () =>
+      audit({
+        actor: user,
+        action: "integration.update",
+        entity: "GoogleDriveConnection",
+        entityId: user.id,
+        targetUserId: user.id,
+        summary: `${user.name} uploaded "${uploaded.name}" to the workspace Drive`,
+        detail: { fileId: uploaded.id, size: uploaded.size },
+      }),
+    );
+
+    return NextResponse.json({ ok: true, file: uploaded });
   } catch (e: any) {
     if (e?.message === "UNAUTHENTICATED") {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -65,7 +61,7 @@ export async function POST(req: Request) {
     if (e instanceof DriveError) {
       return NextResponse.json({ error: e.message }, { status: e.status });
     }
-    console.error("[avatar.upload]", e);
+    console.error("[google.upload]", e);
     return NextResponse.json({ error: "Upload failed" }, { status: 500 });
   }
 }

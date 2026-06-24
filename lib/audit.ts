@@ -1,7 +1,8 @@
 import "server-only";
-import { headers, cookies } from "next/headers";
-import { db, adminDb } from "./db";
+import { headers } from "next/headers";
+import { db } from "./db";
 import { requireTenantId } from "./tenantContext";
+import { loadSession } from "./session";
 import type { SafeUser } from "./auth";
 
 const SESSION_COOKIE = "twayclick_session";
@@ -90,6 +91,7 @@ export type AuditAction =
   | "project.share_delete"
   | "branding.update"
   | "branding.logo_update"
+  | "integration.update"
   | "tenant.create"
   | "tenant.suspend"
   | "tenant.reactivate"
@@ -124,12 +126,8 @@ async function clientMeta(): Promise<{ ip: string | null; userAgent: string | nu
 /** The System Owner id if the current session is an impersonation, else null. */
 async function currentImpersonator(): Promise<string | null> {
   try {
-    const token = (await cookies()).get(SESSION_COOKIE)?.value;
-    if (!token) return null;
-    const s = await adminDb.session.findUnique({
-      where: { token },
-      select: { impersonatedBy: true },
-    });
+    // Re-use the once-per-request cached session — avoids a second DB round-trip.
+    const s = await loadSession();
     return s?.impersonatedBy ?? null;
   } catch {
     return null;

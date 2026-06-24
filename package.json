@@ -7,7 +7,7 @@
     "dev": "next dev",
     "build": "prisma generate && prisma migrate deploy && NODE_OPTIONS='--max-old-space-size=2048' next build",
     "start": "next start",
-    "lint": "next lint",
+    "lint": "tsc --noEmit --skipLibCheck",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:integration": "vitest run --config vitest.integration.config.ts",

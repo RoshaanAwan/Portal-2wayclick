@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { headers } from "next/headers";
+import { revalidateTag } from "next/cache";
 import { requireTenantUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { audit } from "@/lib/audit";
@@ -73,6 +74,8 @@ export async function POST(req: Request) {
       summary: `${actor.name} created project “${name}”`,
       detail: { name, memberCount: allMemberIds.length },
     });
+
+    revalidateTag(`projects:${actor.tenantId}`, "default");
 
     // Build the share link on this tenant's host (subdomain from middleware).
     const subdomain = (await headers()).get("x-tenant-subdomain");

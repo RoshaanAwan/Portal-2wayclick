@@ -52,7 +52,8 @@ export interface ProjectDTO {
   owner: { id: string; name: string; avatarUrl: string | null };
   listCount: number;
   cardCount: number;
-  members: MemberDTO[];
+  memberCount: number;
+  members: MemberDTO[]; // first 5 only, for avatar stack
 }
 
 export type StatusFilter = "ALL" | "ACTIVE" | "INACTIVE" | "COMPLETED";
@@ -71,7 +72,6 @@ const VIEW_STORAGE_KEY = "projects.view";
 
 export function ProjectsClient({
   projects,
-  roster,
   isAdmin,
   status,
   statusCounts,
@@ -80,7 +80,6 @@ export function ProjectsClient({
   pageCount,
 }: {
   projects: ProjectDTO[];
-  roster: MemberDTO[];
   isAdmin: boolean;
   status: StatusFilter;
   statusCounts: Record<StatusFilter, number>;
@@ -272,7 +271,6 @@ export function ProjectsClient({
             className="mb-6 overflow-hidden"
           >
             <ProjectComposer
-              roster={roster}
               onDone={() => setComposing(false)}
             />
           </motion.div>
@@ -365,7 +363,6 @@ export function ProjectsClient({
         <>
           <MemberManager
             project={managing}
-            roster={roster}
             onClose={() => setManaging(null)}
           />
           <ProjectEditor project={editing} onClose={() => setEditing(null)} />
@@ -454,15 +451,14 @@ function ProjectCard({
         </span>
         <span className="inline-flex items-center gap-1">
           <Users className="h-3.5 w-3.5" />
-          {project.members.length}
+          {project.memberCount}
         </span>
         <span className="ml-auto">{timeAgo(project.createdAt)}</span>
       </div>
 
       <div className="mt-4 flex items-center justify-between border-t border-line pt-3.5">
-        {/* Member avatar stack */}
         <div className="flex items-center">
-          {project.members.slice(0, 4).map((m, i) => (
+          {project.members.map((m, i) => (
             <div
               key={m.id}
               className={cn("rounded-full ring-2 ring-surface", i > 0 && "-ml-2")}
@@ -470,9 +466,9 @@ function ProjectCard({
               <Avatar name={m.name} src={m.avatarUrl} size="xs" />
             </div>
           ))}
-          {project.members.length > 4 && (
+          {project.memberCount > project.members.length && (
             <span className="-ml-2 grid h-6 w-6 place-items-center rounded-full bg-surface-2 text-[9px] font-semibold text-ink-400 ring-2 ring-surface">
-              +{project.members.length - 4}
+              +{project.memberCount - project.members.length}
             </span>
           )}
         </div>
@@ -729,7 +725,7 @@ function ProjectRow({
         </span>
         <span className="inline-flex items-center gap-1">
           <Users className="h-3.5 w-3.5" />
-          {project.members.length}
+          {project.memberCount}
         </span>
         <span className="w-16 text-right">{timeAgo(project.createdAt)}</span>
       </div>

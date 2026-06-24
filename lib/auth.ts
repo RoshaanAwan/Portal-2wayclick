@@ -105,22 +105,24 @@ export async function destroySession(): Promise<void> {
  * Wrapped in React.cache() so the store entry happens once per request.
  */
 export const getCurrentUser = cache(async () => {
-  const session = await loadSession();
+  // Run the session DB lookup and the tenant subdomain lookup in parallel —
+  // both need a DB round-trip and neither depends on the other's result.
+  const hdrs = await headers();
+  const subdomain = hdrs.get(TENANT_SUBDOMAIN_HEADER);
+
+  const [session, hostTenantId] = await Promise.all([
+    loadSession(),
+    subdomain ? tenantIdForSubdomain(subdomain) : Promise.resolve(null),
+  ]);
+
   if (!session) return null;
 
   // Reject a session whose tenant doesn't match the host it arrived on. System
   // Owners are exempt: they live on the reserved "system" tenant and browse the
-  // platform area on the bare host. (Impersonation sessions are NORMAL tenant
-  // sessions for the target user — isSystemOwner is false there — so they don't
-  // rely on this exemption.)
+  // platform area on the bare host.
   if (!session.user.isSystemOwner) {
-    const hdrs = await headers();
-    const subdomain = hdrs.get(TENANT_SUBDOMAIN_HEADER);
-    if (subdomain) {
-      const hostTenantId = await tenantIdForSubdomain(subdomain);
-      if (hostTenantId && hostTenantId !== session.tenantId) {
-        return null;
-      }
+    if (hostTenantId && hostTenantId !== session.tenantId) {
+      return null;
     }
   }
 

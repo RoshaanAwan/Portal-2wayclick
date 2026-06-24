@@ -49,6 +49,8 @@ model Tenant {
   expenses      Expense[]
   userSalaries  UserSalary[]
   branding      BrandingSettings?
+  integrations  Integration[]
+  driveConns    GoogleDriveConnection[]
 
   @@index([status])
 }
@@ -130,6 +132,7 @@ model User {
   conversationMemberships ConversationMember[] @relation("ConvMembership")
   sentMessages            Message[]            @relation("MessageSender")
   createdConversations    Conversation[]       @relation("ConversationCreator")
+  driveConnection         GoogleDriveConnection?
 
   // The org tree is walked by managerId (Team Pulse, org chart, audit scope).
   // Postgres does not auto-index FK columns, so this is needed for the
@@ -555,6 +558,10 @@ model Project {
 
   @@index([ownerId])
   @@index([tenantId])
+  // Projects list page filters by tenantId+active+completedAt and sorts by
+  // createdAt desc — this composite covers both the filter and the sort so
+  // Postgres never does a full tenant scan.
+  @@index([tenantId, active, completedAt, createdAt(sort: Desc)])
 }
 
 // ── Client submissions ────────────────────────────────────────────────────────
@@ -1304,4 +1311,78 @@ model BrandingSettings {
 
   updatedAt DateTime @updatedAt
   updatedBy String? // user id of the admin who last saved
+}
+
+// ── Integrations ──────────────────────────────────────────────────────────────
+// Per-tenant enablement + config for the third-party app tiles on /tools (Slack,
+// GitHub, Jira, …). The catalog (icons, default homepage, copy) lives in code
+// (lib/integrations.ts); this table stores only the per-tenant state an Admin
+// sets: whether it's enabled and an optional workspace URL/key to deep-link to.
+// One row per (tenant, provider). A provider with NO row is treated as disabled
+// — the catalog defines what's *available*, this defines what's *on*.
+model Integration {
+  id String @id @default(cuid())
+
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  // Stable catalog key, e.g. "slack" | "github" | "jira". Matches a Provider in
+  // lib/integrations.ts; unknown keys are ignored when rendering.
+  provider String
+
+  // Whether this tenant has switched the integration on.
+  enabled Boolean @default(false)
+
+  // Optional per-tenant workspace URL the tile deep-links to instead of the
+  // provider's public homepage, e.g. "https://acme.slack.com". Null = use the
+  // catalog default href.
+  workspaceUrl String?
+
+  // Encrypted credential (e.g. a GitHub PAT), AES-256-GCM via lib/cryptoBox.ts.
+  // NEVER selected into client-facing payloads — only read server-side when
+  // calling the provider's API. Null = not yet connected.
+  secret String?
+
+  // Non-secret per-provider config as JSON, e.g. GitHub's { org, repos: [] }.
+  // Shape is provider-specific and validated in code, not the DB.
+  config Json?
+
+  updatedAt DateTime @updatedAt
+  updatedBy String? // user id of the admin who last saved
+
+  @@unique([tenantId, provider])
+  @@index([tenantId])
+}
+
+// ── Google Drive (per-USER connection) ────────────────────────────────────────
+// Unlike the tenant-wide Integration row (which is the admin on/off switch for
+// the Drive *tile*), this is per individual user: each person connects THEIR own
+// Google account via OAuth so files they upload in the portal land in THEIR
+// Drive. One row per user. The refresh token is encrypted at rest (cryptoBox);
+// tenantId is carried so the row is tenant-scopable like the other models.
+model GoogleDriveConnection {
+  id String @id @default(cuid())
+
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  // The owning user — one connection per user.
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // The connected Google account's email (display only).
+  googleEmail String?
+
+  // Encrypted OAuth refresh token (AES-256-GCM via lib/cryptoBox.ts). Used to
+  // mint short-lived access tokens. NEVER returned to the client.
+  refreshToken String
+
+  // Optional Drive folder id to upload into (else the Drive root / "My Drive").
+  folderId   String?
+  folderName String?
+
+  connectedAt DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([tenantId])
 }

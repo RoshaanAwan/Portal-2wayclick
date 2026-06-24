@@ -1,14 +1,17 @@
 import { NextResponse } from "next/server";
-import { put } from "@vercel/blob";
 import { requireTenantUser } from "@/lib/auth";
 import { can } from "@/lib/permissions";
 import { audit } from "@/lib/audit";
+import {
+  uploadToTenantDrive,
+  DriveNotConnectedError,
+  DriveError,
+} from "@/lib/integrations/driveStorage";
 
-// Uploads an expense receipt/slip (multipart/form-data, field "file") to Vercel
-// Blob and returns the hosted URL plus name + size. Used by the expense form.
-// Mirrors /api/documents/upload: when BLOB_READ_WRITE_TOKEN isn't set (local
-// dev) it falls back to an inline data URL so uploads work end-to-end with no
-// extra setup.
+// Uploads an expense receipt/slip (multipart/form-data, field "file") into the
+// TENANT'S Google Drive (the company owner's connected Drive) and returns its
+// link + name + size. Used by the expense form. No Vercel/base64 fallback: if
+// the owner hasn't connected a Drive, the upload is blocked with a clear message.
 //
 // Admin-tier only — same gate as the rest of the finance module. The create
 // step persists the returned url/name/sizeKb onto the Expense.
@@ -59,38 +62,36 @@ export async function POST(req: Request) {
 
     const sizeKb = Math.max(1, Math.round(file.size / 1024));
 
-    if (process.env.BLOB_READ_WRITE_TOKEN) {
-      const safeName = file.name.replace(/[^\w.\-]+/g, "_").slice(0, 80) || "slip";
-      const blob = await put(`expense-slips/${user.id}/${safeName}`, file, {
-        access: "public",
-        addRandomSuffix: true,
-        contentType: file.type || "application/octet-stream",
-      });
-
-      await audit({
-        actor: user,
-        action: "expense.create",
-        entity: "Expense",
-        summary: `${user.name} uploaded an expense slip`,
-        detail: { name: file.name, sizeKb },
-      });
-
-      return NextResponse.json({
-        ok: true,
-        url: blob.url,
-        name: file.name,
-        sizeKb,
-      });
-    }
-
-    // Local-dev fallback: inline data URL.
     const bytes = Buffer.from(await file.arrayBuffer());
-    const mime = file.type || "application/octet-stream";
-    const dataUrl = `data:${mime};base64,${bytes.toString("base64")}`;
-    return NextResponse.json({ ok: true, url: dataUrl, name: file.name, sizeKb });
+    const uploaded = await uploadToTenantDrive(user.tenantId, {
+      name: file.name || "receipt",
+      mimeType: file.type || "application/octet-stream",
+      bytes,
+    });
+
+    await audit({
+      actor: user,
+      action: "expense.create",
+      entity: "Expense",
+      summary: `${user.name} uploaded an expense slip`,
+      detail: { name: file.name, sizeKb, driveId: uploaded.id },
+    });
+
+    return NextResponse.json({
+      ok: true,
+      url: uploaded.webViewLink ?? "#",
+      name: file.name,
+      sizeKb,
+    });
   } catch (e: any) {
     if (e?.message === "UNAUTHENTICATED") {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    if (e instanceof DriveNotConnectedError) {
+      return NextResponse.json({ error: e.message }, { status: 400 });
+    }
+    if (e instanceof DriveError) {
+      return NextResponse.json({ error: e.message }, { status: e.status });
     }
     console.error("[finance.upload]", e);
     return NextResponse.json({ error: "Upload failed" }, { status: 500 });

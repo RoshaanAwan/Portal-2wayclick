@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { Check, FolderPlus } from "lucide-react";
@@ -10,19 +10,22 @@ import { Avatar } from "@/components/ui/Avatar";
 import { cn } from "@/lib/utils";
 import type { MemberDTO } from "./ProjectsClient";
 
-export function ProjectComposer({
-  roster,
-  onDone,
-}: {
-  roster: MemberDTO[];
-  onDone: () => void;
-}) {
+export function ProjectComposer({ onDone }: { onDone: () => void }) {
   const router = useRouter();
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [memberIds, setMemberIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [roster, setRoster] = useState<MemberDTO[]>([]);
+
+  // Fetch roster once when the composer mounts (admin clicked "New project").
+  useEffect(() => {
+    fetch("/api/projects/roster")
+      .then((r) => r.json())
+      .then((data) => Array.isArray(data) && setRoster(data))
+      .catch(() => {});
+  }, []);
 
   const canSubmit = name.trim().length >= 2;
 
@@ -118,33 +121,39 @@ export function ProjectComposer({
             </span>
           </label>
           <div className="max-h-56 space-y-0.5 overflow-y-auto rounded-xl border border-line bg-surface-2 p-1.5">
-            {roster.map((m) => {
-              const selected = memberIds.has(m.id);
-              return (
-                <button
-                  key={m.id}
-                  type="button"
-                  onClick={() => toggleMember(m.id)}
-                  className={cn(
-                    "hover-surface flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left",
-                    selected && "bg-accent-soft/50",
-                  )}
-                >
-                  <Avatar name={m.name} src={m.avatarUrl} size="xs" />
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-xs font-medium text-ink">
-                      {m.name}
-                    </p>
-                    <p className="truncate text-[10px] text-ink-400">
-                      {m.title}
-                    </p>
-                  </div>
-                  {selected && (
-                    <Check className="h-3.5 w-3.5 shrink-0 text-accent" />
-                  )}
-                </button>
-              );
-            })}
+            {roster.length === 0 ? (
+              <p className="px-2 py-4 text-center text-xs text-ink-400">
+                Loading…
+              </p>
+            ) : (
+              roster.map((m) => {
+                const selected = memberIds.has(m.id);
+                return (
+                  <button
+                    key={m.id}
+                    type="button"
+                    onClick={() => toggleMember(m.id)}
+                    className={cn(
+                      "hover-surface flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left",
+                      selected && "bg-accent-soft/50",
+                    )}
+                  >
+                    <Avatar name={m.name} src={m.avatarUrl} size="xs" />
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-xs font-medium text-ink">
+                        {m.name}
+                      </p>
+                      <p className="truncate text-[10px] text-ink-400">
+                        {m.title}
+                      </p>
+                    </div>
+                    {selected && (
+                      <Check className="h-3.5 w-3.5 shrink-0 text-accent" />
+                    )}
+                  </button>
+                );
+              })
+            )}
           </div>
           <p className="mt-1.5 text-[11px] text-ink-400">
             {memberIds.size} selected

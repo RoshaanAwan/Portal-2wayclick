@@ -23,6 +23,7 @@ import {
   Banknote,
   MessageSquare,
   Palette,
+  Blocks,
   X,
 } from "lucide-react";
 import { useState } from "react";
@@ -117,6 +118,10 @@ export function Sidebar({ role }: { role?: string | null }) {
     // Branding — admin tier (white-label name, colors, logo).
     ...(can.manageBranding(role)
       ? [{ href: "/admin/branding", label: "Branding", icon: Palette }]
+      : []),
+    // Integrations — admin tier (enable/configure third-party app tiles).
+    ...(can.manageIntegrations(role)
+      ? [{ href: "/admin/integrations", label: "Integrations", icon: Blocks }]
       : []),
     // (Tenant management lives in the separate /system area for System Owners —
     // never in the tenant sidebar.)

@@ -1,10 +1,11 @@
 import { FolderKanban } from "lucide-react";
 import { Prisma } from "@prisma/client";
+import { unstable_cache } from "next/cache";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { getCurrentUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { can } from "@/lib/permissions";
-import { ProjectsClient, type ProjectDTO, type MemberDTO } from "./ProjectsClient";
+import { ProjectsClient, type ProjectDTO } from "./ProjectsClient";
 
 const PAGE_SIZE = 12;
 
@@ -76,13 +77,61 @@ export default async function ProjectsPage({
   // tight box. A project is COMPLETED iff completedAt is set; otherwise it counts
   // as ACTIVE/INACTIVE per `active`.
   const countBase = { ...baseWhere, ...searchWhere };
+
+  // Run the status-count groupBy and the first-page project fetch in parallel —
+  // they're independent queries and both benefit from the new composite index.
+  const requested = Number.parseInt(sp.page ?? "1", 10);
+  const safePage = Number.isFinite(requested) ? Math.max(requested, 1) : 1;
+
+  // Cache key: tenantId + all query dimensions. 30s TTL — fresh enough for live
+  // use, cheap enough to absorb repeated reloads. Mutations call
+  // revalidateTag("projects:<tenantId>") to bust immediately.
+  const fetchProjects = unstable_cache(
+    async () => {
+      return Promise.all([
+        db.project.groupBy({
+          by: ["active", "completedAt"],
+          where: countBase,
+          _count: { _all: true },
+        }),
+        db.project.findMany({
+          orderBy: { createdAt: "desc" },
+          where,
+          skip: (safePage - 1) * PAGE_SIZE,
+          take: PAGE_SIZE,
+          include: {
+            owner: { select: { id: true, name: true, avatarUrl: true } },
+            _count: { select: { members: true } },
+            members: {
+              take: 5,
+              include: {
+                user: {
+                  select: { id: true, name: true, avatarUrl: true, title: true },
+                },
+              },
+            },
+            board: {
+              select: {
+                id: true,
+                _count: { select: { lists: true } },
+              },
+            },
+          },
+        }),
+      ]);
+    },
+    // Cache key: one entry per tenant + filter combination.
+    [`projects`, user?.tenantId ?? "", status, q, String(safePage)],
+    {
+      revalidate: 30,
+      tags: [`projects:${user?.tenantId}`],
+    },
+  );
+
   mark = performance.now();
-  const grouped = await db.project.groupBy({
-    by: ["active", "completedAt"],
-    where: countBase,
-    _count: { _all: true },
-  });
-  lap("status counts (1x groupBy)", mark);
+  const [grouped, projects] = await fetchProjects();
+
+  lap("groupBy + findMany (parallel, cached)", mark);
 
   let activeCount = 0;
   let inactiveCount = 0;
@@ -101,8 +150,6 @@ export default async function ProjectsPage({
     COMPLETED: completedCount,
   };
 
-  // The current tab's total drives pagination — read straight from the buckets,
-  // no extra query.
   const total =
     status === "ACTIVE"
       ? activeCount
@@ -112,80 +159,27 @@ export default async function ProjectsPage({
           ? completedCount
           : allCount;
   const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
-  const requested = Number.parseInt(sp.page ?? "1", 10);
-  const page = Number.isFinite(requested)
-    ? Math.min(Math.max(requested, 1), pageCount)
-    : 1;
+  const page = Math.min(safePage, pageCount);
 
-  mark = performance.now();
-  const projects = await db.project.findMany({
-    orderBy: { createdAt: "desc" },
-    where,
-    skip: (page - 1) * PAGE_SIZE,
-    take: PAGE_SIZE,
-    include: {
-      owner: { select: { id: true, name: true, avatarUrl: true } },
-      members: {
-        include: {
-          user: {
-            select: { id: true, name: true, avatarUrl: true, title: true },
-          },
-        },
-      },
-      // List count comes from the board's own _count (one cheap subquery).
-      // Task ("card") counts are fetched separately via a single grouped
-      // aggregate below instead of pulling every list row into Node — much
-      // lighter on a memory-constrained box.
-      board: {
-        select: {
-          id: true,
-          _count: { select: { lists: true } },
-        },
-      },
-    },
-  });
-
-  lap("projects findMany (+board/members/owner)", mark);
-
-  // Per-board card (task) totals in ONE aggregate query, scoped to just the
-  // boards on this page. Replaces the previous board.lists fan-out that loaded
-  // every list row into Node only to sum their task counts. A single grouped
-  // join (task → list) returns one count row per board — almost no memory.
-  //
-  // The roster (only loaded for admins — it feeds the create-project member
-  // picker, which non-admins never see) is independent of the card counts, so
-  // both run concurrently rather than serializing two more round-trips.
+  // Card counts — one raw aggregate, scoped to just the boards on this page.
   mark = performance.now();
   const boardIds = projects.map((p) => p.board.id);
   const cardCountByBoard = new Map<string, number>();
 
-  const [cardCountRows, roster] = await Promise.all([
-    boardIds.length
-      ? db.$queryRaw<{ boardId: string; count: bigint }[]>`
-          SELECT l."boardId" AS "boardId", COUNT(t.id) AS count
-          FROM "BoardList" l
-          LEFT JOIN "Task" t ON t."listId" = l.id
-          WHERE l."boardId" IN (${Prisma.join(boardIds)})
-          GROUP BY l."boardId"
-        `
-      : Promise.resolve([] as { boardId: string; count: bigint }[]),
-    // Bound the roster: "every user in the tenant" is unbounded and pulling it
-    // all into a 320MB heap to render a dropdown is exactly what tips the box
-    // into GC. Cap it, and skip it entirely for non-admins.
-    isAdmin
-      ? db.user.findMany({
-          take: 200,
-          orderBy: { name: "asc" },
-          select: { id: true, name: true, avatarUrl: true, title: true },
-        })
-      : Promise.resolve(
-          [] as { id: string; name: string; avatarUrl: string | null; title: string }[],
-        ),
-  ]);
+  const cardCountRows = boardIds.length
+    ? await db.$queryRaw<{ boardId: string; count: bigint }[]>`
+        SELECT l."boardId" AS "boardId", COUNT(t.id) AS count
+        FROM "BoardList" l
+        LEFT JOIN "Task" t ON t."listId" = l.id
+        WHERE l."boardId" IN (${Prisma.join(boardIds)})
+        GROUP BY l."boardId"
+      `
+    : [];
+
   for (const r of cardCountRows) {
     cardCountByBoard.set(r.boardId, Number(r.count));
   }
-  lap("card counts + roster (parallel)", mark);
+  lap("card counts", mark);
   lap("TOTAL render", t0);
 
   const projectDTOs: ProjectDTO[] = projects.map((p) => ({
@@ -202,19 +196,13 @@ export default async function ProjectsPage({
     },
     listCount: p.board._count.lists,
     cardCount: cardCountByBoard.get(p.board.id) ?? 0,
+    memberCount: p._count.members,
     members: p.members.map((m) => ({
       id: m.user.id,
       name: m.user.name,
       avatarUrl: m.user.avatarUrl,
       title: m.user.title,
     })),
-  }));
-
-  const rosterDTOs: MemberDTO[] = roster.map((m) => ({
-    id: m.id,
-    name: m.name,
-    avatarUrl: m.avatarUrl,
-    title: m.title,
   }));
 
   return (
@@ -226,7 +214,6 @@ export default async function ProjectsPage({
       />
       <ProjectsClient
         projects={projectDTOs}
-        roster={rosterDTOs}
         isAdmin={isAdmin}
         status={status}
         statusCounts={statusCounts}

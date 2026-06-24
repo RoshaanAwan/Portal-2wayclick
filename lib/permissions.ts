@@ -116,6 +116,8 @@ export const can = {
   viewAllAttendance: (role?: string | null) => isManagerTier(role),
   /** Edit the white-label brand (name, colors, logo, contact). Admin tier. */
   manageBranding: (role?: string | null) => isAdminTier(role),
+  /** Enable/disable & configure the third-party app integrations. Admin tier. */
+  manageIntegrations: (role?: string | null) => isAdminTier(role),
 };
 
 // ── User-creation authorization ──────────────────────────────────────────────
