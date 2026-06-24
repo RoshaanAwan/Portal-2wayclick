@@ -19,6 +19,7 @@ export interface DriveFile {
   name: string;
   mimeType: string;
   webViewLink: string | null;
+  webContentLink: string | null;
   iconLink: string | null;
   thumbnailLink: string | null;
   size: number | null;
@@ -57,6 +58,7 @@ interface RawFile {
   name: string;
   mimeType: string;
   webViewLink?: string;
+  webContentLink?: string;
   iconLink?: string;
   thumbnailLink?: string;
   size?: string;
@@ -76,7 +78,7 @@ export async function listFiles(
     orderBy: "modifiedTime desc",
     pageSize: String(opts.pageSize ?? 50),
     fields:
-      "files(id,name,mimeType,webViewLink,iconLink,thumbnailLink,size,modifiedTime)",
+      "files(id,name,mimeType,webViewLink,webContentLink,iconLink,thumbnailLink,size,modifiedTime)",
   });
 
   let res: Response;
@@ -98,6 +100,7 @@ export async function listFiles(
     name: f.name,
     mimeType: f.mimeType,
     webViewLink: f.webViewLink ?? null,
+    webContentLink: f.webContentLink ?? null,
     iconLink: f.iconLink ?? null,
     thumbnailLink: f.thumbnailLink ?? null,
     size: f.size ? Number(f.size) : null,
@@ -132,7 +135,7 @@ export async function uploadFile(
   const params = new URLSearchParams({
     uploadType: "multipart",
     fields:
-      "id,name,mimeType,webViewLink,iconLink,thumbnailLink,size,modifiedTime",
+      "id,name,mimeType,webViewLink,webContentLink,iconLink,thumbnailLink,size,modifiedTime",
   });
 
   let res: Response;
@@ -163,11 +166,40 @@ export async function uploadFile(
     name: f.name,
     mimeType: f.mimeType,
     webViewLink: f.webViewLink ?? null,
+    webContentLink: f.webContentLink ?? null,
     iconLink: f.iconLink ?? null,
     thumbnailLink: f.thumbnailLink ?? null,
     size: f.size ? Number(f.size) : null,
     modifiedTime: f.modifiedTime,
   };
+}
+
+/** Download the raw bytes of a Drive file via the authenticated media endpoint.
+ *  Works for PRIVATE files (drive.file scope) — unlike the public
+ *  drive.google.com/uc link, which returns a sign-in page for private files. */
+export async function fetchFileMedia(
+  accessToken: string,
+  id: string,
+): Promise<{ bytes: Buffer; contentType: string }> {
+  const params = new URLSearchParams({ alt: "media" });
+  let res: Response;
+  try {
+    res = await fetch(`${FILES_API}/${encodeURIComponent(id)}?${params.toString()}`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      cache: "no-store",
+    });
+  } catch {
+    throw new DriveError("Could not reach Google Drive.", 502);
+  }
+  if (res.status === 401)
+    throw new DriveError("Google rejected the request — reconnect.", 401);
+  if (res.status === 404)
+    throw new DriveError("File not found in Drive.", 404);
+  if (!res.ok) throw new DriveError(`Drive error (${res.status}).`, res.status);
+
+  const buf = Buffer.from(await res.arrayBuffer());
+  const contentType = res.headers.get("content-type") || "application/octet-stream";
+  return { bytes: buf, contentType };
 }
 
 // Tiny deterministic hash for a stable-ish multipart boundary (avoids

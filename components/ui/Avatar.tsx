@@ -1,3 +1,6 @@
+"use client";
+
+import React from "react";
 import { cn, initials } from "@/lib/utils";
 
 interface AvatarProps {
@@ -17,6 +20,9 @@ const sizes = {
 };
 
 export function Avatar({ name, src, size = "md", ring, className }: AvatarProps) {
+  const [imageError, setImageError] = React.useState(false);
+  const showImage = src && !imageError;
+
   return (
     <div
       className={cn(
@@ -28,9 +34,14 @@ export function Avatar({ name, src, size = "md", ring, className }: AvatarProps)
       )}
       title={name}
     >
-      {src ? (
+      {showImage ? (
         // eslint-disable-next-line @next/next/no-img-element
-        <img src={src} alt={name} className="h-full w-full object-cover" />
+        <img
+          src={src}
+          alt={name}
+          className="h-full w-full object-cover"
+          onError={() => setImageError(true)}
+        />
       ) : (
         <span>{initials(name)}</span>
       )}

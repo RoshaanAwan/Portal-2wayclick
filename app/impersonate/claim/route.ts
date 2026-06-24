@@ -30,7 +30,7 @@ export async function GET(req: Request) {
 
   const session = await adminDb.session.findUnique({
     where: { token },
-    select: { impersonatedBy: true, expiresAt: true },
+    select: { impersonatedBy: true, expiresAt: true, userId: true, tenantId: true },
   });
 
   // Must be an impersonation session that hasn't expired.
@@ -38,6 +38,9 @@ export async function GET(req: Request) {
     return NextResponse.redirect(dest("/login"));
   }
 
-  await setSessionCookie(token, session.expiresAt);
+  await setSessionCookie(token, session.expiresAt, {
+    userId: session.userId,
+    tenantId: session.tenantId,
+  });
   return NextResponse.redirect(dest("/dashboard"));
 }

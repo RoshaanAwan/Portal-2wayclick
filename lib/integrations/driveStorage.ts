@@ -6,6 +6,7 @@ import {
   accessTokenFromSealed,
   uploadFile,
   listFiles,
+  fetchFileMedia,
   DriveError,
   type DriveFile,
 } from "./googleDrive";
@@ -91,8 +92,9 @@ async function tenantDriveAccessToken(tenantId: string): Promise<{
 
 /**
  * Upload a file into the tenant's (owner's) Drive. Returns the Drive file's
- * metadata; callers persist `webViewLink`/id as the stored URL. Throws
- * DriveNotConnectedError (→ 400 with a friendly message) when not connected.
+ * metadata; callers persist `webContentLink` (for images/avatars) or `webViewLink`/id
+ * (for documents) as the stored URL. Throws DriveNotConnectedError (→ 400 with a
+ * friendly message) when not connected.
  */
 export async function uploadToTenantDrive(
   tenantId: string,
@@ -100,6 +102,20 @@ export async function uploadToTenantDrive(
 ): Promise<DriveFile> {
   const { token, folderId } = await tenantDriveAccessToken(tenantId);
   return uploadFile(token, file, { folderId });
+}
+
+/**
+ * Stream the raw bytes of a file from the tenant's (owner's) Drive, authenticated
+ * through the same persistent owner connection used for uploads. Used by the
+ * avatar proxy so PRIVATE (drive.file-scoped) images render. Throws
+ * DriveNotConnectedError / DriveError on failure.
+ */
+export async function fetchTenantDriveMedia(
+  tenantId: string,
+  fileId: string,
+): Promise<{ bytes: Buffer; contentType: string }> {
+  const { token } = await tenantDriveAccessToken(tenantId);
+  return fetchFileMedia(token, fileId);
 }
 
 /** List files in the tenant's Drive (for the dashboard). Empty list if not

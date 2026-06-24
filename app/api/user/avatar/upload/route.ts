@@ -54,7 +54,11 @@ export async function POST(req: Request) {
       summary: `${user.name} updated their profile photo`,
       detail: { driveId: uploaded.id },
     });
-    return NextResponse.json({ ok: true, url: uploaded.webViewLink ?? "#" });
+    // Use proxy endpoint to serve Google Drive image, otherwise fall back to base64
+    const url = uploaded.id
+      ? `/api/user/avatar/proxy?id=${uploaded.id}`
+      : `data:${file.type};base64,${bytes.toString("base64")}`;
+    return NextResponse.json({ ok: true, url });
   } catch (e: any) {
     if (e?.message === "UNAUTHENTICATED") {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

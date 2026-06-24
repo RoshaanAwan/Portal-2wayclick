@@ -6,6 +6,7 @@ import { adminDb } from "./db";
 import { enterTenant } from "./tenantContext";
 import { tenantIdForSubdomain } from "./tenant";
 import { loadSession, SESSION_COOKIE } from "./session";
+import { signSessionJwt, verifySessionJwt } from "./jwt";
 import { randomBytes } from "crypto";
 
 const SESSION_DAYS = 7;
@@ -46,13 +47,24 @@ export async function mintSession(
   return { token, expiresAt };
 }
 
-/** Set the session cookie (host-scoped) for an already-minted token. */
+/**
+ * Set the session cookie (host-scoped) for an already-minted token. The cookie
+ * VALUE is a signed JWT wrapping the opaque session token — the DB Session row
+ * stays authoritative, but the cookie is now tamper-proof and self-expiring.
+ * Needs the userId/tenantId for the JWT claims; the impersonate/QR claim routes
+ * read these off the Session row before calling.
+ */
 export async function setSessionCookie(
   token: string,
   expiresAt: Date,
+  claims: { userId: string; tenantId: string },
 ): Promise<void> {
+  const jwt = await signSessionJwt(
+    { sid: token, uid: claims.userId, tid: claims.tenantId },
+    expiresAt,
+  );
   const cookieStore = await cookies();
-  cookieStore.set(SESSION_COOKIE, token, {
+  cookieStore.set(SESSION_COOKIE, jwt, {
     httpOnly: true,
     // Secure cookies are dropped by browsers over plain http. While the app is
     // served over http (no TLS/domain yet), set COOKIE_INSECURE=true to allow
@@ -74,16 +86,22 @@ export async function createSession(
   impersonatedBy?: string,
 ): Promise<string> {
   const { token, expiresAt } = await mintSession(userId, tenantId, impersonatedBy);
-  await setSessionCookie(token, expiresAt);
+  await setSessionCookie(token, expiresAt, { userId, tenantId });
   return token;
 }
 
 export async function destroySession(): Promise<void> {
   const cookieStore = await cookies();
-  const token = cookieStore.get(SESSION_COOKIE)?.value;
-  if (token) {
-    // adminDb: token is the global credential; no tenant context guaranteed here.
-    await adminDb.session.deleteMany({ where: { token } });
+  const cookieValue = cookieStore.get(SESSION_COOKIE)?.value;
+  if (cookieValue) {
+    // The cookie holds a signed JWT wrapping the opaque session token; unwrap it
+    // to get the token, then delete the DB row so the session is revoked even if
+    // the cookie lingers. A malformed/forged JWT yields null and deletes nothing.
+    const claims = await verifySessionJwt(cookieValue);
+    if (claims) {
+      // adminDb: token is the global credential; no tenant context guaranteed here.
+      await adminDb.session.deleteMany({ where: { token: claims.sid } });
+    }
   }
   cookieStore.delete(SESSION_COOKIE);
 }

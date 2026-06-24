@@ -4,6 +4,7 @@ import { unstable_cache } from "next/cache";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { getCurrentUser } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { runWithTenant } from "@/lib/tenantContext";
 import { can } from "@/lib/permissions";
 import { ProjectsClient, type ProjectDTO } from "./ProjectsClient";
 
@@ -83,12 +84,23 @@ export default async function ProjectsPage({
   const requested = Number.parseInt(sp.page ?? "1", 10);
   const safePage = Number.isFinite(requested) ? Math.max(requested, 1) : 1;
 
+  // unstable_cache runs its callback OUTSIDE the request scope: Next strips
+  // access to request APIs (cookies/headers) and the AsyncLocalStorage tenant
+  // store does not cross into it. So the scoped `db` client's usual fallbacks —
+  // tenantStore.getStore() and the session-cookie resolver — both come back
+  // empty inside the callback, the extension FAILS CLOSED, and the query throws
+  // (the live-server "no projects" bug). Resolve the tenant out here and
+  // re-establish it explicitly with runWithTenant() inside the callback so the
+  // scoped queries have a context that doesn't depend on the request scope.
+  const tenantId = user?.tenantId ?? "";
+
   // Cache key: tenantId + all query dimensions. 30s TTL — fresh enough for live
   // use, cheap enough to absorb repeated reloads. Mutations call
   // revalidateTag("projects:<tenantId>") to bust immediately.
   const fetchProjects = unstable_cache(
-    async () => {
-      return Promise.all([
+    async () =>
+      runWithTenant(tenantId, () =>
+        Promise.all([
         db.project.groupBy({
           by: ["active", "completedAt"],
           where: countBase,
@@ -118,13 +130,13 @@ export default async function ProjectsPage({
             },
           },
         }),
-      ]);
-    },
+        ]),
+      ),
     // Cache key: one entry per tenant + filter combination.
-    [`projects`, user?.tenantId ?? "", status, q, String(safePage)],
+    [`projects`, tenantId, status, q, String(safePage)],
     {
       revalidate: 30,
-      tags: [`projects:${user?.tenantId}`],
+      tags: [`projects:${tenantId}`],
     },
   );
 
@@ -187,8 +199,11 @@ export default async function ProjectsPage({
     name: p.name,
     description: p.description,
     active: p.active,
-    completedAt: p.completedAt ? p.completedAt.toISOString() : null,
-    createdAt: p.createdAt.toISOString(),
+    // `unstable_cache` serializes its result through JSON, so on a cache HIT
+    // these arrive as ISO strings, while on a MISS they're Date objects.
+    // Normalize both via `new Date(...)` before calling toISOString().
+    completedAt: p.completedAt ? new Date(p.completedAt).toISOString() : null,
+    createdAt: new Date(p.createdAt).toISOString(),
     owner: {
       id: p.owner.id,
       name: p.owner.name,
