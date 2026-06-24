@@ -100,7 +100,17 @@ function injectTenant(operation: string, args: any, tenantId: string) {
     return;
   }
   if (operation === "create") {
-    args.data = { ...(args.data ?? {}), tenantId };
+    const data = args.data ?? {};
+    const hasTenantRelationField =
+      data.tenant != null &&
+      typeof data.tenant === "object" &&
+      ["connect", "create", "connectOrCreate", "createMany"].some(
+        (key) => key in data.tenant,
+      );
+    if (hasTenantRelationField || "tenantId" in data) {
+      return;
+    }
+    args.data = { ...data, tenantId };
     return;
   }
   if (operation === "createMany") {

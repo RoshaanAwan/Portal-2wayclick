@@ -11,6 +11,7 @@ import {
   Eye,
   Pencil,
   Trash2,
+  ShieldCheck,
 } from "lucide-react";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { Badge } from "@/components/ui/Badge";
@@ -158,7 +159,15 @@ export function AnnouncementCard({
 
         {/* Header: category + pinned + admin controls */}
         <div className="mb-3 flex items-center justify-between gap-3">
-          <Badge variant={variant}>{announcement.category}</Badge>
+          <div className="flex items-center gap-2">
+            <Badge variant={variant}>{announcement.category}</Badge>
+            {announcement.isSystemPost && (
+              <span className="inline-flex items-center gap-1 rounded-md border border-line bg-paper px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-ink-400">
+                <ShieldCheck className="h-3 w-3 text-accent" />
+                Platform
+              </span>
+            )}
+          </div>
           <div className="flex items-center gap-2">
             {announcement.pinned && (
               <span className="inline-flex items-center gap-1 text-[11px] font-medium text-accent">
@@ -166,7 +175,8 @@ export function AnnouncementCard({
                 Pinned
               </span>
             )}
-            {canManage && (
+            {/* Tenant admins cannot edit/delete platform-wide posts */}
+            {canManage && !announcement.isSystemPost && (
               <div className="flex items-center gap-1">
                 <button
                   type="button"

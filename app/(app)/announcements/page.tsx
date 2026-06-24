@@ -1,7 +1,7 @@
 import { Megaphone } from "lucide-react";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { getCurrentUser } from "@/lib/auth";
-import { db } from "@/lib/db";
+import { db, adminDb } from "@/lib/db";
 import { can } from "@/lib/permissions";
 import { AnnouncementsClient, type AnnouncementDTO } from "./AnnouncementsClient";
 
@@ -21,16 +21,25 @@ export default async function AnnouncementsPage({
   const sp = await searchParams;
   const category =
     sp.category && sp.category !== "All" ? sp.category : null;
-  const where = category ? { category } : undefined;
 
-  const total = await db.announcement.count({ where });
+  // Use adminDb so the OR [tenantId=X, tenantId=null] isn't overridden by the
+  // scoped client's automatic AND tenantId injection — platform posts (null)
+  // would otherwise always be filtered out.
+  const tenantFilter = user
+    ? { OR: [{ tenantId: user.tenantId }, { tenantId: null as string | null }] }
+    : { tenantId: null as string | null };
+  const where = category
+    ? { AND: [tenantFilter, { category }] }
+    : tenantFilter;
+
+  const total = await adminDb.announcement.count({ where });
   const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const requested = Number.parseInt(sp.page ?? "1", 10);
   const page = Number.isFinite(requested)
     ? Math.min(Math.max(requested, 1), pageCount)
     : 1;
 
-  const announcements = await db.announcement.findMany({
+  const announcements = await adminDb.announcement.findMany({
     where,
     orderBy: [{ pinned: "desc" }, { createdAt: "desc" }],
     skip: (page - 1) * PAGE_SIZE,
@@ -65,12 +74,21 @@ export default async function AnnouncementsPage({
     pinned: a.pinned,
     coverColor: a.coverColor,
     createdAt: a.createdAt.toISOString(),
-    author: {
-      id: a.author.id,
-      name: a.author.name,
-      title: a.author.title,
-      avatarUrl: a.author.avatarUrl,
-    },
+    // System announcements have no author row — use stored authorName instead.
+    isSystemPost: a.tenantId === null,
+    author: a.author
+      ? {
+          id: a.author.id,
+          name: a.author.name,
+          title: a.author.title ?? null,
+          avatarUrl: a.author.avatarUrl,
+        }
+      : {
+          id: "",
+          name: a.authorName ?? "System",
+          title: "Platform",
+          avatarUrl: null,
+        },
     reactions: a.reactions.map((r) => ({
       id: r.id,
       emoji: r.emoji,

@@ -17,10 +17,12 @@ export function DocumentEditor({
   doc,
   open,
   onClose,
+  apiBase = "/api/documents",
 }: {
   doc: DocItem;
   open: boolean;
   onClose: () => void;
+  apiBase?: string;
 }) {
   const router = useRouter();
   const [title, setTitle] = useState(doc.title);
@@ -41,7 +43,7 @@ export function DocumentEditor({
     setLoading(true);
     setError("");
 
-    const res = await fetch(`/api/documents/${doc.id}`, {
+    const res = await fetch(`${apiBase}/${doc.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
