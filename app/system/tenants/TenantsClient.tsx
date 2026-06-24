@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Plus, Ban, Play, ExternalLink, Loader2, LogIn } from "lucide-react";
+import { Plus, Ban, Play, ExternalLink, Loader2, LogIn, Pencil, X } from "lucide-react";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { Button } from "@/components/ui/Button";
 
@@ -30,6 +30,10 @@ export function TenantsClient({
   const [creating, setCreating] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState("");
+  const [editingTenant, setEditingTenant] = useState<TenantRow | null>(null);
+  const [editForm, setEditForm] = useState({ name: "", subdomain: "" });
+  const [editError, setEditError] = useState("");
+  const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({
     name: "",
     subdomain: "",
@@ -89,6 +93,32 @@ export function TenantsClient({
       } else router.refresh();
     } finally {
       setBusyId(null);
+    }
+  }
+
+  function openEdit(t: TenantRow) {
+    setEditingTenant(t);
+    setEditForm({ name: t.name, subdomain: t.subdomain });
+    setEditError("");
+  }
+
+  async function saveEdit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!editingTenant) return;
+    setSaving(true);
+    setEditError("");
+    try {
+      const res = await fetch("/api/admin/tenants/update", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tenantId: editingTenant.id, ...editForm }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) { setEditError(data.error || "Could not update tenant"); return; }
+      setEditingTenant(null);
+      router.refresh();
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -164,6 +194,49 @@ export function TenantsClient({
         <p className="rounded-xl border border-danger/40 bg-danger-soft px-3.5 py-2.5 text-sm text-danger">{error}</p>
       )}
 
+      {/* Edit tenant modal */}
+      {editingTenant && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <GlassCard hover={false} className="w-full max-w-md">
+            <div className="mb-4 flex items-center justify-between">
+              <h2 className="font-semibold text-ink">Edit Tenant</h2>
+              <button onClick={() => setEditingTenant(null)} className="text-ink-400 hover:text-ink">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <form onSubmit={saveEdit} className="space-y-3">
+              <Input
+                label="Workspace name"
+                value={editForm.name}
+                onChange={(v) => setEditForm((f) => ({ ...f, name: v }))}
+                placeholder="Acme Corp"
+              />
+              <Input
+                label="Subdomain"
+                value={editForm.subdomain}
+                onChange={(v) =>
+                  setEditForm((f) => ({
+                    ...f,
+                    subdomain: v.toLowerCase().replace(/[^a-z0-9-]/g, ""),
+                  }))
+                }
+                placeholder="acme"
+                hint={`→ ${editForm.subdomain || "acme"}.${portalDomain}`}
+              />
+              {editError && (
+                <p className="text-sm text-danger">{editError}</p>
+              )}
+              <div className="flex justify-end gap-2 pt-1">
+                <button type="button" onClick={() => setEditingTenant(null)} className="nm-button rounded-lg px-3 py-1.5 text-sm text-ink-600">
+                  Cancel
+                </button>
+                <Button type="submit" loading={saving}>Save changes</Button>
+              </div>
+            </form>
+          </GlassCard>
+        </div>
+      )}
+
       <GlassCard hover={false} className="overflow-hidden p-0">
         <div className="divide-y divide-line">
           {tenants.map((t) => {
@@ -181,6 +254,13 @@ export function TenantsClient({
                     {t.subdomain}.{portalDomain} · {t.userCount} {t.userCount === 1 ? "user" : "users"}
                   </p>
                 </div>
+                <button
+                  onClick={() => openEdit(t)}
+                  disabled={busyId !== null}
+                  className="nm-button inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs text-ink-700 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <Pencil className="h-3.5 w-3.5" /> Edit
+                </button>
                 <button
                   onClick={() => t.companyOwnerId && impersonate(t.companyOwnerId)}
                   disabled={!t.companyOwnerId || busyId !== null}

@@ -106,6 +106,22 @@ export async function createTenant(input: NewTenantInput) {
   return tenant;
 }
 
+/** Update a tenant's name and/or subdomain. Throws SUBDOMAIN_TAKEN or SUBDOMAIN_INVALID. */
+export async function updateTenant(
+  tenantId: string,
+  input: { name: string; subdomain: string },
+) {
+  if (!isValidSubdomain(input.subdomain)) throw new Error("SUBDOMAIN_INVALID");
+  const conflict = await adminDb.tenant.findUnique({
+    where: { subdomain: input.subdomain },
+  });
+  if (conflict && conflict.id !== tenantId) throw new Error("SUBDOMAIN_TAKEN");
+  return adminDb.tenant.update({
+    where: { id: tenantId },
+    data: { name: input.name, subdomain: input.subdomain },
+  });
+}
+
 /** Suspend (block at middleware) or reactivate a tenant. */
 export async function setTenantStatus(
   tenantId: string,
