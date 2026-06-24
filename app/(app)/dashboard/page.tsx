@@ -7,6 +7,7 @@ import { HeroSection } from "./HeroSection";
 import { StatTilesSection } from "./StatTilesSection";
 import { PulseFeedSection } from "./PulseFeedSection";
 import { HeadcountSection } from "./HeadcountSection";
+import { AssignedCardsSection } from "./AssignedCardsSection";
 import { RightRailSection } from "./RightRailSection";
 
 export default async function DashboardPage() {
@@ -29,6 +30,9 @@ export default async function DashboardPage() {
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
         {/* Main column */}
         <div className="space-y-6 lg:col-span-2">
+          <Suspense fallback={<AssignedCardsFallback />}>
+            <AssignedCardsSection user={user} />
+          </Suspense>
           <Suspense fallback={<PulseFeedFallback />}>
             <PulseFeedSection />
           </Suspense>
@@ -71,6 +75,22 @@ function StatTilesFallback() {
         </SkeletonCard>
       ))}
     </div>
+  );
+}
+
+function AssignedCardsFallback() {
+  return (
+    <SkeletonCard>
+      <Skeleton className="h-4 w-24" />
+      <div className="mt-4 space-y-2.5">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <div key={i} className="space-y-2 rounded-xl border border-line p-3">
+            <Skeleton className="h-3.5 w-40" />
+            <Skeleton className="h-3.5 w-3/4" />
+          </div>
+        ))}
+      </div>
+    </SkeletonCard>
   );
 }
 
