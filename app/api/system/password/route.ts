@@ -1,10 +1,8 @@
 import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
 import { z } from "zod";
 import { requireSystemOwner, hashPassword, verifyPassword } from "@/lib/auth";
+import { currentSessionToken } from "@/lib/session";
 import { adminDb } from "@/lib/db";
-
-const SESSION_COOKIE = "twayclick_session";
 
 const schema = z
   .object({
@@ -41,8 +39,7 @@ export async function POST(req: Request) {
     await adminDb.user.update({ where: { id: actor.id }, data: { passwordHash } });
 
     // Revoke all other sessions, keep this one.
-    const cookieStore = await cookies();
-    const currentToken = cookieStore.get(SESSION_COOKIE)?.value;
+    const currentToken = await currentSessionToken();
     await adminDb.session.deleteMany({
       where: {
         userId: actor.id,

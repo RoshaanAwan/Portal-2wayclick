@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
 import { z } from "zod";
 import { requireTenantUser, hashPassword, verifyPassword } from "@/lib/auth";
+import { currentSessionToken } from "@/lib/session";
 import { db } from "@/lib/db";
 import { audit } from "@/lib/audit";
 
@@ -9,8 +9,6 @@ import { audit } from "@/lib/audit";
 // We verify the current password (so a hijacked session can't silently lock the
 // real owner out), set the new hash, and revoke every *other* session — the
 // current device stays signed in, anyone else gets kicked.
-
-const SESSION_COOKIE = "twayclick_session";
 
 const schema = z
   .object({
@@ -60,8 +58,7 @@ export async function POST(req: Request) {
 
     // Revoke other sessions so a changed password actually logs everyone else
     // out — but keep this device signed in.
-    const cookieStore = await cookies();
-    const currentToken = cookieStore.get(SESSION_COOKIE)?.value;
+    const currentToken = await currentSessionToken();
     await db.session.deleteMany({
       where: {
         userId: actor.id,

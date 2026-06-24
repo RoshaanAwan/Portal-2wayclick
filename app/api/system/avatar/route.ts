@@ -40,7 +40,9 @@ export async function POST(req: Request) {
           mimeType: file.type,
           bytes,
         }, { folderId: conn.folderId });
-        avatarUrl = uploaded.webViewLink ?? `data:${file.type};base64,${bytes.toString("base64")}`;
+        avatarUrl = uploaded.id
+          ? `/api/system/avatar/proxy?id=${uploaded.id}`
+          : `data:${file.type};base64,${bytes.toString("base64")}`;
       } else {
         avatarUrl = `data:${file.type};base64,${bytes.toString("base64")}`;
       }

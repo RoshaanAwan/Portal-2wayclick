@@ -2,10 +2,9 @@ import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { adminDb } from "@/lib/db";
 import { createSession } from "@/lib/auth";
+import { currentSessionToken, SESSION_COOKIE } from "@/lib/session";
 import { audit } from "@/lib/audit";
 import { runWithTenant } from "@/lib/tenantContext";
-
-const SESSION_COOKIE = "twayclick_session";
 
 // Stop impersonating: the current session is an impersonation session (a tenant
 // user with `impersonatedBy` set to a System Owner). Tear it DOWN completely and
@@ -20,7 +19,7 @@ const SESSION_COOKIE = "twayclick_session";
 export async function POST() {
   try {
     const store = await cookies();
-    const token = store.get(SESSION_COOKIE)?.value;
+    const token = await currentSessionToken();
     if (!token) {
       return NextResponse.json({ error: "Not signed in" }, { status: 401 });
     }
