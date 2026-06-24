@@ -234,15 +234,18 @@ model LoginTicket {
 
 model Announcement {
   id         String   @id @default(cuid())
-  tenantId   String
-  tenant     Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  // null = platform-wide announcement from System Owner (shown in every tenant feed)
+  tenantId   String?
+  tenant     Tenant?  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   title      String
   body       String
   category   String   @default("General") // General, Product, People, Policy, Event
   pinned     Boolean  @default(false)
   coverColor String   @default("accent")
-  authorId   String
-  author     User     @relation("PostAuthor", fields: [authorId], references: [id])
+  // null for System Owner posts (no tenant user row); authorName stores display name
+  authorId   String?
+  author     User?    @relation("PostAuthor", fields: [authorId], references: [id])
+  authorName String?  // used when authorId is null (system posts)
   createdAt  DateTime @default(now())
 
   comments  Comment[]

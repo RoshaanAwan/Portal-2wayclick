@@ -116,7 +116,7 @@ export default async function DashboardPage() {
     category: p.category,
     coverColor: p.coverColor,
     createdAt: p.createdAt.toISOString(),
-    authorName: p.author.name,
+    authorName: p.author?.name ?? "System",
   }));
 
   const team = teammates.map((t) => ({

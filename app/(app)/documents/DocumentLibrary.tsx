@@ -54,21 +54,20 @@ export function DocumentLibrary({
   libraryTotal,
   totalSize,
   countByCategory,
+  apiBase = "/api/documents",
 }: {
   docs: DocItem[];
-  // The library is a shared resource — any signed-in user may edit/delete.
   canManage: boolean;
   page: number;
   pageCount: number;
-  // Count of documents matching the current filters (drives pagination).
   total: number;
   query: string;
   category: string;
-  // Library-wide stats (computed server-side over every document, so the
-  // headline numbers and chip counts don't shift as you filter or page).
   libraryTotal: number;
   totalSize: number;
   countByCategory: Record<string, number>;
+  /** Base path for document PATCH/DELETE calls. Defaults to /api/documents. */
+  apiBase?: string;
 }) {
   const [view, setView] = useState<View>("grid");
   const filter = category as Filter;
@@ -132,9 +131,9 @@ export function DocumentLibrary({
         <>
           <div className={cn("transition-opacity", isPending && "opacity-60")}>
             {view === "grid" ? (
-              <GridView docs={docs} canManage={canManage} />
+              <GridView docs={docs} canManage={canManage} apiBase={apiBase} />
             ) : (
-              <ListView docs={docs} canManage={canManage} />
+              <ListView docs={docs} canManage={canManage} apiBase={apiBase} />
             )}
           </div>
 
@@ -322,15 +321,17 @@ function FilterChips({
 function GridView({
   docs,
   canManage,
+  apiBase,
 }: {
   docs: DocItem[];
   canManage: boolean;
+  apiBase: string;
 }) {
   return (
     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
       <AnimatePresence mode="popLayout">
         {docs.map((doc, i) => (
-          <FileCard key={doc.id} doc={doc} index={i} canManage={canManage} />
+          <FileCard key={doc.id} doc={doc} index={i} canManage={canManage} apiBase={apiBase} />
         ))}
       </AnimatePresence>
     </div>
@@ -341,10 +342,12 @@ function FileCard({
   doc,
   index,
   canManage,
+  apiBase,
 }: {
   doc: DocItem;
   index: number;
   canManage: boolean;
+  apiBase: string;
 }) {
   const router = useRouter();
   const meta = fileTypeMeta(doc.fileType);
@@ -356,7 +359,7 @@ function FileCard({
   async function remove() {
     if (deleting) return;
     setDeleting(true);
-    const res = await fetch(`/api/documents/${doc.id}`, { method: "DELETE" });
+    const res = await fetch(`${apiBase}/${doc.id}`, { method: "DELETE" });
     if (res.ok) {
       setConfirmDelete(false);
       router.refresh();
@@ -452,13 +455,14 @@ function FileCard({
             doc={doc}
             open={editing}
             onClose={() => setEditing(false)}
+            apiBase={apiBase}
           />
           <ConfirmDialog
             open={confirmDelete}
             title="Delete document"
             message={
               <>
-                Remove “{doc.title}” from the library? This can’t be undone.
+                Remove &ldquo;{doc.title}&rdquo; from the library? This can&apos;t be undone.
               </>
             }
             loading={deleting}
@@ -474,9 +478,11 @@ function FileCard({
 function ListView({
   docs,
   canManage,
+  apiBase,
 }: {
   docs: DocItem[];
   canManage: boolean;
+  apiBase: string;
 }) {
   return (
     <GlassCard hover={false} className="overflow-hidden p-0">
@@ -491,7 +497,7 @@ function ListView({
 
       <AnimatePresence mode="popLayout">
         {docs.map((doc, i) => (
-          <ListRow key={doc.id} doc={doc} index={i} canManage={canManage} />
+          <ListRow key={doc.id} doc={doc} index={i} canManage={canManage} apiBase={apiBase} />
         ))}
       </AnimatePresence>
     </GlassCard>
@@ -502,10 +508,12 @@ function ListRow({
   doc,
   index,
   canManage,
+  apiBase,
 }: {
   doc: DocItem;
   index: number;
   canManage: boolean;
+  apiBase: string;
 }) {
   const router = useRouter();
   const meta = fileTypeMeta(doc.fileType);
@@ -517,7 +525,7 @@ function ListRow({
   async function remove() {
     if (deleting) return;
     setDeleting(true);
-    const res = await fetch(`/api/documents/${doc.id}`, { method: "DELETE" });
+    const res = await fetch(`${apiBase}/${doc.id}`, { method: "DELETE" });
     if (res.ok) {
       setConfirmDelete(false);
       router.refresh();
@@ -618,12 +626,14 @@ function ListRow({
             doc={doc}
             open={editing}
             onClose={() => setEditing(false)}
+            apiBase={apiBase}
           />
           <ConfirmDialog
             open={confirmDelete}
             title="Delete document"
             message={
-              <>Remove “{doc.title}” from the library? This can’t be undone.</>
+              <>Remove &ldquo;{doc.title}&rdquo; from the library? This can&apos;t be undone.</>
+
             }
             loading={deleting}
             onConfirm={remove}

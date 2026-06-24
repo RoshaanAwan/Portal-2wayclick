@@ -311,7 +311,7 @@ export function Topbar({
                         camera + approve inside this signed-in app, so it always
                         has the session (a scanned deep link often doesn't). */}
                     <ApproveScannerButton
-                      className="hover-surface flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm text-ink-500 hover:text-ink"
+                      className="hover-surface flex md:hidden w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm text-ink-500 hover:text-ink"
                     >
                       <ScanLine className="h-4 w-4" />
                       Approve a device
@@ -329,7 +329,7 @@ export function Topbar({
                     {impersonating && (
                       <button
                         onClick={stopImpersonating}
-                        className="hover-surface flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium text-warn-ink transition hover:bg-warn-soft"
+                        className="hover-surface hidden w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium text-warn-ink transition hover:bg-warn-soft"
                       >
                         <ShieldAlert className="h-4 w-4" />
                         Stop impersonating

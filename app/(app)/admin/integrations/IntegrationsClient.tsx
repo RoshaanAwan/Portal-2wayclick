@@ -42,6 +42,12 @@ interface SavePayload {
   config?: Record<string, unknown>;
 }
 
+interface IntegrationsClientProps {
+  initial: Row[];
+  apiBase?: string;
+  testApiBase?: string;
+}
+
 function Toggle({
   on,
   onChange,
@@ -121,7 +127,7 @@ function CardHead({
 }
 
 /** Hook with the shared save logic — POSTs to the integrations endpoint. */
-function useSave(provider: string) {
+function useSave(provider: string, apiBase: string) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -132,7 +138,7 @@ function useSave(provider: string) {
     setError("");
     setSavedFlash(false);
     try {
-      const res = await fetch("/api/admin/integrations", {
+      const res = await fetch(apiBase, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ provider, ...payload }),
@@ -157,9 +163,10 @@ function useSave(provider: string) {
 }
 
 // ── Simple URL-only integration (Slack, Jira, …) ──────────────────────────────
-function UrlCard({ row }: { row: Row }) {
+function UrlCard({ row, apiBase }: { row: Row; apiBase: string }) {
   const { busy, error, setError, savedFlash, setSavedFlash, save } = useSave(
     row.provider,
+    apiBase,
   );
   const [enabled, setEnabled] = useState(row.enabled);
   const [url, setUrl] = useState(row.workspaceUrl);
@@ -231,9 +238,10 @@ function UrlCard({ row }: { row: Row }) {
 }
 
 // ── Credential integration with an in-app dashboard (GitHub) ──────────────────
-function GitHubCard({ row }: { row: Row }) {
+function GitHubCard({ row, apiBase, testApiBase }: { row: Row; apiBase: string; testApiBase: string }) {
   const { busy, error, setError, savedFlash, setSavedFlash, save } = useSave(
     row.provider,
+    apiBase,
   );
   const [enabled, setEnabled] = useState(row.enabled);
   const [connected, setConnected] = useState(row.connected);
@@ -286,12 +294,12 @@ function GitHubCard({ row }: { row: Row }) {
     }
   }
 
-  async function onTest() {
+  async function onTest(testApiBase: string) {
     setTesting(true);
     setError("");
     setTestResult(null);
     try {
-      const res = await fetch("/api/admin/integrations/test", {
+      const res = await fetch(testApiBase, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -406,7 +414,7 @@ function GitHubCard({ row }: { row: Row }) {
             size="sm"
             variant="glass"
             loading={testing}
-            onClick={onTest}
+            onClick={() => onTest(testApiBase)}
           >
             Test connection
           </Button>
@@ -433,9 +441,10 @@ function GitHubCard({ row }: { row: Row }) {
 }
 
 // ── Google Drive (per-USER OAuth) — admin sets the tenant's OWN Google app ─────
-function GoogleDriveCard({ row }: { row: Row }) {
+function GoogleDriveCard({ row, apiBase }: { row: Row; apiBase: string }) {
   const { busy, error, setError, savedFlash, setSavedFlash, save } = useSave(
     row.provider,
+    apiBase,
   );
   const [enabled, setEnabled] = useState(row.enabled);
   const [connected, setConnected] = useState(row.connected); // = client secret saved
@@ -679,8 +688,13 @@ function CardError({ text }: { text: string }) {
   );
 }
 
-export function IntegrationsClient({ initial }: { initial: Row[] }) {
+export function IntegrationsClient({
+  initial,
+  apiBase = "/api/admin/integrations",
+  testApiBase,
+}: IntegrationsClientProps) {
   const connected = initial.filter((r) => r.enabled).length;
+  const resolvedTestApiBase = testApiBase ?? `${apiBase}/test`;
 
   return (
     <div className="space-y-4">
@@ -691,11 +705,16 @@ export function IntegrationsClient({ initial }: { initial: Row[] }) {
       <div className="grid grid-cols-1 gap-3">
         {initial.map((row) =>
           row.provider === "github" ? (
-            <GitHubCard key={row.provider} row={row} />
+            <GitHubCard
+              key={row.provider}
+              row={row}
+              apiBase={apiBase}
+              testApiBase={resolvedTestApiBase}
+            />
           ) : row.provider === "google-drive" ? (
-            <GoogleDriveCard key={row.provider} row={row} />
+            <GoogleDriveCard key={row.provider} row={row} apiBase={apiBase} />
           ) : (
-            <UrlCard key={row.provider} row={row} />
+            <UrlCard key={row.provider} row={row} apiBase={apiBase} />
           ),
         )}
       </div>

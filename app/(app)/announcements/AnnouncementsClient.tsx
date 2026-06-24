@@ -33,10 +33,11 @@ export interface AnnouncementDTO {
   pinned: boolean;
   coverColor: string;
   createdAt: string;
+  isSystemPost: boolean;
   author: {
     id: string;
     name: string;
-    title: string;
+    title: string | null;
     avatarUrl: string | null;
   };
   reactions: ReactionDTO[];
