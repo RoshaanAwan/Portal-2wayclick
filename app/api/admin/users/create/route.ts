@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireTenantUser, hashPassword } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { canAddUser } from "@/lib/billing";
 import { audit } from "@/lib/audit";
 import { recordActivity } from "@/lib/activityFeed";
 import {
@@ -52,7 +53,20 @@ export async function POST(req: Request) {
       );
     }
 
-    // 3. Email must be unique *within the tenant* (email is now per-tenant
+    // 3. Plan seat limit: block if the tenant is already at its plan's maxUsers
+    //    cap (no cap / no plan ⇒ always allowed). Keeps tenants within the
+    //    package they pay for.
+    const seat = await canAddUser(actor.tenantId);
+    if (!seat.allowed) {
+      return NextResponse.json(
+        {
+          error: `Your plan allows up to ${seat.max} users (you have ${seat.current}). Upgrade your plan to add more.`,
+        },
+        { status: 403 },
+      );
+    }
+
+    // 4. Email must be unique *within the tenant* (email is now per-tenant
     //    unique: @@unique([tenantId, email])). findFirst is auto-scoped to the
     //    actor's tenant, so this checks for a clash inside this tenant only.
     const existing = await db.user.findFirst({ where: { email: data.email } });

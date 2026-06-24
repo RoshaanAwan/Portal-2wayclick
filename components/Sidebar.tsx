@@ -21,6 +21,7 @@ import {
   Receipt,
   Wallet,
   Banknote,
+  CreditCard,
   MessageSquare,
   Palette,
   Blocks,
@@ -122,6 +123,10 @@ export function Sidebar({ role }: { role?: string | null }) {
     // Integrations — admin tier (enable/configure third-party app tiles).
     ...(can.manageIntegrations(role)
       ? [{ href: "/admin/integrations", label: "Integrations", icon: Blocks }]
+      : []),
+    // Billing — Company Owner only (the workspace's subscription/plan).
+    ...(can.manageBilling(role)
+      ? [{ href: "/billing", label: "Billing", icon: CreditCard }]
       : []),
     // (Tenant management lives in the separate /system area for System Owners —
     // never in the tenant sidebar.)
