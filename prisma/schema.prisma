@@ -29,6 +29,21 @@ model Tenant {
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
+  // ── Subscription (SaaS billing) ───────────────────────────────────────────
+  // The package this tenant is subscribed to (System Owner catalog). Null = no
+  // plan chosen yet. Plan is platform-level, NOT tenant-scoped.
+  planId               String?
+  plan                 Plan?     @relation(fields: [planId], references: [id])
+  // Stripe mirror. We never compute billing locally — Stripe is the source of
+  // truth and these are synced from webhooks. All globally unique.
+  stripeCustomerId     String?   @unique
+  stripeSubscriptionId String?   @unique
+  // Mirrors Stripe's subscription.status verbatim: "trialing" | "active" |
+  // "past_due" | "canceled" | "incomplete" | "unpaid". Null before first sub.
+  subscriptionStatus   String?
+  // End of the current paid/trial period — when access lapses if not renewed.
+  currentPeriodEnd     DateTime?
+
   // Back-relations from every tenant-root model.
   users         User[]
   sessions      Session[]
@@ -53,6 +68,44 @@ model Tenant {
   driveConns    GoogleDriveConnection[]
 
   @@index([status])
+}
+
+// ── Plan (subscription package catalog) ───────────────────────────────────────
+// Platform-level packages the System Owner defines and sells to tenants. NOT
+// tenant-scoped: there is no tenantId and it is NOT in SCOPED_MODELS — only
+// adminDb touches it, behind requireSystemOwner() (same posture as listTenants).
+// Each plan mirrors a Stripe Product + recurring Price; the Stripe ids are the
+// link used when a tenant subscribes via Checkout.
+model Plan {
+  id              String   @id @default(cuid())
+  name            String
+  description     String?
+  // Smallest currency unit (cents), same convention as Invoice.totalCents.
+  priceCents      Int
+  // ISO currency, lowercased for Stripe (e.g. "usd").
+  currency        String   @default("usd")
+  // Billing cadence: "month" | "year". Maps to Stripe's recurring.interval.
+  interval        String   @default("month")
+  // Free-trial length in days; 0 = no trial. Passed as trial_period_days.
+  trialDays       Int      @default(0)
+  // Optional hard cap on tenant users (enforced on user creation). Null = no cap.
+  maxUsers        Int?
+  // Human-readable feature bullets shown on the billing page (string[]).
+  features        Json?
+  // Stripe mirror — set when the plan is first saved. Price is immutable in
+  // Stripe, so a price change creates a NEW price and swaps this id.
+  stripeProductId String?  @unique
+  stripePriceId   String?  @unique
+  // Soft-archive instead of delete (a plan may still back live subscriptions).
+  active          Boolean  @default(true)
+  // Display order on the billing page (ascending).
+  sortOrder       Int      @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  tenants Tenant[]
+
+  @@index([active])
 }
 
 model User {

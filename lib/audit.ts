@@ -93,9 +93,16 @@ export type AuditAction =
   | "branding.logo_update"
   | "integration.update"
   | "tenant.create"
+  | "tenant.update"
   | "tenant.suspend"
   | "tenant.reactivate"
-  | "tenant.impersonate";
+  | "tenant.impersonate"
+  | "plan.create"
+  | "plan.update"
+  | "plan.archive"
+  | "plan.restore"
+  | "billing.checkout_started"
+  | "subscription.sync";
 
 interface AuditInput {
   actor: SafeUser | { id?: string | null; name: string; role: string };

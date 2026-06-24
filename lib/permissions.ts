@@ -118,6 +118,12 @@ export const can = {
   manageBranding: (role?: string | null) => isAdminTier(role),
   /** Enable/disable & configure the third-party app integrations. Admin tier. */
   manageIntegrations: (role?: string | null) => isAdminTier(role),
+  /**
+   * View and manage the workspace's subscription/billing (choose a plan, pay,
+   * open the Stripe billing portal). Company Owner (SUPER_ADMIN) only — paying
+   * for the workspace is the owner's responsibility, not a delegated Admin task.
+   */
+  manageBilling: (role?: string | null) => isSuperAdmin(role),
 };
 
 // ── User-creation authorization ──────────────────────────────────────────────

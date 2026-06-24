@@ -19,6 +19,7 @@ import {
   KeyRound,
   Blocks,
   Wrench,
+  Package,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Logo } from "@/components/ui/Logo";
@@ -28,6 +29,7 @@ import { useSystemNav } from "./SystemNavProvider";
 
 const PLATFORM_NAV = [
   { href: "/system/tenants",       label: "Tenants",       icon: Building2  },
+  { href: "/system/plans",         label: "Plans",         icon: Package    },
   { href: "/system/announcements", label: "Announcements", icon: Megaphone  },
   { href: "/system/documents",     label: "Documents",     icon: FolderOpen },
   { href: "/system/tools",         label: "Tools",         icon: Wrench     },
