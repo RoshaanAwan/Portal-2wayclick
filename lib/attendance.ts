@@ -15,6 +15,12 @@ import { recordActivity } from "./activityFeed";
 
 export type AttendanceStatus = "PRESENT" | "CHECKED_OUT";
 
+// Result of a break event. "ignored" carries a reason so the webhook can return
+// a benign 202 (no retry) rather than an error the bot would keep redelivering.
+export type BreakResult =
+  | { ok: true; action: "break_in" | "break_out"; day: Date }
+  | { ok: false; ignored: true; reason: string; day: Date };
+
 // The business timezone for attendance. A "day" is a calendar day in Pakistan
 // (UTC+5), not in the server's timezone (Vercel runs in UTC). This keeps the
 // day boundary correct for the team regardless of where the server runs — e.g.
@@ -145,7 +151,7 @@ export async function recordCheckOut(
 ) {
   const day = dayKey(at);
 
-  await db.attendance.upsert({
+  const row = await db.attendance.upsert({
     where: { userId_day: { userId: actor.id, day } },
     create: {
       tenantId: actor.tenantId,
@@ -163,6 +169,10 @@ export async function recordCheckOut(
     },
   });
 
+  // Auto-close any break the user left open: a check-out implies the break is
+  // over. Stamp it at the check-out time so its duration is bounded by the day.
+  await closeOpenBreaks(actor.id, day, at);
+
   await recordActivity({
     actor,
     verb: "joined",
@@ -170,5 +180,189 @@ export async function recordCheckOut(
     meta: { kind: "attendance.checkout", at: at.toISOString(), source },
   });
 
-  return { day, status: "CHECKED_OUT" as AttendanceStatus };
+  return { day, status: "CHECKED_OUT" as AttendanceStatus, id: row.id };
+}
+
+// ── Breaks ────────────────────────────────────────────────────────────────────
+// A break is a span within a day the user is away (lunch, etc.). One AttendanceBreak
+// row per break; a day may have several. break_in opens a row (breakOutAt null);
+// break_out closes the open one. Net worked time subtracts the sum of break spans
+// from (checkOut − checkIn). See the AttendanceBreak model in schema.prisma.
+
+/**
+ * Record a break_in. Opens a new break row for the user's day.
+ *
+ * Ignored (returns ok:false) when:
+ *  - there is no open attendance for today (they never checked in / already out),
+ *  - there is already an open break (can't start a second one while away).
+ * These are benign no-ops, not errors, so a stray event doesn't break the day.
+ */
+export async function recordBreakIn(
+  actor: AttendanceActor,
+  at: Date,
+  source = "slack",
+): Promise<BreakResult> {
+  const day = dayKey(at);
+
+  // Must be checked in and not yet checked out — a break only makes sense while
+  // the user is actively present.
+  const attendance = await db.attendance.findUnique({
+    where: { userId_day: { userId: actor.id, day } },
+    select: { id: true, status: true },
+  });
+  if (!attendance || attendance.status !== "PRESENT") {
+    return { ok: false, ignored: true, reason: "no_open_attendance", day };
+  }
+
+  // Reject a second concurrent break: they must break_out first.
+  const open = await db.attendanceBreak.findFirst({
+    where: { userId: actor.id, day, breakOutAt: null },
+    select: { id: true },
+  });
+  if (open) {
+    return { ok: false, ignored: true, reason: "break_already_open", day };
+  }
+
+  await db.attendanceBreak.create({
+    data: {
+      tenantId: actor.tenantId,
+      userId: actor.id,
+      attendanceId: attendance.id,
+      day,
+      breakInAt: at,
+      source,
+    },
+  });
+
+  await recordActivity({
+    actor,
+    verb: "joined",
+    target: "started a break",
+    meta: { kind: "attendance.break_in", at: at.toISOString(), source },
+  });
+
+  return { ok: true, action: "break_in", day };
+}
+
+/**
+ * Record a break_out. Stamps breakOutAt on the user's open break for the day.
+ * If none is open (already closed, or no break_in was seen), it's a safe no-op.
+ */
+export async function recordBreakOut(
+  actor: AttendanceActor,
+  at: Date,
+  source = "slack",
+): Promise<BreakResult> {
+  const day = dayKey(at);
+
+  const open = await db.attendanceBreak.findFirst({
+    where: { userId: actor.id, day, breakOutAt: null },
+    orderBy: { breakInAt: "desc" },
+    select: { id: true, breakInAt: true },
+  });
+  if (!open) {
+    return { ok: false, ignored: true, reason: "no_open_break", day };
+  }
+
+  // Guard against a break_out whose ts precedes the break_in (clock skew /
+  // out-of-order delivery): clamp to the break_in so the span is never negative.
+  const closeAt = at.getTime() < open.breakInAt.getTime() ? open.breakInAt : at;
+
+  await db.attendanceBreak.update({
+    where: { id: open.id },
+    data: { breakOutAt: closeAt },
+  });
+
+  await recordActivity({
+    actor,
+    verb: "joined",
+    target: "ended a break",
+    meta: { kind: "attendance.break_out", at: at.toISOString(), source },
+  });
+
+  return { ok: true, action: "break_out", day };
+}
+
+/**
+ * Force-close every still-open break for a user's day at `at`, marking them
+ * "sweep" so a dangling break (no break_out received) doesn't read as infinite.
+ * Called on check-out and by the end-of-day sweep. Returns the count closed.
+ */
+export async function closeOpenBreaks(
+  userId: string,
+  day: Date,
+  at: Date,
+  source = "sweep",
+): Promise<number> {
+  // Use a raw updateMany so a break_in that's somehow after `at` (skew) still
+  // closes to a non-negative span: clamp via GREATEST isn't available portably,
+  // so we read then update the rare open rows individually.
+  const open = await db.attendanceBreak.findMany({
+    where: { userId, day, breakOutAt: null },
+    select: { id: true, breakInAt: true },
+  });
+  if (open.length === 0) return 0;
+
+  await Promise.all(
+    open.map((b) =>
+      db.attendanceBreak.update({
+        where: { id: b.id },
+        data: {
+          breakOutAt: at.getTime() < b.breakInAt.getTime() ? b.breakInAt : at,
+          source,
+        },
+      }),
+    ),
+  );
+  return open.length;
+}
+
+/**
+ * End-of-day sweep: close any break still open for a past day so it never
+ * dangles into the next day. Closes each at that day's end (UTC-anchored
+ * day key + 24h is the next PKT midnight). Intended for a daily cron. Operates
+ * across the current tenant context; call once per tenant (or via adminDb).
+ */
+export async function sweepOpenBreaks(beforeDay: Date): Promise<number> {
+  const stale = await db.attendanceBreak.findMany({
+    where: { breakOutAt: null, day: { lt: beforeDay } },
+    select: { id: true, day: true, breakInAt: true },
+  });
+  let closed = 0;
+  for (const b of stale) {
+    const endOfDay = new Date(b.day.getTime() + 86_400_000);
+    const closeAt = endOfDay.getTime() < b.breakInAt.getTime() ? b.breakInAt : endOfDay;
+    await db.attendanceBreak.update({
+      where: { id: b.id },
+      data: { breakOutAt: closeAt, source: "sweep" },
+    });
+    closed++;
+  }
+  return closed;
+}
+
+/** Sum of completed break durations (minutes) for a set of break rows. */
+export function breakMinutes(
+  breaks: { breakInAt: Date; breakOutAt: Date | null }[],
+): number {
+  let ms = 0;
+  for (const b of breaks) {
+    if (b.breakOutAt) ms += b.breakOutAt.getTime() - b.breakInAt.getTime();
+  }
+  return Math.round(ms / 60000);
+}
+
+/**
+ * Net worked minutes for a day: (checkOut − checkIn) − total break minutes.
+ * Returns null when the day isn't complete (no check-in or no check-out). Never
+ * negative (clamped to 0 in case breaks somehow exceed the gross span).
+ */
+export function netWorkedMinutes(
+  checkInAt: Date | null,
+  checkOutAt: Date | null,
+  breaks: { breakInAt: Date; breakOutAt: Date | null }[],
+): number | null {
+  if (!checkInAt || !checkOutAt) return null;
+  const gross = Math.round((checkOutAt.getTime() - checkInAt.getTime()) / 60000);
+  return Math.max(0, gross - breakMinutes(breaks));
 }

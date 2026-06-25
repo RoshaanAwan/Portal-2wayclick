@@ -4,7 +4,15 @@ import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { can } from "@/lib/permissions";
-import { dayKey, dayKeyToString, parseDayKey, addDays, ATTENDANCE_TZ } from "@/lib/attendance";
+import {
+  dayKey,
+  dayKeyToString,
+  parseDayKey,
+  addDays,
+  ATTENDANCE_TZ,
+  breakMinutes,
+  netWorkedMinutes,
+} from "@/lib/attendance";
 import { AttendanceDateNav } from "./AttendanceDateNav";
 import { AttendanceBoardWrapper } from "./AttendanceBoardWrapper";
 
@@ -25,6 +33,15 @@ function fmtTime(d: Date | null): string {
     minute: "2-digit",
     timeZone: ATTENDANCE_TZ,
   });
+}
+
+/** Minutes as "Hh Mm" (or "Mm" under an hour); "—" for null. */
+function fmtMinutes(mins: number | null): string {
+  if (mins === null) return "—";
+  if (mins === 0) return "0m";
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  return h > 0 ? `${h}h ${m}m` : `${m}m`;
 }
 
 function StatusPill({ status }: { status: "PRESENT" | "CHECKED_OUT" | "AWAY" }) {
@@ -73,7 +90,10 @@ export default async function AttendancePage({
         orderBy: { name: "asc" },
         select: { id: true, name: true, title: true, department: true, avatarUrl: true },
       }),
-      db.attendance.findMany({ where: { day: selected } }),
+      db.attendance.findMany({
+        where: { day: selected },
+        include: { breaks: { select: { breakInAt: true, breakOutAt: true } } },
+      }),
     ]);
 
     type RowStatus = "PRESENT" | "CHECKED_OUT" | "AWAY";
@@ -81,7 +101,14 @@ export default async function AttendancePage({
     const rows = users.map((u) => {
       const a = byUser.get(u.id);
       const status: RowStatus = !a ? "AWAY" : (a.status as "PRESENT" | "CHECKED_OUT");
-      return { user: u, status, checkInAt: a?.checkInAt ?? null, checkOutAt: a?.checkOutAt ?? null };
+      return {
+        user: u,
+        status,
+        checkInAt: a?.checkInAt ?? null,
+        checkOutAt: a?.checkOutAt ?? null,
+        breakMins: a ? breakMinutes(a.breaks) : 0,
+        netMins: a ? netWorkedMinutes(a.checkInAt, a.checkOutAt, a.breaks) : null,
+      };
     });
 
     const present = rows.filter((r) => r.status === "PRESENT").length;
@@ -116,6 +143,7 @@ export default async function AttendancePage({
       },
       include: {
         user: { select: { id: true, name: true, title: true, department: true, avatarUrl: true } },
+        breaks: { select: { breakInAt: true, breakOutAt: true } },
       },
     });
 
@@ -150,18 +178,18 @@ export default async function AttendancePage({
         .filter((d) => !isWeekend(d.date))
         .map((d) => {
           const rec = recByDate.get(d.dateStr);
-          let durationMinutes: number | null = null;
-          if (rec?.checkInAt && rec?.checkOutAt) {
-            durationMinutes = Math.round(
-              (rec.checkOutAt.getTime() - rec.checkInAt.getTime()) / 60000,
-            );
-          }
+          // Worked time, net of breaks: (checkOut − checkIn) − Σ break durations.
+          const durationMinutes = rec
+            ? netWorkedMinutes(rec.checkInAt, rec.checkOutAt, rec.breaks)
+            : null;
+          const breakMins = rec ? breakMinutes(rec.breaks) : 0;
           return {
             date: d.dateStr,
             status: (rec?.status ?? "AWAY") as "PRESENT" | "CHECKED_OUT" | "AWAY",
             checkInAt: rec?.checkInAt?.toISOString() ?? null,
             checkOutAt: rec?.checkOutAt?.toISOString() ?? null,
             durationMinutes,
+            breakMinutes: breakMins,
           };
         });
 
@@ -291,6 +319,8 @@ export default async function AttendancePage({
                     <th className="px-4 py-3">Status</th>
                     <th className="px-4 py-3">Check-in</th>
                     <th className="px-4 py-3">Check-out</th>
+                    <th className="px-4 py-3">Break</th>
+                    <th className="px-4 py-3">Net worked</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-line">
@@ -307,6 +337,12 @@ export default async function AttendancePage({
                       </td>
                       <td className="px-4 py-3 text-ink-500">{fmtTime(r.checkInAt)}</td>
                       <td className="px-4 py-3 text-ink-500">{fmtTime(r.checkOutAt)}</td>
+                      <td className="px-4 py-3 text-ink-500 tabular-nums">
+                        {r.breakMins > 0 ? fmtMinutes(r.breakMins) : "—"}
+                      </td>
+                      <td className="px-4 py-3 text-ink-500 tabular-nums">
+                        {fmtMinutes(r.netMins)}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -325,6 +361,9 @@ export default async function AttendancePage({
     where: { userId: user.id },
     orderBy: { day: "desc" },
     take: 14,
+    include: {
+      breaks: { select: { breakInAt: true, breakOutAt: true } },
+    },
   });
 
   return (
@@ -347,20 +386,14 @@ export default async function AttendancePage({
                 <th className="px-4 py-3">Status</th>
                 <th className="px-4 py-3">Check-in</th>
                 <th className="px-4 py-3">Check-out</th>
-                <th className="px-4 py-3">Duration</th>
+                <th className="px-4 py-3">Break</th>
+                <th className="px-4 py-3">Net worked</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-line">
               {mine.map((a) => {
-                let dur: string = "—";
-                if (a.checkInAt && a.checkOutAt) {
-                  const mins = Math.round(
-                    (a.checkOutAt.getTime() - a.checkInAt.getTime()) / 60000,
-                  );
-                  const h = Math.floor(mins / 60);
-                  const m = mins % 60;
-                  dur = h > 0 ? `${h}h ${m}m` : `${m}m`;
-                }
+                const breakMins = breakMinutes(a.breaks);
+                const net = netWorkedMinutes(a.checkInAt, a.checkOutAt, a.breaks);
                 return (
                   <tr key={a.id} className="hover:bg-surface-2">
                     <td className="px-4 py-3 text-ink">
@@ -376,7 +409,10 @@ export default async function AttendancePage({
                     </td>
                     <td className="px-4 py-3 text-ink-500">{fmtTime(a.checkInAt)}</td>
                     <td className="px-4 py-3 text-ink-500">{fmtTime(a.checkOutAt)}</td>
-                    <td className="px-4 py-3 text-ink-500 tabular-nums">{dur}</td>
+                    <td className="px-4 py-3 text-ink-500 tabular-nums">
+                      {breakMins > 0 ? fmtMinutes(breakMins) : "—"}
+                    </td>
+                    <td className="px-4 py-3 text-ink-500 tabular-nums">{fmtMinutes(net)}</td>
                   </tr>
                 );
               })}

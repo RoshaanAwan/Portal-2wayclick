@@ -39,6 +39,7 @@ const SCOPED_MODELS = new Set<string>([
   "Document",
   "LeaveRequest",
   "Attendance",
+  "AttendanceBreak",
   "Activity",
   "AuditLog",
   "Board",

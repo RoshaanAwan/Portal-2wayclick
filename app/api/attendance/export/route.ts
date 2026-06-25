@@ -7,6 +7,8 @@ import {
   dayKeyToString,
   parseDayKey,
   ATTENDANCE_TZ,
+  breakMinutes,
+  netWorkedMinutes,
 } from "@/lib/attendance";
 
 // GET /api/attendance/export?date=YYYY-MM-DD
@@ -28,6 +30,14 @@ function fmtTime(d: Date | null): string {
     minute: "2-digit",
     timeZone: ATTENDANCE_TZ,
   });
+}
+
+/** Minutes as "Hh Mm", or empty when null (incomplete day). */
+function fmtMinutes(mins: number | null): string {
+  if (mins === null) return "";
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  return h > 0 ? `${h}h ${m}m` : `${m}m`;
 }
 
 export async function GET(req: Request) {
@@ -52,15 +62,29 @@ export async function GET(req: Request) {
       orderBy: { name: "asc" },
       select: { id: true, name: true, title: true, department: true },
     }),
-    db.attendance.findMany({ where: { day: selected } }),
+    db.attendance.findMany({
+      where: { day: selected },
+      include: { breaks: { select: { breakInAt: true, breakOutAt: true } } },
+    }),
   ]);
   const byUser = new Map(rows.map((a) => [a.userId, a]));
 
-  const header = ["Name", "Title", "Department", "Status", "Check-in", "Check-out"];
+  const header = [
+    "Name",
+    "Title",
+    "Department",
+    "Status",
+    "Check-in",
+    "Check-out",
+    "Break",
+    "Net worked",
+  ];
   const lines = [header.map(csvCell).join(",")];
   for (const u of users) {
     const a = byUser.get(u.id);
     const status = !a ? "Not in" : a.status === "PRESENT" ? "Present" : "Checked out";
+    const breakMins = a ? breakMinutes(a.breaks) : 0;
+    const net = a ? netWorkedMinutes(a.checkInAt, a.checkOutAt, a.breaks) : null;
     lines.push(
       [
         u.name ?? "",
@@ -69,6 +93,8 @@ export async function GET(req: Request) {
         status,
         fmtTime(a?.checkInAt ?? null),
         fmtTime(a?.checkOutAt ?? null),
+        breakMins > 0 ? fmtMinutes(breakMins) : "",
+        fmtMinutes(net),
       ]
         .map(csvCell)
         .join(","),

@@ -3,6 +3,7 @@ import { db } from "./db";
 import type { SafeUser } from "./auth";
 import { isManagerTier } from "./permissions";
 import { DONE_LIST_KEYWORDS, isDoneList } from "./teamPulse";
+import { netWorkedMinutes } from "./attendance";
 
 // ── Performance ───────────────────────────────────────────────────────────────
 // A retrospective, per-person read over a rolling 30-day window, built from two
@@ -20,7 +21,7 @@ export const PERF_WINDOW_DAYS = 30;
 
 // Attendance scoring knobs.
 const PUNCTUAL_BY_HOUR = 10; // checked in by 10:00 local-ish = punctual
-const FULL_DAY_MINUTES = 6 * 60; // ≥ 6h between in/out counts as a full day
+const FULL_DAY_MINUTES = 6 * 60; // ≥ 6h worked (net of breaks) counts as a full day
 
 export interface PerformancePerson {
   id: string;
@@ -190,6 +191,7 @@ export async function buildPerformance(
         userId: true,
         checkInAt: true,
         checkOutAt: true,
+        breaks: { select: { breakInAt: true, breakOutAt: true } },
       },
     }),
   ]);
@@ -254,11 +256,9 @@ export async function buildPerformance(
     if (row.checkInAt && row.checkInAt.getHours() < PUNCTUAL_BY_HOUR) {
       a.punctual++;
     }
-    if (row.checkInAt && row.checkOutAt) {
-      const mins =
-        (row.checkOutAt.getTime() - row.checkInAt.getTime()) / 60000;
-      if (mins >= FULL_DAY_MINUTES) a.full++;
-    }
+    // "Full day" is worked time, net of breaks — consistent with /attendance.
+    const mins = netWorkedMinutes(row.checkInAt, row.checkOutAt, row.breaks);
+    if (mins !== null && mins >= FULL_DAY_MINUTES) a.full++;
   }
 
   const result: PerformancePerson[] = people.map((p) => {

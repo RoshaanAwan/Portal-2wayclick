@@ -61,6 +61,7 @@ model Tenant {
   pushSubs      PushSubscription[]
   leaveRequests LeaveRequest[]
   attendance    Attendance[]
+  attendanceBreaks AttendanceBreak[]
   expenses      Expense[]
   userSalaries  UserSalary[]
   branding      BrandingSettings?
@@ -176,6 +177,7 @@ model User {
   triggeredNotifs         Notification[]       @relation("NotifActor")
   pushSubscriptions       PushSubscription[]   @relation("UserPushSubs")
   attendance              Attendance[]
+  attendanceBreaks        AttendanceBreak[]
   createdInvoices         Invoice[]            @relation("InvoiceCreator")
   submittedExpenses       Expense[]            @relation("ExpenseSubmitter")
   reviewedExpenses        Expense[]            @relation("ExpenseReviewer")
@@ -427,12 +429,65 @@ model Attendance {
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @updatedAt
 
+  // Breaks taken during this day (lunch, etc.). Net worked time =
+  // (checkOutAt − checkInAt) − sum(break durations). See lib/attendance.ts.
+  breaks     AttendanceBreak[]
+
   // One row per person per day; lets the webhook upsert idempotently. userId
   // already implies the tenant, so this stays as-is.
   @@unique([userId, day])
   // Newest-first lookups for the attendance dashboard.
   @@index([day])
   @@index([tenantId])
+}
+
+// ── Attendance break ─────────────────────────────────────────────────────────
+// One row per break a user takes during a day (they may take several). Opened by
+// a Slack "break_in" event (breakInAt set, breakOutAt null = currently on break)
+// and closed by "break_out" (breakOutAt stamped). The day's check-out, or an
+// end-of-day sweep, auto-closes any still-open break so none dangles. Always
+// linked to that day's Attendance row. See lib/attendance.ts.
+model AttendanceBreak {
+  id           String     @id @default(cuid())
+  tenantId     String
+  tenant       Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  userId       String
+  user         User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  attendanceId String
+  attendance   Attendance @relation(fields: [attendanceId], references: [id], onDelete: Cascade)
+  // The attendance `day` key (UTC-midnight anchor of the PKT date), copied here
+  // so breaks can be queried by day without a join.
+  day          DateTime
+  breakInAt    DateTime
+  // Null while the break is open (user still away); stamped on break_out / sweep.
+  breakOutAt   DateTime?
+  // "slack" today; "sweep" when an end-of-day sweep force-closed a dangling break.
+  source       String     @default("slack")
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  @@index([attendanceId])
+  // Fast "is there an open break for this user/day?" lookup.
+  @@index([userId, day])
+  @@index([tenantId])
+}
+
+// ── Slack webhook dedupe ─────────────────────────────────────────────────────
+// The Slack bot may retry a delivery. We dedupe each event on its natural key
+// (slackUserId, action, the Slack message ts) so a redelivery is a no-op rather
+// than creating a duplicate break / double-counting. Rows are cheap and can be
+// pruned by age later. Not tenant-scoped: the dedupe happens before user→tenant
+// resolution, keyed on the Slack identity the bot sends. See attendance/slack.
+model SlackWebhookEvent {
+  id          String   @id @default(cuid())
+  slackUserId String
+  action      String
+  // The raw Slack message ts as sent (e.g. "1719312000.000200").
+  ts          String
+  createdAt   DateTime @default(now())
+
+  @@unique([slackUserId, action, ts])
+  @@index([createdAt])
 }
 
 model Activity {

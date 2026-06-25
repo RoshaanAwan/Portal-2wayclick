@@ -28,7 +28,10 @@ export interface PersonDay {
   status: "PRESENT" | "CHECKED_OUT" | "AWAY";
   checkInAt: string | null;
   checkOutAt: string | null;
+  // Worked time, net of breaks ((checkOut − checkIn) − total break time).
   durationMinutes: number | null;
+  // Total break time for the day, for the tooltip's "incl. break" line.
+  breakMinutes: number;
 }
 
 export interface AttendancePerson {
@@ -376,7 +379,7 @@ export function AttendanceBoard({ data }: { data: AttendanceBoardData }) {
                     <th className="px-4 py-2.5 text-left font-medium">Status</th>
                     <th className="px-4 py-2.5 text-left font-medium">Check-in</th>
                     <th className="px-4 py-2.5 text-left font-medium">Check-out</th>
-                    <th className="px-5 py-2.5 text-right font-medium">Duration</th>
+                    <th className="px-5 py-2.5 text-right font-medium">Net worked</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-line/50">
@@ -430,6 +433,11 @@ export function AttendanceBoard({ data }: { data: AttendanceBoardData }) {
                           >
                             {fmtDuration(pd.durationMinutes)}
                           </span>
+                          {pd.breakMinutes > 0 && (
+                            <div className="text-[11px] tabular-nums text-ink-400">
+                              −{fmtDuration(pd.breakMinutes)} break
+                            </div>
+                          )}
                         </td>
                       </tr>
                     ))}
