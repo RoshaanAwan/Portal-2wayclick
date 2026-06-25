@@ -43,6 +43,12 @@ model Tenant {
   subscriptionStatus   String?
   // End of the current paid/trial period — when access lapses if not renewed.
   currentPeriodEnd     DateTime?
+  // Provisioning-time free trial granted by the System Owner at tenant creation
+  // (independent of Stripe). The tenant has full access until this instant; once
+  // it passes WITHOUT an active/trialing paid subscription, login is gated to the
+  // billing page ("free trial ended, subscribe to continue"). Null = no trial
+  // window (access depends solely on subscriptionStatus).
+  trialEndsAt          DateTime?
 
   // Back-relations from every tenant-root model.
   users         User[]

@@ -56,6 +56,8 @@ export async function listTenants() {
     createdAt: t.createdAt,
     userCount: t._count.users,
     companyOwnerId: t.users[0]?.id ?? null,
+    trialEndsAt: t.trialEndsAt,
+    subscriptionStatus: t.subscriptionStatus,
   }));
 }
 
@@ -65,6 +67,10 @@ export interface NewTenantInput {
   adminName: string;
   adminEmail: string;
   adminPassword: string;
+  // Free-trial length in days the System Owner grants at provisioning time. 0 (or
+  // omitted) = no trial window; the workspace then requires a subscription to
+  // pass the access gate (see lib/billing.ts getTenantAccess).
+  trialDays?: number;
 }
 
 /**
@@ -80,8 +86,13 @@ export async function createTenant(input: NewTenantInput) {
 
   const passwordHash = await hashPassword(input.adminPassword);
 
+  // Stamp the trial deadline now: created + N days. Null when no trial granted.
+  const trialDays = input.trialDays ?? 0;
+  const trialEndsAt =
+    trialDays > 0 ? new Date(Date.now() + trialDays * 86_400_000) : null;
+
   const tenant = await adminDb.tenant.create({
-    data: { name: input.name, subdomain: input.subdomain },
+    data: { name: input.name, subdomain: input.subdomain, trialEndsAt },
   });
 
   // The first admin + a starter board are created inside the new tenant's
