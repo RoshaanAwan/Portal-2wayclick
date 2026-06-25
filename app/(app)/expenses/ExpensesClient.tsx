@@ -38,10 +38,12 @@ type Filter = "ALL" | FinanceStatus;
 export function ExpensesClient({
   expenses,
   projects,
+  categories,
   currentUserId,
 }: {
   expenses: ExpenseDTO[];
   projects: ProjectOption[];
+  categories: string[];
   currentUserId: string;
 }) {
   const router = useRouter();
@@ -146,6 +148,7 @@ export function ExpensesClient({
             <ExpenseForm
               expense={editing ?? undefined}
               projects={projects}
+              categories={categories}
               onDone={() => {
                 setComposing(false);
                 setEditing(null);

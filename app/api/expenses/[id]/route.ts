@@ -3,7 +3,8 @@ import { requireTenantUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { audit } from "@/lib/audit";
 import { can } from "@/lib/permissions";
-import { expenseInputSchema, toCents, formatMoney } from "@/lib/finance";
+import { expenseInputSchema, toCents, formatMoney, normalizeCategory } from "@/lib/finance";
+import { ensureExpenseCategory } from "@/lib/financeQueries";
 
 // PATCH /api/expenses/[id] — edit a still-PENDING expense. Admin tier. Once an
 // expense is APPROVED or REJECTED it is locked (the decision is a record).
@@ -45,12 +46,14 @@ export async function PATCH(
     }
 
     const amountCents = toCents(input.amount);
+    const category = normalizeCategory(input.category);
+    await ensureExpenseCategory(actor.tenantId, category, actor.id);
 
     await db.expense.update({
       where: { id },
       data: {
         title: input.title,
-        category: input.category,
+        category,
         amountCents,
         currency: input.currency,
         notes: input.notes || null,

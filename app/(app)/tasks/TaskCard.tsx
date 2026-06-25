@@ -66,6 +66,10 @@ export function TaskCard({
 }) {
   const priority = (task.priority as TaskPriority) ?? "MEDIUM";
   const due = dueState(task.dueDate);
+  // Trello-style cover: the card's most recent image attachment, shown as a
+  // banner at the top of the card. Attachments arrive newest-first, so [0] is
+  // the latest upload.
+  const cover = task.attachments[0] ?? null;
   const mine = !!currentUserId && task.assignees.some((a) => a.id === currentUserId);
   // Tracked time has blown past the estimate — flag the whole card in red.
   const overEstimate =
@@ -152,8 +156,15 @@ export function TaskCard({
           aria-label={`${priority.toLowerCase()} priority`}
         />
 
-        {/* Top-right controls — drag handle + overflow menu, shown on hover */}
-        <div className="absolute right-1 top-1.5 flex items-center gap-0.5">
+        {/* Top-right controls — drag handle + overflow menu, shown on hover.
+            Over a cover image they get a translucent backing so they stay
+            legible against any photo. */}
+        <div
+          className={cn(
+            "absolute right-1 top-1.5 z-10 flex items-center gap-0.5 rounded-md",
+            cover && "bg-surface/70 backdrop-blur-sm",
+          )}
+        >
           <span
             className="cursor-grab text-ink-400/40 opacity-0 transition-opacity group-hover:opacity-100 active:cursor-grabbing"
             aria-hidden
@@ -185,6 +196,23 @@ export function TaskCard({
             </div>
           )}
         </div>
+
+        {/* Cover image — the latest attachment, shown as a full-bleed banner at
+            the top of the card (Trello cover). Negative margins cancel the
+            card's padding so it bleeds to the edges; left inset clears the
+            priority stripe. */}
+        {cover && (
+          <div className="-mt-2.5 mb-2 -mr-3 -ml-3.5 overflow-hidden border-b border-line">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={cover.url}
+              alt={cover.name}
+              className="ml-1.5 h-28 w-[calc(100%-0.375rem)] object-cover"
+              loading="lazy"
+              draggable={false}
+            />
+          </div>
+        )}
 
         {/* Issue key + type (JIRA card header) */}
         <div className="mb-1 flex items-center gap-1.5 pr-9">

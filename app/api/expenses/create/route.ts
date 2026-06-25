@@ -4,7 +4,8 @@ import { db } from "@/lib/db";
 import { audit } from "@/lib/audit";
 import { recordActivity } from "@/lib/activityFeed";
 import { can, isSuperAdmin } from "@/lib/permissions";
-import { expenseInputSchema, toCents, formatMoney } from "@/lib/finance";
+import { expenseInputSchema, toCents, formatMoney, normalizeCategory } from "@/lib/finance";
+import { ensureExpenseCategory } from "@/lib/financeQueries";
 
 // POST /api/expenses/create — raise a general expense claim (Admin tier only).
 // The claim normally starts PENDING; a *different* Admin-tier user approves or
@@ -32,6 +33,10 @@ export async function POST(req: Request) {
     }
 
     const amountCents = toCents(input.amount);
+    // Snap to the canonical built-in spelling, or keep the custom label. A new
+    // custom category is persisted so the dropdown remembers it next time.
+    const category = normalizeCategory(input.category);
+    await ensureExpenseCategory(actor.tenantId, category, actor.id);
 
     // Super Admins approve their own claims on submit; everyone else starts PENDING.
     const autoApprove = isSuperAdmin(actor.role);
@@ -40,7 +45,7 @@ export async function POST(req: Request) {
       data: {
         tenantId: actor.tenantId,
         title: input.title,
-        category: input.category,
+        category,
         amountCents,
         currency: input.currency,
         notes: input.notes || null,
@@ -78,7 +83,7 @@ export async function POST(req: Request) {
       } expense "${input.title}" (${formatMoney(amountCents, input.currency)})`,
       detail: {
         title: input.title,
-        category: input.category,
+        category,
         amountCents,
         currency: input.currency,
         projectId: input.projectId || null,

@@ -9,7 +9,12 @@ import type {
   ProjectFinanceDTO,
   FinanceStatus,
 } from "./finance";
-import { computeSalaryPool } from "./finance";
+import {
+  computeSalaryPool,
+  EXPENSE_CATEGORIES,
+  isBuiltInCategory,
+  normalizeCategory,
+} from "./finance";
 
 // ── Finance read helpers ──────────────────────────────────────────────────────
 // Server-only queries + the Prisma→DTO serializers used by the finance pages.
@@ -52,6 +57,52 @@ export async function listExpenses(): Promise<ExpenseDTO[]> {
     include: expenseInclude,
   });
   return rows.map(toExpenseDTO);
+}
+
+// ── Expense categories ──────────────────────────────────────────────────────
+// The dropdown's option list = the built-in EXPENSE_CATEGORIES plus the tenant's
+// custom rows. Returns the full ordered list (built-ins first, then custom names
+// alphabetically), deduped against the built-ins. Tenant-scoped via `db`.
+export async function listExpenseCategories(): Promise<string[]> {
+  const custom = await db.expenseCategory.findMany({
+    orderBy: { name: "asc" },
+    select: { name: true },
+  });
+  const extra = custom
+    .map((c) => c.name)
+    .filter((name) => !isBuiltInCategory(name));
+  return [...EXPENSE_CATEGORIES, ...extra];
+}
+
+/**
+ * Persist a custom expense category if it's new. Built-in names are ignored (they
+ * live in code, not the table). Safe to call on every expense write — it no-ops
+ * for built-ins and for names already stored. Tenant-scoped via `db`; the
+ * @@unique([tenantId, name]) constraint guards against a race (P2002 swallowed).
+ */
+export async function ensureExpenseCategory(
+  tenantId: string,
+  rawName: string,
+  createdById: string | null,
+): Promise<void> {
+  const name = normalizeCategory(rawName);
+  if (!name || isBuiltInCategory(name)) return;
+  const existing = await db.expenseCategory.findFirst({
+    where: { name },
+    select: { id: true },
+  });
+  if (existing) return;
+  try {
+    await db.expenseCategory.create({ data: { tenantId, name, createdById } });
+  } catch (e) {
+    // A concurrent insert won the @@unique race — that's fine, the row exists.
+    if (
+      !(e instanceof Prisma.PrismaClientKnownRequestError) ||
+      e.code !== "P2002"
+    ) {
+      throw e;
+    }
+  }
 }
 
 const salaryInclude = {
