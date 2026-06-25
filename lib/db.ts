@@ -50,6 +50,7 @@ const SCOPED_MODELS = new Set<string>([
   "PushSubscription",
   "Invoice",
   "Expense",
+  "ExpenseCategory",
   "UserSalary",
   "BrandingSettings",
   "Integration",

@@ -8,10 +8,13 @@ import { Button } from "@/components/ui/Button";
 import { SlipField } from "@/components/finance/SlipField";
 import {
   CURRENCIES,
-  EXPENSE_CATEGORIES,
   type ExpenseDTO,
   type SlipMeta,
 } from "@/lib/finance";
+
+// Sentinel value for the "add a custom category" <option>. Picking it swaps the
+// <select> for a free-text input instead of selecting a real category.
+const ADD_CUSTOM = "__add_custom__";
 
 interface ProjectOption {
   id: string;
@@ -29,17 +32,33 @@ function dateInput(iso: string | null): string {
 export function ExpenseForm({
   expense,
   projects,
+  categories,
   onDone,
 }: {
   expense?: ExpenseDTO;
   projects: ProjectOption[];
+  /** Built-in + tenant-custom category names for the dropdown. */
+  categories: string[];
   onDone: () => void;
 }) {
   const router = useRouter();
   const editing = !!expense;
 
+  // The options list is the tenant's categories, plus the row being edited if
+  // its (now-deleted) category isn't in the list anymore, so it still shows.
+  const options =
+    expense && expense.category && !categories.includes(expense.category)
+      ? [...categories, expense.category]
+      : categories;
+
   const [title, setTitle] = useState(expense?.title ?? "");
-  const [category, setCategory] = useState(expense?.category ?? "Travel");
+  const [category, setCategory] = useState(
+    expense?.category ?? options[0] ?? "Travel",
+  );
+  // When the user picks "Add custom…", the <select> is replaced by a text input
+  // and `category` is driven from `customCategory` instead.
+  const [addingCustom, setAddingCustom] = useState(false);
+  const [customCategory, setCustomCategory] = useState("");
   const [amount, setAmount] = useState(
     expense ? (expense.amountCents / 100).toString() : "",
   );
@@ -59,7 +78,13 @@ export function ExpenseForm({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  const canSubmit = title.trim().length >= 1 && Number(amount) > 0;
+  // The effective category sent to the server: the typed custom value when in
+  // custom mode, otherwise the selected option.
+  const effectiveCategory = addingCustom ? customCategory.trim() : category;
+  const canSubmit =
+    title.trim().length >= 1 &&
+    Number(amount) > 0 &&
+    effectiveCategory.length >= 1;
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -69,7 +94,7 @@ export function ExpenseForm({
 
     const payload = {
       title: title.trim(),
-      category,
+      category: effectiveCategory,
       amount: Number(amount),
       currency,
       projectId: projectId || undefined,
@@ -117,17 +142,47 @@ export function ExpenseForm({
             <label className="mb-1.5 block text-xs font-medium text-ink-500">
               Category
             </label>
-            <select
-              value={category}
-              onChange={(e) => setCategory(e.target.value)}
-              className="input"
-            >
-              {EXPENSE_CATEGORIES.map((c) => (
-                <option key={c} value={c}>
-                  {c}
-                </option>
-              ))}
-            </select>
+            {addingCustom ? (
+              <div className="flex items-center gap-2">
+                <input
+                  autoFocus
+                  value={customCategory}
+                  onChange={(e) => setCustomCategory(e.target.value)}
+                  maxLength={40}
+                  placeholder="New category name"
+                  className="input"
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAddingCustom(false);
+                    setCustomCategory("");
+                  }}
+                  className="shrink-0 text-xs font-medium text-ink-400 transition-colors hover:text-ink"
+                >
+                  Cancel
+                </button>
+              </div>
+            ) : (
+              <select
+                value={category}
+                onChange={(e) => {
+                  if (e.target.value === ADD_CUSTOM) {
+                    setAddingCustom(true);
+                    return;
+                  }
+                  setCategory(e.target.value);
+                }}
+                className="input"
+              >
+                {options.map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
+                <option value={ADD_CUSTOM}>+ Add custom category…</option>
+              </select>
+            )}
           </div>
         </div>
 

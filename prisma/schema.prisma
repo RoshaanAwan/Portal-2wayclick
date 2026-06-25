@@ -69,6 +69,7 @@ model Tenant {
   attendance    Attendance[]
   attendanceBreaks AttendanceBreak[]
   expenses      Expense[]
+  expenseCategories ExpenseCategory[]
   userSalaries  UserSalary[]
   branding      BrandingSettings?
   integrations  Integration[]
@@ -1235,6 +1236,27 @@ model Expense {
   // filter and the order from one index instead of filtering then sorting.
   @@index([status, createdAt])
   @@index([projectId, createdAt])
+  @@index([tenantId])
+}
+
+// ── Finance: custom expense categories ─────────────────────────────────────────
+// Tenant-defined categories that extend the built-in EXPENSE_CATEGORIES list
+// (lib/finance.ts). Created on the fly when someone submits an expense under a
+// new category, so the dropdown remembers it next time. The built-in names are
+// never stored here — only the custom additions. Unique per tenant (case is
+// preserved but uniqueness is enforced on the stored string).
+model ExpenseCategory {
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  // The category label, e.g. "Subscriptions". Validated/normalized at write time.
+  name     String
+  // Who first introduced it (for attribution; nullable if that user is removed).
+  createdById String?
+  createdAt   DateTime @default(now())
+
+  // One row per name per tenant; the dropdown lists these for the tenant.
+  @@unique([tenantId, name])
   @@index([tenantId])
 }
 

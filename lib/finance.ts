@@ -38,6 +38,11 @@ export const FINANCE_STATUS_META: Record<
 // The kinds of expense a claim can fall under. Stored as a plain string on the
 // row; validated against this list at write time.
 
+// The built-in categories every tenant gets. A tenant can add its own on top of
+// these (stored in the ExpenseCategory table) — those custom names are loaded at
+// render time and merged into the dropdown. Because the valid set is now dynamic
+// (built-ins + the tenant's custom rows), `category` is validated as a non-empty
+// string rather than a fixed enum; the route persists any non-built-in name.
 export const EXPENSE_CATEGORIES = [
   "Travel",
   "Meals",
@@ -50,6 +55,25 @@ export const EXPENSE_CATEGORIES = [
   "Other",
 ] as const;
 export type ExpenseCategory = (typeof EXPENSE_CATEGORIES)[number];
+
+/** True when `name` is one of the built-in categories (case-insensitive). */
+export function isBuiltInCategory(name: string): boolean {
+  const n = name.trim().toLowerCase();
+  return EXPENSE_CATEGORIES.some((c) => c.toLowerCase() === n);
+}
+
+/**
+ * Normalize a user-entered category: trim, collapse inner whitespace, and snap
+ * to the canonical built-in spelling when it matches one (so "travel" is stored
+ * as "Travel"). Returns the cleaned label; custom names keep the user's casing.
+ */
+export function normalizeCategory(name: string): string {
+  const cleaned = name.trim().replace(/\s+/g, " ");
+  const builtin = EXPENSE_CATEGORIES.find(
+    (c) => c.toLowerCase() === cleaned.toLowerCase(),
+  );
+  return builtin ?? cleaned;
+}
 
 // ── Slip attachment ────────────────────────────────────────────────────────────
 // A receipt/slip uploaded for an expense. Mirrors the Document upload return
@@ -77,7 +101,9 @@ const amountMajor = z.number().min(0).max(10_000_000);
 
 export const expenseInputSchema = z.object({
   title: z.string().trim().min(1, "Title required").max(200),
-  category: z.enum(EXPENSE_CATEGORIES),
+  // Built-in or tenant-custom — validated as a non-empty label, then normalized
+  // and (if new) persisted by the route. 40-char cap matches a salary component.
+  category: z.string().trim().min(1, "Category required").max(40),
   // Amount in MAJOR units; the route converts to cents with toCents.
   amount: amountMajor,
   currency: z.enum(CURRENCIES),
