@@ -2,7 +2,15 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { timingSafeEqual } from "crypto";
 import { adminDb } from "@/lib/db";
-import { recordCheckIn, recordCheckOut } from "@/lib/attendance";
+import {
+  recordCheckIn,
+  recordCheckOut,
+  recordBreakIn,
+  recordBreakOut,
+  type AttendanceStatus,
+  type AttendanceActor,
+  type BreakResult,
+} from "@/lib/attendance";
 import { rateLimit, clientIp, LIMITS } from "@/lib/rateLimit";
 import { runWithTenant } from "@/lib/tenantContext";
 
@@ -14,7 +22,7 @@ import { runWithTenant } from "@/lib/tenantContext";
 //   Authorization: Bearer <SLACK_BOT_SECRET>
 //   Content-Type: application/json
 //   {
-//     "action":    "check_in" | "check_out",
+//     "action":    "check_in" | "check_out" | "break_in" | "break_out",
 //     "slackUserId": "U012ABCDEF",   // optional but preferred
 //     "email":      "raza@onestop.software", // optional fallback
 //     "handle":     "raza",          // optional, display only
@@ -23,9 +31,13 @@ import { runWithTenant } from "@/lib/tenantContext";
 //
 // User resolution order: slackUserId → email. The first event also links the
 // Slack identity onto the User row so later events resolve instantly.
+//
+// Idempotency: the bot may retry a delivery. We dedupe on the natural key
+// (slackUserId, action, timestamp) via the SlackWebhookEvent table so a
+// redelivery is a no-op (no duplicate break, no double-counted event).
 
 const schema = z.object({
-  action: z.enum(["check_in", "check_out"]),
+  action: z.enum(["check_in", "check_out", "break_in", "break_out"]),
   slackUserId: z.string().min(1).optional(),
   email: z.string().email().optional(),
   handle: z.string().min(1).optional(),
@@ -52,6 +64,31 @@ function parseTimestamp(ts?: string): Date {
   }
   const d = new Date(ts);
   return isNaN(d.getTime()) ? new Date() : d;
+}
+
+type Action = z.infer<typeof schema>["action"];
+// All four recorders return either an attendance result (carries `status`) or a
+// BreakResult (carries `ok`). Naming the union keeps runWithTenant's generic from
+// collapsing to just the first branch's type, so the narrowing below type-checks.
+type RecordResult =
+  | { day: Date; status: AttendanceStatus; id?: string }
+  | BreakResult;
+
+function dispatch(
+  action: Action,
+  actor: AttendanceActor,
+  at: Date,
+): Promise<RecordResult> {
+  switch (action) {
+    case "check_in":
+      return recordCheckIn(actor, at);
+    case "check_out":
+      return recordCheckOut(actor, at);
+    case "break_in":
+      return recordBreakIn(actor, at);
+    case "break_out":
+      return recordBreakOut(actor, at);
+  }
 }
 
 export async function POST(req: Request) {
@@ -136,19 +173,72 @@ export async function POST(req: Request) {
         });
     }
 
-    // 5) Record it — inside the matched user's tenant context so the Attendance
+    // 5) Dedupe redeliveries on the natural key (slackUserId, action, timestamp).
+    // The bot may retry; a row for this exact event means we've already applied
+    // it, so we ack without re-processing (no duplicate break / double count).
+    // Keyed on slackUserId — the bot always sends it for these events. (Without
+    // one we skip dedupe; only the rare legacy email-only path is affected.)
+    const dedupeKey = body.slackUserId;
+    if (dedupeKey && body.timestamp) {
+      const seen = await adminDb.slackWebhookEvent.findUnique({
+        where: {
+          slackUserId_action_ts: {
+            slackUserId: dedupeKey,
+            action: body.action,
+            ts: body.timestamp,
+          },
+        },
+        select: { id: true },
+      });
+      if (seen) {
+        return NextResponse.json(
+          { ok: true, userId: user.id, duplicate: true },
+          { status: 200 },
+        );
+      }
+    }
+
+    // 6) Record it — inside the matched user's tenant context so the Attendance
     // row (and the activity it logs) is scoped correctly.
     const at = parseTimestamp(body.timestamp);
     const result = await runWithTenant(user.tenantId, () =>
-      body.action === "check_in"
-        ? recordCheckIn(user, at)
-        : recordCheckOut(user, at),
+      dispatch(body.action, user, at),
     );
+
+    // 7) Mark this delivery processed so a later redelivery is a no-op. Done
+    // AFTER the record succeeds (so a failed attempt can still be retried) and
+    // best-effort: a concurrent duplicate that races us hits the unique
+    // constraint — swallow that, the record already landed exactly once.
+    if (dedupeKey && body.timestamp) {
+      await adminDb.slackWebhookEvent
+        .create({
+          data: { slackUserId: dedupeKey, action: body.action, ts: body.timestamp },
+        })
+        .catch((e: any) => {
+          if (e?.code !== "P2002") throw e;
+        });
+    }
+
+    // Break events return a BreakResult; an ignored break (no open attendance,
+    // already-open break, no open break to close) is a benign no-op, not an
+    // error — ack it so the bot doesn't retry.
+    if ("ok" in result && result.ok === false) {
+      return NextResponse.json(
+        {
+          ok: false,
+          userId: user.id,
+          reason: result.reason,
+          day: result.day.toISOString(),
+        },
+        { status: 200 },
+      );
+    }
 
     return NextResponse.json({
       ok: true,
       userId: user.id,
-      status: result.status,
+      action: body.action,
+      ...("status" in result ? { status: result.status } : {}),
       day: result.day.toISOString(),
     });
   } catch (e: any) {
