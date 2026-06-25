@@ -123,9 +123,13 @@ export async function notify(input: NotifyInput): Promise<void> {
   try {
     if (input.actor?.id && input.actor.id === input.userId) return;
 
+    // Capture the tenant now, while the request's tenant context is still live —
+    // the fire-and-forget push below runs after it has unwound and must carry it.
+    const tenantId = requireTenantId();
+
     const row = await db.notification.create({
       data: {
-        tenantId: requireTenantId(),
+        tenantId,
         userId: input.userId,
         type: input.type,
         message: input.message,
@@ -153,7 +157,7 @@ export async function notify(input: NotifyInput): Promise<void> {
     // even when the app is closed). Fire-and-forget so push latency never slows
     // the action that triggered this; sendPushToUser is best-effort/never throws.
     const title = input.actor?.name ? `${input.actor.name}` : BRAND.name;
-    void sendPushToUser(input.userId, {
+    void sendPushToUser(tenantId, input.userId, {
       title,
       body: input.message,
       url: input.link ?? "/dashboard",
@@ -244,7 +248,7 @@ export async function notifyMany(
     // identical across recipients (same actor/message), exactly as the per-user
     // path produced. Fire-and-forget so push latency never slows the caller.
     const title = actorName ? `${actorName}` : BRAND.name;
-    void sendPushToUsers(recipients, {
+    void sendPushToUsers(tenantId, recipients, {
       title,
       body: input.message,
       url: input.link ?? "/dashboard",

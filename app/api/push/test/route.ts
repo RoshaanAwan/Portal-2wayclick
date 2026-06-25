@@ -16,7 +16,7 @@ export async function POST() {
     }
 
     const brand = await resolveBrand();
-    await sendPushToUser(user.id, {
+    await sendPushToUser(user.tenantId, user.id, {
       title: brand.name,
       body: "Push notifications are on — you'll be notified here.",
       url: "/dashboard",

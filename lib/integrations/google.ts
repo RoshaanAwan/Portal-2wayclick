@@ -17,14 +17,46 @@ const AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth";
 const TOKEN_URL = "https://oauth2.googleapis.com/token";
 const REVOKE_URL = "https://oauth2.googleapis.com/revoke";
 
-// drive.file = per-file access to files the app creates/opens — the least
-// privilege that still lets us upload and list what the portal put there.
+// `drive` = full Drive access. We need this (not the narrower drive.file)
+// because the owner pastes the URL of a PRE-EXISTING folder for the portal to
+// create subfolders in and upload into — drive.file can only touch files the app
+// itself created, so it can't write into a folder the user already had. This is a
+// Google "sensitive/restricted" scope: production use requires app verification.
 // Add openid/email so we can show which account is connected.
 export const GOOGLE_SCOPES = [
-  "https://www.googleapis.com/auth/drive.file",
+  "https://www.googleapis.com/auth/drive",
   "openid",
   "email",
 ].join(" ");
+
+/**
+ * Extract a Drive FOLDER id from anything the owner might paste:
+ *   • https://drive.google.com/drive/folders/<ID>?... (the common "open folder" URL)
+ *   • https://drive.google.com/drive/u/0/folders/<ID>
+ *   • https://drive.google.com/open?id=<ID>
+ *   • …?id=<ID> anywhere in the query
+ *   • a bare folder id pasted on its own
+ * Returns null if nothing folder-id-shaped is found. Validation that the id is a
+ * real, writable folder happens against the Drive API (getFolder), not here.
+ */
+export function parseDriveFolderId(input: string): string | null {
+  const raw = input.trim();
+  if (!raw) return null;
+
+  // /folders/<ID>
+  const folders = raw.match(/\/folders\/([A-Za-z0-9_-]+)/);
+  if (folders) return folders[1];
+
+  // ?id=<ID> / &id=<ID>
+  const idParam = raw.match(/[?&]id=([A-Za-z0-9_-]+)/);
+  if (idParam) return idParam[1];
+
+  // A bare id (no slashes/spaces, Drive-id charset). Drive ids are typically
+  // 25+ chars; keep a low floor but reject obvious non-ids.
+  if (/^[A-Za-z0-9_-]{10,}$/.test(raw)) return raw;
+
+  return null;
+}
 
 /** A tenant's (or the platform's) Google OAuth app credentials. */
 export interface GoogleCreds {

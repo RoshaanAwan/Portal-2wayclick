@@ -43,6 +43,12 @@ model Tenant {
   subscriptionStatus   String?
   // End of the current paid/trial period — when access lapses if not renewed.
   currentPeriodEnd     DateTime?
+  // Provisioning-time free trial granted by the System Owner at tenant creation
+  // (independent of Stripe). The tenant has full access until this instant; once
+  // it passes WITHOUT an active/trialing paid subscription, login is gated to the
+  // billing page ("free trial ended, subscribe to continue"). Null = no trial
+  // window (access depends solely on subscriptionStatus).
+  trialEndsAt          DateTime?
 
   // Back-relations from every tenant-root model.
   users         User[]
@@ -169,7 +175,10 @@ model User {
   reportedTasks           Task[]               @relation("TaskReporter")
   taskAssignments         TaskAssignee[]
   taskComments            TaskComment[]
+  taskAttachments         TaskAttachment[]
   ownedProjects           Project[]            @relation("ProjectOwner")
+  ledProjects             Project[]            @relation("ProjectLead")
+  techLedProjects         Project[]            @relation("ProjectTechLead")
   projectMemberships      ProjectMember[]
   auditLogs               AuditLog[]           @relation("AuditActor")
   auditedBy               AuditLog[]           @relation("AuditTargetUser")
@@ -630,6 +639,15 @@ model Project {
   ownerId String
   owner   User   @relation("ProjectOwner", fields: [ownerId], references: [id])
 
+  // Project lead (delivery/people owner) and tech lead (engineering owner).
+  // Both optional — assignable at creation or later from the project page.
+  // SetNull so removing the user doesn't delete the project; the seat just
+  // empties. Distinct from `owner` (the admin who created/owns the record).
+  projectLeadId String?
+  projectLead   User?   @relation("ProjectLead", fields: [projectLeadId], references: [id], onDelete: SetNull)
+  techLeadId    String?
+  techLead      User?   @relation("ProjectTechLead", fields: [techLeadId], references: [id], onDelete: SetNull)
+
   // 1:1 with the board that holds this project's Trello cards.
   boardId String @unique
   board   Board  @relation(fields: [boardId], references: [id], onDelete: Cascade)
@@ -884,9 +902,15 @@ model Task {
   creatorId        String
   creator          User      @relation("TaskCreator", fields: [creatorId], references: [id])
   createdAt        DateTime  @default(now())
+  // When the card first reached a DONE column/status — the completion timestamp.
+  // Set on the status→DONE transition (move/update routes), cleared if it leaves
+  // DONE (reopened). Drives the Performance "delivered in period" + on-time math,
+  // which createdAt alone can't answer. Null while the card is unfinished.
+  completedAt      DateTime?
 
   assignees         TaskAssignee[]
   comments          TaskComment[]
+  attachments       TaskAttachment[]
   // Client-share submissions tied to this card (the request that spawned it,
   // or comments left on it via the public link).
   clientSubmissions ClientSubmission[]
@@ -908,6 +932,8 @@ model Task {
   // is a plain lookup index, not a constraint.
   @@index([issueNumber])
   @@index([tenantId])
+  // Performance reads "tasks completed in [period]" per tenant.
+  @@index([completedAt])
 }
 
 // ── Issue links ─────────────────────────────────────────────────────────────
@@ -940,6 +966,33 @@ model TaskComment {
   // Comments loaded per-task, oldest-first.
   @@index([taskId, createdAt])
   @@index([authorId])
+}
+
+// ── Card image attachments ────────────────────────────────────────────────────
+// An image uploaded to a card (Trello "attachment"). The bytes live in the
+// tenant's Google Drive (the company owner's connected Drive — the same storage
+// backend documents/avatars use); `driveFileId` is the Drive file id and the
+// portal streams it back through /api/tasks/attachment/proxy (the file is private
+// to the drive.file scope, so a direct Drive link won't render). Deleting the row
+// also deletes the Drive file. Cascade so removing a card cleans up its rows
+// (the Drive files are best-effort cleaned by the delete route).
+model TaskAttachment {
+  id          String   @id @default(cuid())
+  taskId      String
+  task        Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  // Drive file id — what the proxy streams and the delete route removes.
+  driveFileId String
+  // Original filename + MIME, for display and the proxy's Content-Type.
+  name        String
+  mimeType    String
+  // Who uploaded it (for attribution + delete permission).
+  uploaderId  String
+  uploader    User     @relation(fields: [uploaderId], references: [id])
+  createdAt   DateTime @default(now())
+
+  // Attachments loaded per-card, newest-first in the modal.
+  @@index([taskId, createdAt])
+  @@index([uploaderId])
 }
 
 // ── Notifications ─────────────────────────────────────────────────────────────
@@ -1489,8 +1542,24 @@ model GoogleDriveConnection {
   refreshToken String
 
   // Optional Drive folder id to upload into (else the Drive root / "My Drive").
+  // This is the portal's MAIN folder; the section/category subfolders below live
+  // inside it (see folderMap).
   folderId   String?
   folderName String?
+
+  // Cache of the auto-created subfolder tree, mapping a logical path to its Drive
+  // folder id — e.g. { "Projects": "1Ab…", "Documents": "1Cd…",
+  // "Documents/Legal": "1Ef…", "Invoices": "1Gh…" }. Top-level sections are
+  // created when the main folder is set; per-category subfolders are created
+  // lazily on first use and added here. See lib/integrations/driveTree.ts.
+  folderMap  Json?
+
+  // Link sharing on the portal's destination subfolder. true = "anyone with the
+  // link can view" (an `anyone` reader permission is applied to the subfolder, so
+  // uploads inherit it and their webViewLink opens without sign-in); false =
+  // Restricted (only people explicitly granted access — the private default Drive
+  // behavior). New folders default to true (see setTenantDriveFolder).
+  folderShared Boolean @default(true)
 
   connectedAt DateTime @default(now())
   updatedAt   DateTime @updatedAt

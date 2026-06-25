@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { requireTenantUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { audit } from "@/lib/audit";
+import { recordActivity } from "@/lib/activityFeed";
 import { notifyMany } from "@/lib/notifications";
 import { isManagerTier } from "@/lib/permissions";
 import { assertTaskAccess } from "@/lib/taskAccess";
@@ -82,6 +83,7 @@ export async function POST(req: Request) {
       select: {
         id: true,
         title: true,
+        status: true,
         creatorId: true,
         timeSpentMinutes: true,
         estimateMinutes: true,
@@ -210,6 +212,18 @@ export async function POST(req: Request) {
       relocatePosition = (last?.position ?? 0) + 1000;
     }
 
+    // Stamp/clear the completion time when status crosses the DONE boundary
+    // (mirrors the move route), so on-time + delivered math stays accurate
+    // whether the card is closed from the board or the modal.
+    const completedAt =
+      status !== undefined && status !== task.status
+        ? status === "DONE"
+          ? new Date()
+          : task.status === "DONE"
+            ? null
+            : undefined
+        : undefined;
+
     const updated = await db.task.update({
       where: { id: taskId },
       data: {
@@ -220,6 +234,7 @@ export async function POST(req: Request) {
         ...(priority !== undefined ? { priority } : {}),
         ...(issueType !== undefined ? { issueType } : {}),
         ...(status !== undefined ? { status } : {}),
+        ...(completedAt !== undefined ? { completedAt } : {}),
         ...(relocateListId
           ? { listId: relocateListId, position: relocatePosition }
           : {}),
@@ -320,6 +335,17 @@ export async function POST(req: Request) {
         ...(reason ? { reason } : {}),
       },
     });
+
+    // Feed + performance signal: a real content/status edit is activity. Pure
+    // time-logging (onlyLogsTime) already drops a "[time]" comment that counts,
+    // so don't double-count it here.
+    if (!onlyLogsTime) {
+      await recordActivity({
+        actor: user,
+        verb: "updated",
+        target: `card “${updated.title}”`,
+      });
+    }
 
     return NextResponse.json({ ok: true, task: updated, comment: timeComment });
   } catch (e: any) {

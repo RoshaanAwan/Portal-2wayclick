@@ -23,7 +23,9 @@ export type ActivityVerb =
   | "joined"
   | "commented"
   | "assigned"
-  | "created";
+  | "created"
+  | "updated"
+  | "deleted";
 
 interface RecordActivityInput {
   /** Who did it. We need id (FK) plus name/title/avatar for the live payload. */

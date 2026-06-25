@@ -13,6 +13,10 @@ const schema = z.object({
   description: z.string().trim().max(500).optional(),
   // Optional initial members (user ids) added alongside the creator.
   memberIds: z.array(z.string()).optional().default([]),
+  // Optional leads. Must be project members (enforced below); null/omitted =
+  // unassigned, to be set later from the project page.
+  projectLeadId: z.string().nullish(),
+  techLeadId: z.string().nullish(),
 });
 
 // Default Trello columns every new project board starts with.
@@ -25,10 +29,17 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Admins only" }, { status: 403 });
     }
 
-    const { name, description, memberIds } = schema.parse(await req.json());
+    const { name, description, memberIds, projectLeadId, techLeadId } =
+      schema.parse(await req.json());
 
     // The creator is always a member; de-dup any explicit ids.
     const allMemberIds = Array.from(new Set([actor.id, ...memberIds]));
+
+    // A lead must be one of the project's members. Anything else (a stale id, a
+    // non-member) is dropped to null rather than rejected — leads are optional.
+    const memberSet = new Set(allMemberIds);
+    const leadId = projectLeadId && memberSet.has(projectLeadId) ? projectLeadId : null;
+    const techId = techLeadId && memberSet.has(techLeadId) ? techLeadId : null;
 
     // Every project ships with a client share link from the start so the
     // creator can hand it off immediately (revoke/regenerate later if needed).
@@ -45,6 +56,8 @@ export async function POST(req: Request) {
         description: description || null,
         shareToken,
         owner: { connect: { id: actor.id } },
+        ...(leadId ? { projectLead: { connect: { id: leadId } } } : {}),
+        ...(techId ? { techLead: { connect: { id: techId } } } : {}),
         board: {
           create: {
             tenantId: actor.tenantId,
@@ -71,7 +84,7 @@ export async function POST(req: Request) {
       entity: "Project",
       entityId: project.id,
       summary: `${actor.name} created project “${name}”`,
-      detail: { name, memberCount: allMemberIds.length },
+      detail: { name, memberCount: allMemberIds.length, projectLeadId: leadId, techLeadId: techId },
     });
 
     // Build the share link on this tenant's host (subdomain from middleware).

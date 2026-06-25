@@ -40,6 +40,8 @@ export default async function ProjectBoardPage({
     where: { id },
     include: {
       owner: { select: { id: true, name: true, avatarUrl: true } },
+      projectLead: { select: { id: true, name: true, avatarUrl: true } },
+      techLead: { select: { id: true, name: true, avatarUrl: true } },
       members: {
         include: {
           user: {
@@ -81,6 +83,16 @@ export default async function ProjectBoardPage({
                     take: MAX_COMMENTS,
                     include: {
                       author: {
+                        select: { id: true, name: true, avatarUrl: true },
+                      },
+                    },
+                  },
+                  // Card image attachments, newest-first (capped).
+                  attachments: {
+                    orderBy: { createdAt: "desc" },
+                    take: 50,
+                    include: {
+                      uploader: {
                         select: { id: true, name: true, avatarUrl: true },
                       },
                     },
@@ -190,6 +202,19 @@ export default async function ProjectBoardPage({
               avatarUrl: c.author.avatarUrl,
             },
           })),
+        // Newest-first, served through the proxy (Drive files are private).
+        attachments: t.attachments.map((a) => ({
+          id: a.id,
+          name: a.name,
+          mimeType: a.mimeType,
+          url: `/api/tasks/attachment/proxy?id=${a.id}`,
+          createdAt: a.createdAt.toISOString(),
+          uploader: {
+            id: a.uploader.id,
+            name: a.uploader.name,
+            avatarUrl: a.uploader.avatarUrl,
+          },
+        })),
       };
     }),
   }));
@@ -249,6 +274,26 @@ export default async function ProjectBoardPage({
           </div>
         }
       />
+
+      {/* Project / tech lead chips — shown when assigned. */}
+      {(project.projectLead || project.techLead) && (
+        <div className="mb-4 flex flex-wrap items-center gap-2">
+          {project.projectLead && (
+            <span className="inline-flex items-center gap-2 rounded-full border border-line bg-surface-2 py-1 pl-1 pr-3 text-xs">
+              <Avatar name={project.projectLead.name} src={project.projectLead.avatarUrl} size="xs" />
+              <span className="text-ink-400">Project lead</span>
+              <span className="font-medium text-ink">{project.projectLead.name}</span>
+            </span>
+          )}
+          {project.techLead && (
+            <span className="inline-flex items-center gap-2 rounded-full border border-line bg-surface-2 py-1 pl-1 pr-3 text-xs">
+              <Avatar name={project.techLead.name} src={project.techLead.avatarUrl} size="xs" />
+              <span className="text-ink-400">Tech lead</span>
+              <span className="font-medium text-ink">{project.techLead.name}</span>
+            </span>
+          )}
+        </div>
+      )}
 
       {/* Admins manage the public client link; everyone else just sees the board.
           The link is built on this tenant's host (subdomain from middleware). */}

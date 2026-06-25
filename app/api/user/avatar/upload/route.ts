@@ -39,11 +39,15 @@ export async function POST(req: Request) {
     }
 
     const bytes = Buffer.from(await file.arrayBuffer());
-    const uploaded = await uploadToTenantDrive(user.tenantId, {
-      name: `avatar-${user.id}.${file.type.split("/")[1]?.replace("jpeg", "jpg") ?? "png"}`,
-      mimeType: file.type,
-      bytes,
-    });
+    const uploaded = await uploadToTenantDrive(
+      user.tenantId,
+      {
+        name: `avatar-${user.id}.${file.type.split("/")[1]?.replace("jpeg", "jpg") ?? "png"}`,
+        mimeType: file.type,
+        bytes,
+      },
+      { subfolderPath: "Avatars" },
+    );
 
     await audit({
       actor: user,

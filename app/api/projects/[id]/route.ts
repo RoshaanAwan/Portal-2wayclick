@@ -16,6 +16,10 @@ const updateSchema = z.object({
   // Omitted entirely → leave the existing description untouched (a rename
   // shouldn't wipe it). An empty string explicitly clears it.
   description: z.string().trim().max(500).optional(),
+  // Leads: omitted → unchanged; null → clear the seat; an id → assign (must be a
+  // current member, enforced below). Lets leads be set/changed after creation.
+  projectLeadId: z.string().nullish(),
+  techLeadId: z.string().nullish(),
 });
 
 export async function PATCH(
@@ -29,19 +33,34 @@ export async function PATCH(
     }
 
     const { id } = await params;
-    const { name, description } = updateSchema.parse(await req.json());
+    const { name, description, projectLeadId, techLeadId } = updateSchema.parse(
+      await req.json(),
+    );
 
     const project = await db.project.findUnique({
       where: { id },
-      select: { id: true, boardId: true },
+      select: {
+        id: true,
+        boardId: true,
+        members: { select: { userId: true } },
+      },
     });
     if (!project) {
       return NextResponse.json({ error: "Project not found" }, { status: 404 });
     }
 
+    // Resolve each lead seat. `undefined` (field absent) leaves it unchanged;
+    // `null` clears it; an id assigns it but only if that user is a current
+    // member (otherwise the seat is cleared rather than the request rejected).
+    const memberSet = new Set(project.members.map((m) => m.userId));
+    const resolveLead = (v: string | null | undefined) =>
+      v === undefined ? undefined : v && memberSet.has(v) ? v : null;
+    const nextLead = resolveLead(projectLeadId);
+    const nextTech = resolveLead(techLeadId);
+
     // Rename the project and keep its board's name aligned. `description` is
     // updated only when the caller sent the field: undefined leaves it as-is, an
-    // empty string clears it.
+    // empty string clears it. Leads follow the same undefined-skips rule.
     await db.$transaction([
       db.project.update({
         where: { id },
@@ -50,6 +69,8 @@ export async function PATCH(
           ...(description !== undefined
             ? { description: description ? description : null }
             : {}),
+          ...(nextLead !== undefined ? { projectLeadId: nextLead } : {}),
+          ...(nextTech !== undefined ? { techLeadId: nextTech } : {}),
         },
       }),
       db.board.update({ where: { id: project.boardId }, data: { name } }),

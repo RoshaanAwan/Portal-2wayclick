@@ -5,13 +5,14 @@ import { useRef, useState } from "react";
 import {
   HardDrive,
   Upload,
-  Loader2,
   ExternalLink,
   FileText,
   Image as ImageIcon,
   Unplug,
   AlertCircle,
   CheckCircle2,
+  FolderOpen,
+  FolderCog,
 } from "lucide-react";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { Button } from "@/components/ui/Button";
@@ -43,6 +44,8 @@ export function GoogleDriveClient({
   connected,
   isOwner,
   email,
+  folderId,
+  folderName,
   files,
   loadError,
   oauthError,
@@ -51,6 +54,8 @@ export function GoogleDriveClient({
   connected: boolean;
   isOwner: boolean;
   email: string | null;
+  folderId: string | null;
+  folderName: string | null;
   files: DriveFile[];
   loadError: string | null;
   oauthError: string | null;
@@ -61,11 +66,44 @@ export function GoogleDriveClient({
   const [uploading, setUploading] = useState(false);
   const [disconnecting, setDisconnecting] = useState(false);
   const [msg, setMsg] = useState<string | null>(
-    justConnected ? "Google Drive connected." : null,
+    justConnected ? "Google Drive connected. Now choose a folder for your files." : null,
   );
   const [error, setError] = useState<string | null>(
     oauthError ? (OAUTH_ERRORS[oauthError] ?? "Couldn’t connect Google Drive.") : null,
   );
+
+  // Folder picker (owner only): paste a Drive folder URL → portal creates its
+  // subfolder there and stores it as the upload destination.
+  const [folderUrl, setFolderUrl] = useState("");
+  const [savingFolder, setSavingFolder] = useState(false);
+  const [changingFolder, setChangingFolder] = useState(false);
+
+  async function onSaveFolder(e: React.FormEvent) {
+    e.preventDefault();
+    if (!folderUrl.trim()) return;
+    setSavingFolder(true);
+    setError(null);
+    setMsg(null);
+    try {
+      const res = await fetch("/api/integrations/google/folder", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ folderUrl }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) setError(data.error || "Couldn’t set the folder.");
+      else {
+        setMsg(`Files will now be saved to “${data.folder?.folderName ?? "your folder"}”.`);
+        setFolderUrl("");
+        setChangingFolder(false);
+        router.refresh();
+      }
+    } catch {
+      setError("Couldn’t set the folder.");
+    } finally {
+      setSavingFolder(false);
+    }
+  }
 
   async function onPick(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -128,8 +166,12 @@ export function GoogleDriveClient({
               <p className="max-w-md text-xs text-ink-400">
                 As the company owner, connect your Google account once — every
                 file your team uploads in the portal (documents, photos,
-                receipts) will be stored in your Drive. The portal only sees
-                files it creates here, never your whole Drive.
+                receipts) will be stored in your Drive.
+              </p>
+              <p className="max-w-md text-xs text-ink-400">
+                After connecting you’ll paste the link to a Drive folder you’ve
+                given the account edit access to. The portal creates its own
+                folder inside it and keeps all uploads there.
               </p>
               {/* A plain link so the browser does a full-page redirect to Google. */}
               <a href="/api/integrations/google/connect" className="mt-1">
@@ -172,6 +214,12 @@ export function GoogleDriveClient({
             {email ?? "Google account"}
             {!isOwner && " · managed by your company owner"}
           </p>
+          {folderId && (
+            <p className="mt-0.5 flex items-center gap-1 truncate text-xs text-ink-400">
+              <FolderOpen className="h-3.5 w-3.5 shrink-0 text-ink-300" />
+              Saving to “{folderName ?? "your folder"}”
+            </p>
+          )}
         </div>
         <input
           ref={fileRef}
@@ -183,6 +231,7 @@ export function GoogleDriveClient({
         <Button
           size="sm"
           loading={uploading}
+          disabled={!folderId}
           onClick={() => fileRef.current?.click()}
         >
           {uploading ? (
@@ -193,6 +242,18 @@ export function GoogleDriveClient({
             </>
           )}
         </Button>
+        {isOwner && folderId && (
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => {
+              setChangingFolder((v) => !v);
+              setError(null);
+            }}
+          >
+            <FolderCog className="h-4 w-4" /> Change folder
+          </Button>
+        )}
         {isOwner && (
         <Button
           size="sm"
@@ -205,7 +266,42 @@ export function GoogleDriveClient({
         )}
       </GlassCard>
 
-      {loadError ? (
+      {/* Folder step. Owner sees the picker when no folder is set yet, or when
+          they tap "Change folder". Non-owners just see a wait notice. */}
+      {!folderId && isOwner && (
+        <FolderPicker
+          folderUrl={folderUrl}
+          setFolderUrl={setFolderUrl}
+          saving={savingFolder}
+          onSubmit={onSaveFolder}
+          heading="Choose where your files are saved"
+          intro="Paste the link to a Google Drive folder your connected account can edit. The portal will create its own folder inside it and store every upload there."
+        />
+      )}
+      {!folderId && !isOwner && (
+        <GlassCard hover={false} className="flex flex-col items-center gap-2 py-8 text-center">
+          <FolderOpen className="h-6 w-6 text-ink-300" />
+          <p className="text-sm font-medium text-ink">
+            Drive folder not set up yet
+          </p>
+          <p className="max-w-md text-xs text-ink-400">
+            Your company owner still needs to choose a destination folder before
+            files can be uploaded.
+          </p>
+        </GlassCard>
+      )}
+      {folderId && isOwner && changingFolder && (
+        <FolderPicker
+          folderUrl={folderUrl}
+          setFolderUrl={setFolderUrl}
+          saving={savingFolder}
+          onSubmit={onSaveFolder}
+          heading="Change the destination folder"
+          intro="Paste a new Drive folder link. A fresh portal folder is created inside it; existing files stay where they are."
+        />
+      )}
+
+      {folderId && (loadError ? (
         <Banner kind="error" text={loadError} />
       ) : files.length === 0 ? (
         <GlassCard hover={false} className="flex flex-col items-center gap-2 py-10 text-center">
@@ -262,8 +358,81 @@ export function GoogleDriveClient({
             );
           })}
         </div>
-      )}
+      ))}
     </div>
+  );
+}
+
+function FolderPicker({
+  folderUrl,
+  setFolderUrl,
+  saving,
+  onSubmit,
+  heading,
+  intro,
+}: {
+  folderUrl: string;
+  setFolderUrl: (v: string) => void;
+  saving: boolean;
+  onSubmit: (e: React.FormEvent) => void;
+  heading: string;
+  intro: string;
+}) {
+  return (
+    <GlassCard hover={false} className="space-y-3">
+      <div className="flex items-start gap-3">
+        <div className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-surface-2">
+          <FolderOpen className="h-5 w-5 text-ink-400" />
+        </div>
+        <div className="min-w-0">
+          <p className="text-sm font-semibold text-ink">{heading}</p>
+          <p className="mt-0.5 text-xs text-ink-400">{intro}</p>
+        </div>
+      </div>
+      <form onSubmit={onSubmit} className="flex flex-col gap-2 sm:flex-row">
+        <input
+          type="url"
+          inputMode="url"
+          value={folderUrl}
+          onChange={(e) => setFolderUrl(e.target.value)}
+          placeholder="https://drive.google.com/drive/folders/…"
+          className="flex-1 rounded-xl border border-border bg-surface-1 px-3.5 py-2.5 text-sm text-ink placeholder:text-ink-300 focus:border-accent focus:outline-none"
+          disabled={saving}
+        />
+        <Button size="sm" type="submit" loading={saving} disabled={!folderUrl.trim()}>
+          <FolderOpen className="h-4 w-4" /> {saving ? "Saving…" : "Save folder"}
+        </Button>
+      </form>
+      {/* How to get the folder URL — the field above expects the link from a
+          folder's address bar, not a shared link or the My Drive root. */}
+      <ol className="space-y-1 text-xs text-ink-400">
+        <li>
+          <b className="text-ink-600">1.</b> Open{" "}
+          <a
+            href="https://drive.google.com/drive/my-drive"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="font-medium text-accent hover:underline"
+          >
+            Google Drive
+          </a>{" "}
+          in the account you just connected and open (or create) the folder you
+          want uploads saved to.
+        </li>
+        <li>
+          <b className="text-ink-600">2.</b> Copy the link from your browser’s
+          address bar — it looks like{" "}
+          <code className="rounded bg-surface-2 px-1 py-0.5 font-mono text-[11px] text-ink-600">
+            https://drive.google.com/drive/folders/1AbC…
+          </code>
+          .
+        </li>
+        <li>
+          <b className="text-ink-600">3.</b> Paste it above and Save. The portal
+          creates its own subfolder inside it and keeps every upload there.
+        </li>
+      </ol>
+    </GlassCard>
   );
 }
 

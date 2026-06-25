@@ -2,6 +2,7 @@ import "server-only";
 import webpush from "web-push";
 import { db } from "./db";
 import { BRAND } from "./brand";
+import { runWithTenant } from "./tenantContext";
 
 // ── Web Push delivery ─────────────────────────────────────────────────────────
 // Sends OS-level push notifications to a user's subscribed devices, even when the
@@ -52,8 +53,16 @@ type Sub = {
  * Deliver one payload to a set of already-loaded subscriptions, pruning any the
  * push service reports as gone. Shared by the single- and multi-user senders so
  * the send/prune logic lives in one place. Never throws.
+ *
+ * `tenantId` is needed because the stale-subscription pruning is a scoped `db`
+ * write, and like the read in the senders it runs after the request's tenant
+ * context may have unwound — so we re-establish it explicitly.
  */
-async function deliverToSubs(subs: Sub[], payload: PushPayload): Promise<void> {
+async function deliverToSubs(
+  subs: Sub[],
+  tenantId: string,
+  payload: PushPayload,
+): Promise<void> {
   if (subs.length === 0) return;
   const body = JSON.stringify(payload);
   const staleIds: string[] = [];
@@ -85,22 +94,34 @@ async function deliverToSubs(subs: Sub[], payload: PushPayload): Promise<void> {
   );
 
   if (staleIds.length > 0) {
-    await db.pushSubscription.deleteMany({ where: { id: { in: staleIds } } });
+    await runWithTenant(tenantId, () =>
+      db.pushSubscription.deleteMany({ where: { id: { in: staleIds } } }),
+    );
   }
 }
 
 /**
  * Send a push to every device the user has subscribed. Prunes any subscription
  * the push service reports as gone. Never throws.
+ *
+ * `tenantId` is REQUIRED and passed explicitly because the only callers (notify()
+ * / notifyMany() in lib/notifications.ts) fire this fire-and-forget — by the time
+ * the `findMany` continuation runs, the request's AsyncLocalStorage tenant context
+ * has usually unwound, so the scoped `db` would otherwise throw "no tenant
+ * context" and silently drop every push. We re-establish the context around the
+ * query with the tenantId captured at the (still-scoped) call site.
  */
 export async function sendPushToUser(
+  tenantId: string,
   userId: string,
   payload: PushPayload,
 ): Promise<void> {
   if (!ensureConfigured()) return;
   try {
-    const subs = await db.pushSubscription.findMany({ where: { userId } });
-    await deliverToSubs(subs, payload);
+    const subs = await runWithTenant(tenantId, () =>
+      db.pushSubscription.findMany({ where: { userId } }),
+    );
+    await deliverToSubs(subs, tenantId, payload);
   } catch (err) {
     console.error("[push] sendPushToUser failed", err);
   }
@@ -114,6 +135,7 @@ export async function sendPushToUser(
  * single `where userId IN (...)`. Never throws.
  */
 export async function sendPushToUsers(
+  tenantId: string,
   userIds: string[],
   payload: PushPayload,
 ): Promise<void> {
@@ -121,10 +143,12 @@ export async function sendPushToUsers(
   const unique = [...new Set(userIds)];
   if (unique.length === 0) return;
   try {
-    const subs = await db.pushSubscription.findMany({
-      where: { userId: { in: unique } },
-    });
-    await deliverToSubs(subs, payload);
+    const subs = await runWithTenant(tenantId, () =>
+      db.pushSubscription.findMany({
+        where: { userId: { in: unique } },
+      }),
+    );
+    await deliverToSubs(subs, tenantId, payload);
   } catch (err) {
     console.error("[push] sendPushToUsers failed", err);
   }

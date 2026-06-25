@@ -2,26 +2,45 @@ import "server-only";
 import { db } from "./db";
 import type { SafeUser } from "./auth";
 import { isManagerTier } from "./permissions";
-import { DONE_LIST_KEYWORDS, isDoneList } from "./teamPulse";
-import { netWorkedMinutes } from "./attendance";
+import {
+  scoreAction,
+  ALL_CATEGORIES,
+  type WorkCategory,
+} from "./auditScore";
 
 // ── Performance ───────────────────────────────────────────────────────────────
-// A retrospective, per-person read over a rolling 30-day window, built from two
-// independent signals the portal already tracks:
-//   • Tasks — output and reliability (completed work, on-time vs overdue).
-//   • Attendance — presence and punctuality (Slack check-ins, see lib/attendance).
-// We deliberately surface TWO separate 0–100 scores (task + attendance) plus the
-// raw stats behind them, rather than one blended number — managers judge the mix.
+// Scores EVERYONE — QA, HR, engineers, finance — from the AuditLog, the one place
+// the portal records who-did-what across every department (not just the task
+// board). A role-blind metric: HR scores from leave/expense decisions and comms;
+// QA from card status changes and bug work; engineers from delivery; finance from
+// invoices/salary. Each audited action carries a significance weight (see
+// lib/auditScore.ts), so the headline "work score" reflects substance, not raw
+// volume — and auth/system noise is excluded so logging in can't inflate it.
 //
-// Mirrors lib/teamPulse.ts: same population scoping (admins/HR see everyone,
-// managers see their report subtree) and the same done-list detection, so
-// "completed" means the same thing everywhere.
+// Delivery (tasks reaching DONE) is kept as a SECONDARY, board-specific column,
+// since it's still a meaningful outcome for people who live on the board.
+//
+// Population scoping mirrors lib/teamPulse.ts: admins/HR see everyone, managers
+// see their report subtree.
 
-export const PERF_WINDOW_DAYS = 30;
+/** Period granularity for the report — a single month, or a whole year. */
+export type PerfPeriod = "month" | "year";
 
-// Attendance scoring knobs.
-const PUNCTUAL_BY_HOUR = 10; // checked in by 10:00 local-ish = punctual
-const FULL_DAY_MINUTES = 6 * 60; // ≥ 6h worked (net of breaks) counts as a full day
+export interface PerformanceFilters {
+  period: PerfPeriod;
+  /** 4-digit year, e.g. 2026. */
+  year: number;
+  /** 0–11 month index — only meaningful when period === "month". */
+  month: number;
+  /** Optional: narrow the whole report to one person. */
+  userId: string | null;
+}
+
+/** A user the viewer is allowed to filter by (for the user-wise dropdown). */
+export interface PerfUserOption {
+  id: string;
+  name: string;
+}
 
 export interface PerformancePerson {
   id: string;
@@ -30,41 +49,78 @@ export interface PerformancePerson {
   department: string;
   avatarUrl: string | null;
 
-  /** 0–100 — task output & reliability over the window. */
-  taskScore: number;
-  /** 0–100 — presence & punctuality over the window. */
-  attendanceScore: number;
+  // ── Work score — the primary, role-blind signal (from the AuditLog) ──
+  /** Weighted sum of audited work actions in the period. The headline number. */
+  workScore: number;
+  /** Raw count of counted (non-noise) audited actions in the period. */
+  actionCount: number;
+  /** Weighted score split by work category (delivery/decision/finance/…). */
+  byCategory: Record<WorkCategory, number>;
+  /** The category this person spent the most weight on, or null. */
+  topCategory: WorkCategory | null;
+  /** Distinct calendar days with at least one counted action. */
+  activeDays: number;
 
-  // ── Raw task stats (the numbers behind taskScore) ──
-  completedTasks: number;
-  onTimeTasks: number;
-  overdueOpenTasks: number;
-  openTasks: number;
-  /** % of completed-with-a-due-date tasks that were done on time (0–100, null if N/A). */
+  // ── Delivery — secondary, board-specific outcome ──
+  /** Tasks completed (reached DONE) within the period. */
+  delivered: number;
+  /** Of delivered tasks that had a due date, how many were done on/before it. */
+  onTimeDelivered: number;
+  /** Delivered tasks that had a due date (the denominator for onTimeRate). */
+  datedDelivered: number;
+  /** % on-time among dated deliveries (0–100), or null when none were dated. */
   onTimeRate: number | null;
+  /** Tasks assigned to this person not yet in DONE. */
+  openTasks: number;
+  /** Open tasks whose due date is in the past. */
+  overdueTasks: number;
 
-  // ── Raw attendance stats (the numbers behind attendanceScore) ──
-  daysPresent: number;
-  expectedDays: number; // weekdays in the window
-  punctualDays: number;
-  fullDays: number;
-  /** % of expected weekdays present (0–100). */
-  presenceRate: number;
+  /** Per-bucket work score across the window (oldest→newest) for a sparkline. */
+  spark: number[];
+}
+
+/** One point in the team-wide work trend (a day for month view, a month for
+ *  year view). */
+export interface DailyPoint {
+  /** ISO date (YYYY-MM-DD) anchoring the bucket. */
+  date: string;
+  /** Short label for the axis, e.g. "Jun 3" (month) or "Jun" (year). */
+  label: string;
+  /** Total work score across all people in this bucket. */
+  score: number;
 }
 
 export interface PerformanceSummary {
   total: number;
-  avgTaskScore: number;
-  avgAttendanceScore: number;
-  /** Count of people with both scores ≥ 75. */
-  topPerformers: number;
+  /** Total work score across everyone in the period. */
+  totalScore: number;
+  /** Total counted actions across everyone. */
+  totalActions: number;
+  /** Total tasks delivered across everyone in the period. */
+  totalDelivered: number;
+  /** Team on-time rate among dated deliveries (0–100), or null. */
+  onTimeRate: number | null;
+  /** Total open tasks across everyone (current snapshot). */
+  openTasks: number;
+  /** Total overdue open tasks across everyone (current snapshot). */
+  overdueTasks: number;
 }
 
 export interface PerformanceReport {
   scope: "team" | "company";
   windowDays: number;
+  /** Echo of the filters this report was built with (drives the controls). */
+  filters: PerformanceFilters;
+  /** Human label for the active period, e.g. "June 2026" or "2026". */
+  periodLabel: string;
+  /** Years that have data, descending — populates the year dropdown. */
+  availableYears: number[];
+  /** People the viewer may filter by — populates the user dropdown. */
+  userOptions: PerfUserOption[];
   people: PerformancePerson[];
   summary: PerformanceSummary;
+  /** Team-wide work-score-per-bucket across the window (oldest→newest). */
+  daily: DailyPoint[];
 }
 
 /** Guard for the page: who may see Performance at all (manager tier and up). */
@@ -93,37 +149,149 @@ async function reportSubtreeIds(rootId: string): Promise<string[]> {
   return [...collected];
 }
 
-const clamp = (n: number) => Math.max(0, Math.min(100, Math.round(n)));
+function emptyByCategory(): Record<WorkCategory, number> {
+  const o = {} as Record<WorkCategory, number>;
+  for (const c of ALL_CATEGORIES) o[c] = 0;
+  return o;
+}
 
-/** Count the weekdays (Mon–Fri) in [start, end]. The expected-presence baseline. */
-function weekdaysBetween(start: Date, end: Date): number {
-  let count = 0;
+/** A local YYYY-MM-DD key, so "active days" counts calendar days not 24h slices. */
+function dayKey(d: Date): string {
+  return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+}
+
+interface DayBucket {
+  /** Matches dayKey() so events index straight in. */
+  key: string;
+  /** ISO date for the payload. */
+  iso: string;
+  /** Short axis label, e.g. "Jun 3". */
+  label: string;
+}
+
+/** Ordered calendar days (oldest→newest) covering [start, end] inclusive. */
+function buildDayBuckets(start: Date, end: Date): DayBucket[] {
+  const out: DayBucket[] = [];
   const d = new Date(start);
   d.setHours(0, 0, 0, 0);
   const last = new Date(end);
   last.setHours(0, 0, 0, 0);
   while (d <= last) {
-    const day = d.getDay();
-    if (day !== 0 && day !== 6) count++;
+    out.push({
+      key: dayKey(d),
+      iso: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(
+        d.getDate(),
+      ).padStart(2, "0")}`,
+      label: d.toLocaleDateString(undefined, { month: "short", day: "numeric" }),
+    });
     d.setDate(d.getDate() + 1);
   }
-  return count;
+  return out;
+}
+
+/** A month-key (YYYY-M), so year-view events index into the right month. */
+function monthKey(d: Date): string {
+  return `${d.getFullYear()}-${d.getMonth()}`;
+}
+
+/** The 12 months of `year` as ordered buckets (Jan→Dec). */
+function buildMonthBuckets(year: number): DayBucket[] {
+  const out: DayBucket[] = [];
+  for (let m = 0; m < 12; m++) {
+    const first = new Date(year, m, 1);
+    out.push({
+      key: monthKey(first),
+      iso: `${year}-${String(m + 1).padStart(2, "0")}-01`,
+      label: first.toLocaleDateString(undefined, { month: "short" }),
+    });
+  }
+  return out;
+}
+
+/**
+ * Resolve a period filter to a concrete [start, end) window plus the matching
+ * bucket timeline. Month view → one calendar month, daily buckets keyed by day.
+ * Year view → the whole year, monthly buckets keyed by month.
+ */
+function resolveWindow(filters: PerformanceFilters): {
+  start: Date;
+  end: Date;
+  buckets: DayBucket[];
+  keyOf: (d: Date) => string;
+  periodLabel: string;
+} {
+  if (filters.period === "year") {
+    const start = new Date(filters.year, 0, 1);
+    const end = new Date(filters.year + 1, 0, 1); // exclusive
+    return {
+      start,
+      end,
+      buckets: buildMonthBuckets(filters.year),
+      keyOf: monthKey,
+      periodLabel: String(filters.year),
+    };
+  }
+  // Month view.
+  const start = new Date(filters.year, filters.month, 1);
+  const end = new Date(filters.year, filters.month + 1, 1); // exclusive
+  const lastDay = new Date(end.getTime() - 1);
+  return {
+    start,
+    end,
+    buckets: buildDayBuckets(start, lastDay),
+    keyOf: dayKey,
+    periodLabel: start.toLocaleDateString(undefined, {
+      month: "long",
+      year: "numeric",
+    }),
+  };
+}
+
+/** Coerce raw URL params into a valid, in-range filter set. */
+export function normalizeFilters(raw: {
+  period?: string;
+  year?: string;
+  month?: string;
+  user?: string;
+}): PerformanceFilters {
+  const now = new Date();
+  const period: PerfPeriod = raw.period === "year" ? "year" : "month";
+  const year = Number.isFinite(Number(raw.year))
+    ? Math.trunc(Number(raw.year))
+    : now.getFullYear();
+  const monthRaw = Number(raw.month);
+  const month =
+    Number.isInteger(monthRaw) && monthRaw >= 0 && monthRaw <= 11
+      ? monthRaw
+      : now.getMonth();
+  return {
+    period,
+    year,
+    month,
+    userId: raw.user && raw.user.trim() ? raw.user.trim() : null,
+  };
 }
 
 export async function buildPerformance(
   viewer: SafeUser,
+  filters: PerformanceFilters = normalizeFilters({}),
 ): Promise<PerformanceReport> {
-  const now = new Date();
-  const windowStart = new Date(now);
-  windowStart.setDate(windowStart.getDate() - PERF_WINDOW_DAYS);
+  const { start, end, buckets, keyOf, periodLabel } = resolveWindow(filters);
+  const bucketIndex = new Map(buckets.map((b, i) => [b.key, i]));
 
-  // Population: admins/HR see everyone; managers see their subtree.
+  const windowDayCount = Math.max(
+    1,
+    Math.round((end.getTime() - start.getTime()) / 86_400_000),
+  );
+
+  // Population: admins/HR see everyone; managers see their subtree. The full set
+  // (pre user-filter) populates the user dropdown.
   const isCompanyWide =
     viewer.role === "SUPER_ADMIN" ||
     viewer.role === "ADMIN" ||
     viewer.role === "HR";
 
-  const people = isCompanyWide
+  const audience = isCompanyWide
     ? await db.user.findMany({
         select: {
           id: true,
@@ -146,150 +314,159 @@ export async function buildPerformance(
         orderBy: { name: "asc" },
       });
 
+  const userOptions: PerfUserOption[] = audience.map((u) => ({
+    id: u.id,
+    name: u.name,
+  }));
+
+  // Apply the user-wise filter (ignore an id the viewer isn't allowed to see).
+  const allowed = new Set(audience.map((u) => u.id));
+  const effectiveUserId =
+    filters.userId && allowed.has(filters.userId) ? filters.userId : null;
+  const people = effectiveUserId
+    ? audience.filter((u) => u.id === effectiveUserId)
+    : audience;
+
+  // Distinct years with activity, for the year dropdown (best-effort).
+  const availableYears = await activityYears(audience.map((u) => u.id));
+
   const ids = people.map((p) => p.id);
   if (ids.length === 0) {
     return {
       scope: isCompanyWide ? "company" : "team",
-      windowDays: PERF_WINDOW_DAYS,
+      windowDays: windowDayCount,
+      filters: { ...filters, userId: effectiveUserId },
+      periodLabel,
+      availableYears,
+      userOptions,
       people: [],
       summary: {
         total: 0,
-        avgTaskScore: 0,
-        avgAttendanceScore: 0,
-        topPerformers: 0,
+        totalScore: 0,
+        totalActions: 0,
+        totalDelivered: 0,
+        onTimeRate: null,
+        openTasks: 0,
+        overdueTasks: 0,
       },
+      daily: buckets.map((b) => ({ date: b.iso, label: b.label, score: 0 })),
     };
   }
 
-  const expectedDays = Math.max(1, weekdaysBetween(windowStart, now));
+  const now = new Date();
 
-  // Pull the two signals in parallel.
-  //  • Task assignments whose task was created within the window (the only
-  //    timestamp we have — tasks carry no completedAt). list name tells us
-  //    whether it's "done" (closed column) or still open.
-  //  • Attendance rows in the window.
-  const [assignments, attendance] = await Promise.all([
+  // Three reads in parallel:
+  //  1. Audit actions in the window — the PRIMARY signal (every department's work
+  //     lands here; we weight + bucket each one into a work score).
+  //  2. Deliveries: assignments whose task was COMPLETED in the window — the
+  //     secondary, board-specific outcome.
+  //  3. Load: assignments whose task is NOT done — a current open/overdue snapshot.
+  const [auditRows, deliveries, openLoad] = await Promise.all([
+    db.auditLog.findMany({
+      where: { actorId: { in: ids }, createdAt: { gte: start, lt: end } },
+      select: { actorId: true, action: true, createdAt: true },
+    }),
     db.taskAssignee.findMany({
       where: {
         userId: { in: ids },
-        task: { createdAt: { gte: windowStart } },
+        task: { completedAt: { gte: start, lt: end } },
       },
       select: {
         userId: true,
-        task: {
-          select: {
-            dueDate: true,
-            createdAt: true,
-            list: { select: { name: true } },
-          },
-        },
+        task: { select: { completedAt: true, dueDate: true } },
       },
     }),
-    db.attendance.findMany({
-      where: { userId: { in: ids }, day: { gte: windowStart } },
-      select: {
-        userId: true,
-        checkInAt: true,
-        checkOutAt: true,
-        breaks: { select: { breakInAt: true, breakOutAt: true } },
-      },
+    db.taskAssignee.findMany({
+      where: { userId: { in: ids }, task: { status: { not: "DONE" } } },
+      select: { userId: true, task: { select: { dueDate: true } } },
     }),
   ]);
 
-  // ── Aggregate tasks per user ──
-  interface TaskAgg {
-    completed: number;
+  // ── Per-user aggregation ──
+  interface Agg {
+    score: number;
+    actions: number;
+    byCategory: Record<WorkCategory, number>;
+    days: Set<string>;
+    delivered: number;
     onTime: number;
-    dueCompleted: number; // completed tasks that had a due date
-    overdueOpen: number;
+    dated: number;
     open: number;
+    overdue: number;
+    spark: number[];
   }
-  const taskAgg = new Map<string, TaskAgg>();
-  const ensureTask = (id: string) => {
-    let a = taskAgg.get(id);
+  const agg = new Map<string, Agg>();
+  const ensure = (id: string) => {
+    let a = agg.get(id);
     if (!a) {
-      a = { completed: 0, onTime: 0, dueCompleted: 0, overdueOpen: 0, open: 0 };
-      taskAgg.set(id, a);
+      a = {
+        score: 0,
+        actions: 0,
+        byCategory: emptyByCategory(),
+        days: new Set(),
+        delivered: 0,
+        onTime: 0,
+        dated: 0,
+        open: 0,
+        overdue: 0,
+        spark: new Array(buckets.length).fill(0),
+      };
+      agg.set(id, a);
     }
     return a;
   };
 
-  for (const row of assignments) {
-    const a = ensureTask(row.userId);
-    const done = isDoneList(row.task.list.name);
-    if (done) {
-      a.completed++;
-      // On-time rate is computed only over completed tasks that HAD a due date.
-      // We have no completedAt, so the proxy is: a done task whose due date is
-      // not in the past was closed on/before its deadline = on time; one with a
-      // past-due date was closed late. Undated completed tasks don't affect the
-      // rate (they can't be "late").
-      if (row.task.dueDate) {
-        a.dueCompleted++;
-        if (row.task.dueDate >= now) a.onTime++;
-      }
-    } else {
-      a.open++;
-      if (row.task.dueDate && row.task.dueDate < now) a.overdueOpen++;
+  // Team-wide work score per bucket (the headline trend).
+  const scorePerBucket = new Array(buckets.length).fill(0);
+
+  for (const row of auditRows) {
+    if (!row.actorId) continue;
+    const scored = scoreAction(row.action);
+    if (!scored) continue; // excluded noise (auth/system/etc.)
+    const a = ensure(row.actorId);
+    a.score += scored.weight;
+    a.actions++;
+    a.byCategory[scored.category] += scored.weight;
+    a.days.add(dayKey(row.createdAt));
+    const bi = bucketIndex.get(keyOf(row.createdAt));
+    if (bi !== undefined) {
+      a.spark[bi] += scored.weight;
+      scorePerBucket[bi] += scored.weight;
     }
   }
 
-  // ── Aggregate attendance per user ──
-  interface AttAgg {
-    present: number;
-    punctual: number;
-    full: number;
+  for (const row of deliveries) {
+    const a = ensure(row.userId);
+    const t = row.task;
+    if (!t.completedAt) continue; // the where-clause guarantees it; satisfies the type
+    a.delivered++;
+    if (t.dueDate) {
+      a.dated++;
+      if (t.completedAt <= endOfDay(t.dueDate)) a.onTime++;
+    }
   }
-  const attAgg = new Map<string, AttAgg>();
-  const ensureAtt = (id: string) => {
-    let a = attAgg.get(id);
-    if (!a) {
-      a = { present: 0, punctual: 0, full: 0 };
-      attAgg.set(id, a);
-    }
-    return a;
-  };
 
-  for (const row of attendance) {
-    const a = ensureAtt(row.userId);
-    a.present++;
-    if (row.checkInAt && row.checkInAt.getHours() < PUNCTUAL_BY_HOUR) {
-      a.punctual++;
-    }
-    // "Full day" is worked time, net of breaks — consistent with /attendance.
-    const mins = netWorkedMinutes(row.checkInAt, row.checkOutAt, row.breaks);
-    if (mins !== null && mins >= FULL_DAY_MINUTES) a.full++;
+  for (const row of openLoad) {
+    const a = ensure(row.userId);
+    a.open++;
+    if (row.task.dueDate && row.task.dueDate < now) a.overdue++;
   }
 
   const result: PerformancePerson[] = people.map((p) => {
-    const t = taskAgg.get(p.id) ?? {
-      completed: 0,
-      onTime: 0,
-      dueCompleted: 0,
-      overdueOpen: 0,
-      open: 0,
-    };
-    const at = attAgg.get(p.id) ?? { present: 0, punctual: 0, full: 0 };
+    const a = agg.get(p.id);
+    const byCategory = a?.byCategory ?? emptyByCategory();
+    const dated = a?.dated ?? 0;
+    const onTime = a?.onTime ?? 0;
 
-    // ── Task score ──
-    // Output curve: ~8 completed tasks in 30 days saturates the volume half.
-    const volume = Math.min(1, t.completed / 8); // 0–1
-    const onTimeRate =
-      t.dueCompleted > 0 ? t.onTime / t.dueCompleted : null; // 0–1 or null
-    // Reliability: on-time rate when we have dated work, else neutral 0.8.
-    const reliability = onTimeRate ?? 0.8;
-    // Penalty for overdue open work (each overdue task shaves a few points).
-    const overduePenalty = Math.min(20, t.overdueOpen * 6);
-    const taskScore = clamp(
-      (volume * 55 + reliability * 45) - overduePenalty,
-    );
-
-    // ── Attendance score ──
-    const presenceRate = at.present / expectedDays; // 0–1 (can exceed if weekend work)
-    const punctualityRate = at.present > 0 ? at.punctual / at.present : 0;
-    const attendanceScore = clamp(
-      Math.min(1, presenceRate) * 80 + punctualityRate * 20,
-    );
+    // Category this person put the most weight into.
+    let topCategory: WorkCategory | null = null;
+    let topWeight = 0;
+    for (const c of ALL_CATEGORIES) {
+      if (byCategory[c] > topWeight) {
+        topWeight = byCategory[c];
+        topCategory = c;
+      }
+    }
 
     return {
       id: p.id,
@@ -297,36 +474,88 @@ export async function buildPerformance(
       title: p.title,
       department: p.department,
       avatarUrl: p.avatarUrl,
-      taskScore,
-      attendanceScore,
-      completedTasks: t.completed,
-      onTimeTasks: t.onTime,
-      overdueOpenTasks: t.overdueOpen,
-      openTasks: t.open,
-      onTimeRate: onTimeRate === null ? null : Math.round(onTimeRate * 100),
-      daysPresent: at.present,
-      expectedDays,
-      punctualDays: at.punctual,
-      fullDays: at.full,
-      presenceRate: clamp(Math.min(1, presenceRate) * 100),
+      workScore: a?.score ?? 0,
+      actionCount: a?.actions ?? 0,
+      byCategory,
+      topCategory,
+      activeDays: a?.days.size ?? 0,
+      delivered: a?.delivered ?? 0,
+      onTimeDelivered: onTime,
+      datedDelivered: dated,
+      onTimeRate: dated > 0 ? Math.round((onTime / dated) * 100) : null,
+      openTasks: a?.open ?? 0,
+      overdueTasks: a?.overdue ?? 0,
+      spark: a?.spark ?? new Array(buckets.length).fill(0),
     };
   });
 
-  const total = result.length;
-  const avg = (sel: (p: PerformancePerson) => number) =>
-    total ? Math.round(result.reduce((s, p) => s + sel(p), 0) / total) : 0;
+  // Team summary. On-time rate is pooled (sum on-time / sum dated), not an
+  // average of per-person rates, so one lone dated task can't swing it.
+  const sum = (sel: (p: PerformancePerson) => number) =>
+    result.reduce((s, p) => s + sel(p), 0);
+  const teamDated = sum((p) => p.datedDelivered);
+  const teamOnTime = sum((p) => p.onTimeDelivered);
 
   return {
     scope: isCompanyWide ? "company" : "team",
-    windowDays: PERF_WINDOW_DAYS,
+    windowDays: windowDayCount,
+    filters: { ...filters, userId: effectiveUserId },
+    periodLabel,
+    availableYears,
+    userOptions,
     people: result,
     summary: {
-      total,
-      avgTaskScore: avg((p) => p.taskScore),
-      avgAttendanceScore: avg((p) => p.attendanceScore),
-      topPerformers: result.filter(
-        (p) => p.taskScore >= 75 && p.attendanceScore >= 75,
-      ).length,
+      total: result.length,
+      totalScore: sum((p) => p.workScore),
+      totalActions: sum((p) => p.actionCount),
+      totalDelivered: sum((p) => p.delivered),
+      onTimeRate: teamDated > 0 ? Math.round((teamOnTime / teamDated) * 100) : null,
+      openTasks: sum((p) => p.openTasks),
+      overdueTasks: sum((p) => p.overdueTasks),
     },
+    daily: buckets.map((b, i) => ({
+      date: b.iso,
+      label: b.label,
+      score: scorePerBucket[i],
+    })),
   };
+}
+
+/** End-of-day for a due date, so a same-day completion counts as on time. */
+function endOfDay(d: Date): Date {
+  const e = new Date(d);
+  e.setHours(23, 59, 59, 999);
+  return e;
+}
+
+/**
+ * Years to offer in the dropdown: from the earliest signal (a tracked task or an
+ * activity event) up to this year, contiguous. Newest first.
+ */
+async function activityYears(ids: string[]): Promise<number[]> {
+  const years = new Set<number>([new Date().getFullYear()]);
+  if (ids.length > 0) {
+    // Bound by whichever is older — the first task created or the first feed
+    // event — so a year with deliveries still appears even with no feed events.
+    const [oldestTask, oldestAudit] = await Promise.all([
+      db.task.findFirst({
+        where: { creatorId: { in: ids } },
+        orderBy: { createdAt: "asc" },
+        select: { createdAt: true },
+      }),
+      db.auditLog.findFirst({
+        where: { actorId: { in: ids } },
+        orderBy: { createdAt: "asc" },
+        select: { createdAt: true },
+      }),
+    ]);
+    const earliest = [oldestTask?.createdAt, oldestAudit?.createdAt]
+      .filter((d): d is Date => !!d)
+      .sort((a, b) => a.getTime() - b.getTime())[0];
+    if (earliest) {
+      const to = new Date().getFullYear();
+      for (let y = earliest.getFullYear(); y <= to; y++) years.add(y);
+    }
+  }
+  return [...years].sort((a, b) => b - a);
 }

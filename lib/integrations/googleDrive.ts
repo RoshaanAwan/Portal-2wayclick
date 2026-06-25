@@ -13,6 +13,13 @@ import { open } from "../cryptoBox";
 
 const FILES_API = "https://www.googleapis.com/drive/v3/files";
 const UPLOAD_API = "https://www.googleapis.com/upload/drive/v3/files";
+const FOLDER_MIME = "application/vnd.google-apps.folder";
+
+export interface DriveFolder {
+  id: string;
+  name: string;
+  webViewLink: string | null;
+}
 
 export interface DriveFile {
   id: string;
@@ -108,6 +115,175 @@ export async function listFiles(
   }));
 }
 
+/** Fetch a folder's metadata to confirm it EXISTS, is a folder, and the
+ *  connected account can write to it. Throws DriveError otherwise — callers turn
+ *  this into a friendly "we couldn't access that folder" message. */
+export async function getFolder(
+  accessToken: string,
+  id: string,
+): Promise<DriveFolder> {
+  const params = new URLSearchParams({
+    fields: "id,name,mimeType,webViewLink,capabilities/canAddChildren,trashed",
+    supportsAllDrives: "true",
+  });
+  let res: Response;
+  try {
+    res = await fetch(`${FILES_API}/${encodeURIComponent(id)}?${params}`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      cache: "no-store",
+    });
+  } catch {
+    throw new DriveError("Could not reach Google Drive.", 502);
+  }
+  if (res.status === 401)
+    throw new DriveError("Google rejected the request — reconnect.", 401);
+  if (res.status === 404)
+    throw new DriveError(
+      "That folder wasn’t found. Make sure the link is correct and the connected Google account can open it.",
+      404,
+    );
+  if (!res.ok) throw new DriveError(`Drive error (${res.status}).`, res.status);
+
+  const f = (await res.json()) as RawFile & {
+    trashed?: boolean;
+    capabilities?: { canAddChildren?: boolean };
+  };
+  if (f.mimeType !== FOLDER_MIME)
+    throw new DriveError("That link points to a file, not a folder.", 400);
+  if (f.trashed)
+    throw new DriveError("That folder is in the trash.", 400);
+  if (f.capabilities && f.capabilities.canAddChildren === false)
+    throw new DriveError(
+      "The connected Google account can’t add files to that folder. Give it edit access and try again.",
+      403,
+    );
+
+  return { id: f.id, name: f.name, webViewLink: f.webViewLink ?? null };
+}
+
+/** Create a subfolder under `parentId` (or in My Drive if omitted) and return it.
+ *  Used to auto-create the portal's own folder inside the owner's pasted folder. */
+export async function createFolder(
+  accessToken: string,
+  name: string,
+  parentId?: string | null,
+): Promise<DriveFolder> {
+  const metadata: Record<string, unknown> = { name, mimeType: FOLDER_MIME };
+  if (parentId) metadata.parents = [parentId];
+
+  const params = new URLSearchParams({
+    fields: "id,name,webViewLink",
+    supportsAllDrives: "true",
+  });
+  let res: Response;
+  try {
+    res = await fetch(`${FILES_API}?${params}`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(metadata),
+    });
+  } catch {
+    throw new DriveError("Could not reach Google Drive.", 502);
+  }
+  if (res.status === 401)
+    throw new DriveError("Google rejected the request — reconnect.", 401);
+  if (!res.ok) {
+    const detail = await res.text().catch(() => "");
+    throw new DriveError(
+      `Couldn’t create the folder (${res.status}). ${detail.slice(0, 200)}`,
+      res.status,
+    );
+  }
+  const f = (await res.json()) as RawFile;
+  return { id: f.id, name: f.name, webViewLink: f.webViewLink ?? null };
+}
+
+/**
+ * Set (or clear) "anyone with the link can view" on a Drive file/folder. When
+ * `enabled` is true, grants an `anyone` role=reader permission (so the file —
+ * and, on a folder, everything inside it — opens via its link without sign-in).
+ * When false, removes that permission, returning the item to Restricted (only
+ * explicitly-granted people). Idempotent: re-enabling skips if already shared,
+ * disabling is a no-op when no `anyone` permission exists.
+ *
+ * Needs the full `auth/drive` scope (which the portal requests).
+ */
+export async function setAnyoneWithLink(
+  accessToken: string,
+  fileId: string,
+  enabled: boolean,
+): Promise<void> {
+  const base = `${FILES_API}/${encodeURIComponent(fileId)}/permissions`;
+  const supports = "supportsAllDrives=true";
+
+  // Find an existing `anyone`-type permission (Drive allows at most one).
+  let listRes: Response;
+  try {
+    listRes = await fetch(`${base}?fields=permissions(id,type,role)&${supports}`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      cache: "no-store",
+    });
+  } catch {
+    throw new DriveError("Could not reach Google Drive.", 502);
+  }
+  if (listRes.status === 401)
+    throw new DriveError("Google rejected the request — reconnect.", 401);
+  if (!listRes.ok)
+    throw new DriveError(`Drive error (${listRes.status}).`, listRes.status);
+
+  const { permissions = [] } = (await listRes.json()) as {
+    permissions?: Array<{ id: string; type: string; role: string }>;
+  };
+  const existing = permissions.find((p) => p.type === "anyone");
+
+  if (enabled) {
+    if (existing) return; // already link-shared
+    let res: Response;
+    try {
+      res = await fetch(`${base}?${supports}`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ role: "reader", type: "anyone" }),
+      });
+    } catch {
+      throw new DriveError("Could not reach Google Drive.", 502);
+    }
+    if (res.status === 401)
+      throw new DriveError("Google rejected the request — reconnect.", 401);
+    if (!res.ok) {
+      const detail = await res.text().catch(() => "");
+      throw new DriveError(
+        `Couldn’t update sharing (${res.status}). ${detail.slice(0, 200)}`,
+        res.status,
+      );
+    }
+    return;
+  }
+
+  // Disable: remove the `anyone` permission if present.
+  if (!existing) return; // already restricted
+  let res: Response;
+  try {
+    res = await fetch(`${base}/${encodeURIComponent(existing.id)}?${supports}`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+  } catch {
+    throw new DriveError("Could not reach Google Drive.", 502);
+  }
+  // 204 = removed; 404 = already gone — both fine.
+  if (res.ok || res.status === 404) return;
+  if (res.status === 401)
+    throw new DriveError("Google rejected the request — reconnect.", 401);
+  throw new DriveError(`Couldn’t update sharing (${res.status}).`, res.status);
+}
+
 /** Upload a file (multipart) into the user's Drive, optionally under a folder. */
 export async function uploadFile(
   accessToken: string,
@@ -200,6 +376,28 @@ export async function fetchFileMedia(
   const buf = Buffer.from(await res.arrayBuffer());
   const contentType = res.headers.get("content-type") || "application/octet-stream";
   return { bytes: buf, contentType };
+}
+
+/** Delete a Drive file by id. Treats a 404 as success (already gone) so callers
+ *  can clean up idempotently. Throws DriveError on a real failure. */
+export async function deleteFile(
+  accessToken: string,
+  id: string,
+): Promise<void> {
+  let res: Response;
+  try {
+    res = await fetch(`${FILES_API}/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+  } catch {
+    throw new DriveError("Could not reach Google Drive.", 502);
+  }
+  // 204 = deleted; 404 = already gone — both are fine for our purposes.
+  if (res.ok || res.status === 404) return;
+  if (res.status === 401)
+    throw new DriveError("Google rejected the request — reconnect.", 401);
+  throw new DriveError(`Drive delete failed (${res.status}).`, res.status);
 }
 
 // Tiny deterministic hash for a stable-ish multipart boundary (avoids

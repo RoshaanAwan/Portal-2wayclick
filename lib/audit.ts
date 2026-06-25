@@ -1,7 +1,8 @@
 import "server-only";
 import { headers } from "next/headers";
 import { db } from "./db";
-import { requireTenantId } from "./tenantContext";
+import { getTenantId, runWithTenant } from "./tenantContext";
+import { currentRequestTenantId } from "./tenant";
 import { loadSession } from "./session";
 import type { SafeUser } from "./auth";
 
@@ -45,6 +46,8 @@ export type AuditAction =
   | "project.client_submission"
   | "leave.create"
   | "leave.decide"
+  | "leave.update"
+  | "leave.delete"
   | "announcement.create"
   | "announcement.update"
   | "announcement.delete"
@@ -63,6 +66,8 @@ export type AuditAction =
   | "task.move"
   | "task.link"
   | "task.unlink"
+  | "task.attachment_add"
+  | "task.attachment_remove"
   | "sprint.create"
   | "sprint.start"
   | "sprint.complete"
@@ -147,6 +152,21 @@ async function currentImpersonator(): Promise<string | null> {
  */
 export async function audit(input: AuditInput): Promise<void> {
   try {
+    // Resolve the tenant WITHOUT a hard requireTenantId(): the ALS store set by
+    // getCurrentUser()'s enterWith() doesn't always reach a route handler's
+    // branch (cached auth / async boundary), and a bare audit() that throws here
+    // is swallowed below — which is exactly why CRUD audit rows silently never
+    // landed while login (wrapped in runWithTenant) did. Fall back to the
+    // request's session-cookie tenant, mirroring lib/db.ts's resolver.
+    const tenantId = getTenantId() ?? (await currentRequestTenantId());
+    if (!tenantId) {
+      console.error(
+        "[audit] no tenant context; dropping",
+        input.action,
+      );
+      return;
+    }
+
     const { ip, userAgent } = await clientMeta();
     // If this action happens under a System Owner impersonation, stamp the
     // operator's id into the detail so the trail shows "(impersonated by …)".
@@ -155,22 +175,26 @@ export async function audit(input: AuditInput): Promise<void> {
       input.detail === undefined && !impersonatedBy
         ? null
         : { ...(input.detail ?? {}), ...(impersonatedBy ? { impersonatedBy } : {}) };
-    await db.auditLog.create({
-      data: {
-        tenantId: requireTenantId(),
-        actorId: input.actor.id ?? null,
-        actorName: input.actor.name,
-        actorRole: input.actor.role,
-        action: input.action,
-        entity: input.entity,
-        entityId: input.entityId ?? null,
-        summary: input.summary ?? null,
-        detail: detailObj === null ? null : JSON.stringify(detailObj),
-        ip,
-        userAgent,
-        targetUserId: input.targetUserId ?? null,
-      },
-    });
+    // Run the scoped write inside an explicit tenant context so the create's
+    // tenant injection is satisfied even when the caller's branch had no store.
+    await runWithTenant(tenantId, () =>
+      db.auditLog.create({
+        data: {
+          tenantId,
+          actorId: input.actor.id ?? null,
+          actorName: input.actor.name,
+          actorRole: input.actor.role,
+          action: input.action,
+          entity: input.entity,
+          entityId: input.entityId ?? null,
+          summary: input.summary ?? null,
+          detail: detailObj === null ? null : JSON.stringify(detailObj),
+          ip,
+          userAgent,
+          targetUserId: input.targetUserId ?? null,
+        },
+      }),
+    );
   } catch (err) {
     console.error("[audit] failed to record", input.action, err);
   }
@@ -217,7 +241,11 @@ export async function auditActorScope(
 ): Promise<{ actorId: { in: string[] } } | Record<string, never> | null> {
   if (viewer.role === "SUPER_ADMIN") return {}; // unrestricted
 
-  if (viewer.role === "ADMIN" || viewer.role === "PROJECT_MANAGER") {
+  if (
+    viewer.role === "ADMIN" ||
+    viewer.role === "HR" ||
+    viewer.role === "PROJECT_MANAGER"
+  ) {
     const subtree = await reportSubtreeIds(viewer.id);
     // Include the viewer's own actions plus everyone reporting under them.
     return { actorId: { in: [viewer.id, ...subtree] } };

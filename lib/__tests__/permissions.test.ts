@@ -25,10 +25,13 @@ describe("role tiers", () => {
     expect(isSuperAdmin(undefined)).toBe(false);
   });
 
-  it("isAdminTier is exactly {SUPER_ADMIN, ADMIN}", () => {
+  it("isAdminTier is exactly {SUPER_ADMIN, ADMIN, HR}", () => {
+    // HR was granted full admin-tier access (manage users/projects/finance/
+    // integrations/branding/audit log). Billing stays Super-Admin-only.
     expect(isAdminTier("SUPER_ADMIN")).toBe(true);
     expect(isAdminTier("ADMIN")).toBe(true);
-    for (const r of ["HR", "LEAD", "PROJECT_MANAGER", "EMPLOYEE", "INTERN"]) {
+    expect(isAdminTier("HR")).toBe(true);
+    for (const r of ["LEAD", "PROJECT_MANAGER", "EMPLOYEE", "INTERN"]) {
       expect(isAdminTier(r)).toBe(false);
     }
     expect(isAdminTier(null)).toBe(false);
@@ -49,11 +52,12 @@ describe("can.* capabilities", () => {
   it("manageProjects / manageDocuments / manageFinance are admin-tier only", () => {
     // EMPLOYEE and INTERN must never manage projects/docs/finance — this is the
     // capability the task-route IDOR fix and the documents gate rely on.
-    for (const r of ["EMPLOYEE", "INTERN", "HR", "LEAD", "PROJECT_MANAGER"]) {
+    for (const r of ["EMPLOYEE", "INTERN", "LEAD", "PROJECT_MANAGER"]) {
       expect(can.manageDocuments(r)).toBe(false);
       expect(can.manageFinance(r)).toBe(false);
     }
-    for (const r of ["SUPER_ADMIN", "ADMIN"]) {
+    // HR is admin-tier, so it carries these capabilities too.
+    for (const r of ["SUPER_ADMIN", "ADMIN", "HR"]) {
       expect(can.manageProjects(r)).toBe(true);
       expect(can.manageDocuments(r)).toBe(true);
       expect(can.manageFinance(r)).toBe(true);
@@ -69,6 +73,7 @@ describe("can.* capabilities", () => {
 
   it("viewAuditLog is admin-tier OR project manager", () => {
     expect(can.viewAuditLog("SUPER_ADMIN")).toBe(true);
+    expect(can.viewAuditLog("HR")).toBe(true); // admin-tier
     expect(can.viewAuditLog("PROJECT_MANAGER")).toBe(true);
     expect(can.viewAuditLog("LEAD")).toBe(false);
     expect(can.viewAuditLog("EMPLOYEE")).toBe(false);
@@ -94,8 +99,17 @@ describe("user creation authority", () => {
     expect(canCreateUserWithRole("ADMIN", "EMPLOYEE")).toBe(true);
   });
 
+  it("HR creates the tiers below it, but never HR/ADMIN/SUPER_ADMIN", () => {
+    const roles = creatableRoles("HR");
+    expect(roles).toEqual(["LEAD", "PROJECT_MANAGER", "EMPLOYEE", "INTERN"]);
+    expect(canCreateUsers("HR")).toBe(true);
+    expect(canCreateUserWithRole("HR", "HR")).toBe(false);
+    expect(canCreateUserWithRole("HR", "ADMIN")).toBe(false);
+    expect(canCreateUserWithRole("HR", "EMPLOYEE")).toBe(true);
+  });
+
   it("non-admins can create nobody", () => {
-    for (const r of ["HR", "LEAD", "PROJECT_MANAGER", "EMPLOYEE", "INTERN", null]) {
+    for (const r of ["LEAD", "PROJECT_MANAGER", "EMPLOYEE", "INTERN", null]) {
       expect(creatableRoles(r)).toEqual([]);
       expect(canCreateUsers(r)).toBe(false);
     }
@@ -108,6 +122,15 @@ describe("canManageUser — the edit/disable/reset + slack-link gate", () => {
   it("admin may manage strictly-lower-authority users", () => {
     expect(canManageUser(A("a", "ADMIN"), A("b", "EMPLOYEE"))).toBe(true);
     expect(canManageUser(A("s", "SUPER_ADMIN"), A("a", "ADMIN"))).toBe(true);
+    // HR is admin-tier and may manage roles strictly below it…
+    expect(canManageUser(A("h", "HR"), A("e", "EMPLOYEE"))).toBe(true);
+    expect(canManageUser(A("h", "HR"), A("l", "LEAD"))).toBe(true);
+  });
+
+  it("HR may NOT manage another HR, an ADMIN, or a SUPER_ADMIN", () => {
+    expect(canManageUser(A("h1", "HR"), A("h2", "HR"))).toBe(false);
+    expect(canManageUser(A("h", "HR"), A("a", "ADMIN"))).toBe(false);
+    expect(canManageUser(A("h", "HR"), A("s", "SUPER_ADMIN"))).toBe(false);
   });
 
   it("a plain ADMIN may NOT manage a SUPER_ADMIN or another ADMIN", () => {
@@ -122,7 +145,8 @@ describe("canManageUser — the edit/disable/reset + slack-link gate", () => {
   });
 
   it("non-admins may manage nobody", () => {
-    expect(canManageUser(A("h", "HR"), A("e", "EMPLOYEE"))).toBe(false);
     expect(canManageUser(A("l", "LEAD"), A("i", "INTERN"))).toBe(false);
+    expect(canManageUser(A("p", "PROJECT_MANAGER"), A("e", "EMPLOYEE"))).toBe(false);
+    expect(canManageUser(A("e", "EMPLOYEE"), A("i", "INTERN"))).toBe(false);
   });
 });

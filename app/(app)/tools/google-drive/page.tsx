@@ -87,7 +87,9 @@ export default async function GoogleDrivePage({
   // storage). Any member sees its files; only the owner connects/disconnects.
   const status = await tenantDriveStatus(user.tenantId);
   let files: DriveFile[] = [];
-  if (status.connected) {
+  // Only list once a destination folder is chosen — before that there's nothing
+  // of the portal's to show (and we don't want to scan the whole Drive root).
+  if (status.connected && status.folderId) {
     files = await listTenantDriveFiles(user.tenantId);
   }
 
@@ -97,6 +99,8 @@ export default async function GoogleDrivePage({
         connected={status.connected}
         isOwner={isOwner}
         email={status.email}
+        folderId={status.folderId}
+        folderName={status.folderName}
         files={files}
         loadError={null}
         oauthError={sp.error ?? null}

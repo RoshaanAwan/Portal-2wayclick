@@ -51,6 +51,15 @@ export default async function TasksPage() {
                   author: { select: { id: true, name: true, avatarUrl: true } },
                 },
               },
+              // Card image attachments, newest-first (the modal shows the latest
+              // upload first). Capped so a heavily-attached card stays bounded.
+              attachments: {
+                orderBy: { createdAt: "desc" },
+                take: 50,
+                include: {
+                  uploader: { select: { id: true, name: true, avatarUrl: true } },
+                },
+              },
               // Both directions of every issue link, with the other card's
               // shape so the modal can render the key + status without a second
               // round-trip.
@@ -159,6 +168,19 @@ export default async function TasksPage() {
               avatarUrl: c.author.avatarUrl,
             },
           })),
+        // Newest-first, served through the proxy (Drive files are private).
+        attachments: t.attachments.map((a) => ({
+          id: a.id,
+          name: a.name,
+          mimeType: a.mimeType,
+          url: `/api/tasks/attachment/proxy?id=${a.id}`,
+          createdAt: a.createdAt.toISOString(),
+          uploader: {
+            id: a.uploader.id,
+            name: a.uploader.name,
+            avatarUrl: a.uploader.avatarUrl,
+          },
+        })),
       };
     }),
   }));

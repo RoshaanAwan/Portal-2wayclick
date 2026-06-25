@@ -2,8 +2,11 @@ import { redirect } from "next/navigation";
 import { headers } from "next/headers";
 import { getCurrentUser, getImpersonation } from "@/lib/auth";
 import { getTenantBySubdomain } from "@/lib/tenant";
+import { getTenantAccess } from "@/lib/billing";
+import { can } from "@/lib/permissions";
 import { Sidebar } from "@/components/Sidebar";
 import { Topbar } from "@/components/Topbar";
+import { TrialBanner } from "@/components/TrialBanner";
 import { AssistantWidgetLazy } from "@/components/AssistantWidgetLazy";
 import { MobileNavProvider } from "@/components/MobileNavProvider";
 import { MessagingProvider } from "@/components/MessagingProvider";
@@ -29,11 +32,24 @@ export default async function AppLayout({
   // missing or suspended, the workspace is unavailable → show /suspended. Only
   // applies when a subdomain is present — the bare host (platform admin / no
   // subdomain) carries no x-tenant-subdomain and is left untouched.
-  const subdomain = (await headers()).get("x-tenant-subdomain");
+  const reqHeaders = await headers();
+  const subdomain = reqHeaders.get("x-tenant-subdomain");
   if (subdomain) {
     const tenant = await getTenantBySubdomain(subdomain);
     if (!tenant || tenant.status === "suspended") redirect("/suspended");
   }
+
+  // Trial / subscription gate. Once the System-Owner-granted free trial lapses
+  // with no active subscription, the workspace is locked to the billing page so
+  // the Company Owner can subscribe — everyone else just sees "trial ended".
+  // We always allow /billing and /trial-ended through (else the user could never
+  // reach the place that lifts the gate). The countdown banner is computed here
+  // too so the access read happens once.
+  const access = await getTenantAccess(user.tenantId);
+  const pathname = reqHeaders.get("x-pathname") ?? "";
+  const gateExempt =
+    pathname.startsWith("/billing") || pathname.startsWith("/trial-ended");
+  if (!access.hasAccess && !gateExempt) redirect("/trial-ended");
 
   const brand = await resolveClientBrand();
   const impersonating = await getImpersonation();
@@ -45,6 +61,12 @@ export default async function AppLayout({
       <Sidebar role={user.role} />
       <div className="lg:pl-64">
         <Topbar user={user} impersonating={!!impersonating} />
+        {access.inTrial && (
+          <TrialBanner
+            daysLeft={access.trialDaysLeft ?? 0}
+            canSubscribe={can.manageBilling(user.role)}
+          />
+        )}
         <main className="px-4 py-6 lg:px-8">{children}</main>
       </div>
       {/* Floating AI assistant (bottom-right) — answers from scoped portal data.

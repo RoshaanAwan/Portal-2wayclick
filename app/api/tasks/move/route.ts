@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { requireTenantUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { audit } from "@/lib/audit";
+import { recordActivity } from "@/lib/activityFeed";
 import { statusForList } from "@/lib/issues";
 import { assertTaskAccess, assertListAccess } from "@/lib/taskAccess";
 import { z } from "zod";
@@ -27,7 +28,9 @@ export async function POST(req: Request) {
     const [task, list] = await Promise.all([
       db.task.findUnique({
         where: { id: taskId },
-        // Include the current list's board so we can reject cross-board moves.
+        // `include` returns all scalar fields too, so we get the current status
+        // (to detect a DONE transition) and title for free, plus the current
+        // list's board (to reject cross-board moves).
         include: { list: { select: { boardId: true } } },
       }),
       db.boardList.findUnique({
@@ -94,9 +97,22 @@ export async function POST(req: Request) {
     // and the status field — read by filters/reports — in lock-step.
     const status = statusForList(list.name);
 
+    // Stamp the completion time as the card crosses the DONE boundary: set it on
+    // entering DONE, clear it on leaving (reopened). Untouched otherwise, so an
+    // already-done card that's reordered keeps its original completion time.
+    const wasDone = task.status === "DONE";
+    const nowDone = status === "DONE";
+    const completedAt =
+      nowDone && !wasDone ? new Date() : !nowDone && wasDone ? null : undefined;
+
     await db.task.update({
       where: { id: taskId },
-      data: { listId, position, status },
+      data: {
+        listId,
+        position,
+        status,
+        ...(completedAt !== undefined ? { completedAt } : {}),
+      },
     });
 
     await audit({
@@ -107,6 +123,16 @@ export async function POST(req: Request) {
       summary: `${user.name} moved “${task.title}” to ${list.name}`,
       detail: { fromListId: task.listId, toListId: listId, position, status },
     });
+
+    // Feed + performance signal: progressing a card across columns is activity.
+    // Skip pure same-column reorders (no column change ⇒ not meaningful work).
+    if (listId !== task.listId) {
+      await recordActivity({
+        actor: user,
+        verb: "updated",
+        target: `“${task.title}” → ${list.name}`,
+      });
+    }
 
     return NextResponse.json({ ok: true, position, status });
   } catch (e: any) {

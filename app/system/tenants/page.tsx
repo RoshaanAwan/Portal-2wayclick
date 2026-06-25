@@ -29,6 +29,7 @@ export default async function SystemTenantsPage() {
           ...t,
           suspendedAt: t.suspendedAt ? t.suspendedAt.toISOString() : null,
           createdAt: t.createdAt.toISOString(),
+          trialEndsAt: t.trialEndsAt ? t.trialEndsAt.toISOString() : null,
         }))}
         portalDomain={process.env.NEXT_PUBLIC_PORTAL_DOMAIN ?? "localhost:3000"}
       />

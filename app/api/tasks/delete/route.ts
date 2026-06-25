@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { requireTenantUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { audit } from "@/lib/audit";
+import { recordActivity } from "@/lib/activityFeed";
 import { isManagerTier } from "@/lib/permissions";
 import { assertTaskAccess } from "@/lib/taskAccess";
 import { z } from "zod";
@@ -49,6 +50,9 @@ export async function POST(req: Request) {
       summary: `${user.name} deleted task “${task.title}”`,
       detail: { listId: task.listId },
     });
+
+    // Feed + performance signal: deleting a card counts as activity.
+    await recordActivity({ actor: user, verb: "deleted", target: `card “${task.title}”` });
 
     return NextResponse.json({ ok: true });
   } catch (e: any) {

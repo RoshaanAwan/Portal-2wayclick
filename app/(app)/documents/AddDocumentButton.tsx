@@ -64,6 +64,10 @@ export function AddDocumentButton({
     try {
       const form = new FormData();
       form.append("file", file);
+      // Send the chosen category so the file lands in Documents/<category> in the
+      // workspace Drive. (The document row's category is set at create time; this
+      // just routes the Drive folder.)
+      form.append("category", category);
       const res = await fetch("/api/documents/upload", {
         method: "POST",
         body: form,

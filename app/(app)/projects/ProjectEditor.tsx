@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import { Pencil, Save, X } from "lucide-react";
 import { Button } from "@/components/ui/Button";
-import type { ProjectDTO } from "./ProjectsClient";
+import type { ProjectDTO, MemberDTO } from "./ProjectsClient";
 
 // ── Edit project modal ──────────────────────────────────────────────────────
 // Admin-only (gated upstream). PATCHes the project's name/description; the board
@@ -21,17 +21,43 @@ export function ProjectEditor({
   const router = useRouter();
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
+  const [projectLeadId, setProjectLeadId] = useState("");
+  const [techLeadId, setTechLeadId] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  // Eligible leads = the project's actual members (admin can pick from these).
+  const [eligibleLeads, setEligibleLeads] = useState<MemberDTO[]>([]);
 
   // Re-seed the form whenever a different project opens.
   useEffect(() => {
     if (project) {
       setName(project.name);
       setDescription(project.description ?? "");
+      setProjectLeadId(project.projectLead?.id ?? "");
+      setTechLeadId(project.techLead?.id ?? "");
       setError("");
     }
   }, [project]);
+
+  // Load the project's full member roster so leads can only be members. Mirrors
+  // MemberManager: intersect the member-id list with the user roster.
+  useEffect(() => {
+    if (!project) return;
+    let cancelled = false;
+    Promise.all([
+      fetch(`/api/projects/${project.id}/members`).then((r) => r.json()),
+      fetch("/api/projects/roster").then((r) => r.json()),
+    ])
+      .then(([ids, roster]) => {
+        if (cancelled || !Array.isArray(ids) || !Array.isArray(roster)) return;
+        const memberSet = new Set<string>(ids);
+        setEligibleLeads(roster.filter((u: MemberDTO) => memberSet.has(u.id)));
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [project?.id]);
 
   // Close on Escape (ignored while saving).
   useEffect(() => {
@@ -57,6 +83,8 @@ export function ProjectEditor({
       body: JSON.stringify({
         name: name.trim(),
         description: description.trim(),
+        projectLeadId: projectLeadId || null,
+        techLeadId: techLeadId || null,
       }),
     });
 
@@ -103,7 +131,7 @@ export function ProjectEditor({
                     Edit project
                   </h2>
                   <p className="text-xs text-ink-400">
-                    Rename or update the description.
+                    Rename, edit the description, or set leads.
                   </p>
                 </div>
               </div>
@@ -146,6 +174,46 @@ export function ProjectEditor({
                   placeholder="What is this project about?"
                   className="input resize-y leading-relaxed"
                 />
+              </div>
+
+              {/* Leads — pick from the project's members, or leave unassigned. */}
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div>
+                  <label className="mb-1.5 block text-xs font-medium text-ink-500">
+                    Project lead
+                  </label>
+                  <select
+                    value={projectLeadId}
+                    onChange={(e) => setProjectLeadId(e.target.value)}
+                    disabled={eligibleLeads.length === 0}
+                    className="input"
+                  >
+                    <option value="">Unassigned</option>
+                    {eligibleLeads.map((m) => (
+                      <option key={m.id} value={m.id}>
+                        {m.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="mb-1.5 block text-xs font-medium text-ink-500">
+                    Tech lead
+                  </label>
+                  <select
+                    value={techLeadId}
+                    onChange={(e) => setTechLeadId(e.target.value)}
+                    disabled={eligibleLeads.length === 0}
+                    className="input"
+                  >
+                    <option value="">Unassigned</option>
+                    {eligibleLeads.map((m) => (
+                      <option key={m.id} value={m.id}>
+                        {m.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
               </div>
 
               {error && (

@@ -31,6 +31,8 @@ const verbColor: Record<string, string> = {
   commented: "text-accent",
   assigned: "text-accent",
   created: "text-accent",
+  updated: "text-info",
+  deleted: "text-danger",
   joined: "text-success",
 };
 

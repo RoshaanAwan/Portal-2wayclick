@@ -292,6 +292,10 @@ async function main() {
         listId: listIds[t.list],
         creatorId: t.creator,
         createdAt: daysAgo(18 - taskCount),
+        // Tasks seeded straight into "Done" are completed — stamp the timestamp
+        // the app would set on the DONE transition, so they count as delivered.
+        status: t.list === "Done" ? "DONE" : undefined,
+        completedAt: t.list === "Done" ? daysAgo(18 - taskCount) : null,
       },
     });
     taskIdByTitle[t.title] = task.id;
@@ -397,6 +401,8 @@ async function main() {
             position: pos,
             listId: list.id,
             creatorId: created[pd.owner],
+            status: listName === "Done" ? "DONE" : undefined,
+            completedAt: listName === "Done" ? daysAgo(10) : null,
           },
         });
         pos += 1000;

@@ -1,12 +1,22 @@
 "use client";
 
+import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
-import { CalendarDays, ArrowRight, UserCheck } from "lucide-react";
+import {
+  CalendarDays,
+  ArrowRight,
+  UserCheck,
+  Pencil,
+  Trash2,
+} from "lucide-react";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { Badge } from "@/components/ui/Badge";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { formatDate, timeAgo } from "@/lib/utils";
 import { statusVariant, type RequestStatus } from "@/lib/constants";
+import { RequestFormModal } from "./RequestFormModal";
 import type { RequestRow } from "./page";
 
 const typeVariant: Record<string, "accent" | "cyan" | "pink" | "emerald"> = {
@@ -23,6 +33,28 @@ const statusLabel: Record<RequestStatus, string> = {
 };
 
 export function MyRequests({ requests }: { requests: RequestRow[] }) {
+  const router = useRouter();
+  // The request currently open in the edit modal (PENDING only).
+  const [editing, setEditing] = useState<RequestRow | null>(null);
+  // The request awaiting delete confirmation (any status).
+  const [deleteTarget, setDeleteTarget] = useState<RequestRow | null>(null);
+  const [deleting, setDeleting] = useState(false);
+
+  async function confirmDelete() {
+    if (!deleteTarget || deleting) return;
+    setDeleting(true);
+    const res = await fetch("/api/requests/delete", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: deleteTarget.id }),
+    });
+    setDeleting(false);
+    if (res.ok) {
+      setDeleteTarget(null);
+      router.refresh();
+    }
+  }
+
   return (
     <section>
       <h2 className="mb-3 text-sm font-semibold uppercase tracking-wider text-ink-400">
@@ -75,14 +107,73 @@ export function MyRequests({ requests }: { requests: RequestRow[] }) {
                   </div>
                 </div>
 
-                <Badge variant={statusVariant[r.status]}>
-                  {statusLabel[r.status]}
-                </Badge>
+                <div className="flex items-center gap-2">
+                  <Badge variant={statusVariant[r.status]}>
+                    {statusLabel[r.status]}
+                  </Badge>
+
+                  {/* Edit is only possible while the request is still pending —
+                      once decided, its dates are locked (the server enforces this
+                      too). Withdraw (delete) is allowed in any status. */}
+                  <div className="flex items-center gap-1">
+                    {r.status === "PENDING" && (
+                      <button
+                        type="button"
+                        onClick={() => setEditing(r)}
+                        aria-label="Edit request"
+                        title="Edit request"
+                        className="grid h-8 w-8 place-items-center rounded-lg text-ink-400 transition hover:bg-surface-2 hover:text-ink"
+                      >
+                        <Pencil className="h-4 w-4" />
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => setDeleteTarget(r)}
+                      aria-label="Withdraw request"
+                      title="Withdraw request"
+                      className="grid h-8 w-8 place-items-center rounded-lg text-ink-400 transition hover:bg-surface-2 hover:text-danger-ink"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </div>
+                </div>
               </div>
             </GlassCard>
           ))}
         </div>
       )}
+
+      {/* Edit modal (PENDING requests). Keyed by id so reopening on a different
+          row resets the form's pre-filled state. */}
+      <RequestFormModal
+        key={editing?.id ?? "none"}
+        open={!!editing}
+        request={editing}
+        onClose={() => setEditing(null)}
+      />
+
+      <ConfirmDialog
+        open={!!deleteTarget}
+        title="Withdraw request"
+        confirmLabel="Withdraw"
+        loading={deleting}
+        message={
+          deleteTarget?.status === "APPROVED" ? (
+            <>
+              Withdraw your approved <strong>{deleteTarget?.type}</strong> time
+              off? This frees up that time on the team calendar.
+            </>
+          ) : (
+            <>
+              Withdraw this <strong>{deleteTarget?.type}</strong> request? This
+              can&apos;t be undone.
+            </>
+          )
+        }
+        onConfirm={confirmDelete}
+        onClose={() => !deleting && setDeleteTarget(null)}
+      />
     </section>
   );
 }
