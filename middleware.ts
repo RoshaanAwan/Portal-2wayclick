@@ -53,6 +53,10 @@ export function middleware(req: NextRequest) {
   } else {
     requestHeaders.delete("x-tenant-subdomain");
   }
+  // Forward the request path so server layouts can make path-aware decisions
+  // (e.g. the trial-lapsed gate must let /billing through so the tenant can
+  // actually subscribe). Layouts otherwise can't read the pathname.
+  requestHeaders.set("x-pathname", req.nextUrl.pathname);
 
   return NextResponse.next({ request: { headers: requestHeaders } });
 }

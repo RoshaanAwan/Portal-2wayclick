@@ -12,6 +12,8 @@ const schema = z.object({
   adminName: z.string().trim().min(2).max(120),
   adminEmail: z.string().trim().toLowerCase().email(),
   adminPassword: z.string().min(8).max(200),
+  // Free-trial length granted to this workspace (0 = none).
+  trialDays: z.number().int().min(0).max(365).default(0),
 });
 
 export async function POST(req: Request) {
@@ -39,7 +41,10 @@ export async function POST(req: Request) {
         action: "tenant.create",
         entity: "Tenant",
         entityId: tenant.id,
-        summary: `${systemOwner.name} created tenant "${tenant.name}" (${tenant.subdomain})`,
+        summary: `${systemOwner.name} created tenant "${tenant.name}" (${tenant.subdomain})${
+          data.trialDays > 0 ? ` with a ${data.trialDays}-day trial` : ""
+        }`,
+        detail: { trialDays: data.trialDays },
       }),
     );
 

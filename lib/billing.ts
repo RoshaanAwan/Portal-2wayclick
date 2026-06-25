@@ -2,6 +2,9 @@ import "server-only";
 import { adminDb } from "./db";
 import { getStripe } from "./stripe";
 import { appBaseUrl } from "./share";
+import { computeTenantAccess, type TenantAccess } from "./access";
+
+export type { TenantAccess } from "./access";
 
 // ── Tenant billing (subscription self-serve) ──────────────────────────────────
 // Helpers a Company Owner uses to subscribe their workspace to a Plan and manage
@@ -16,6 +19,20 @@ export interface TenantBillingState {
   subscriptionStatus: string | null;
   currentPeriodEnd: Date | null;
   hasStripeCustomer: boolean;
+}
+
+/**
+ * Decide whether a tenant may use the workspace, and surface trial state for the
+ * banner. Reads the Tenant row via adminDb (Tenant is the tenancy ROOT, not
+ * scoped) and delegates the rules to the pure computeTenantAccess (lib/access).
+ */
+export async function getTenantAccess(tenantId: string): Promise<TenantAccess> {
+  const tenant = await adminDb.tenant.findUnique({
+    where: { id: tenantId },
+    select: { subscriptionStatus: true, trialEndsAt: true },
+  });
+  if (!tenant) throw new Error("TENANT_NOT_FOUND");
+  return computeTenantAccess(tenant.subscriptionStatus, tenant.trialEndsAt, Date.now());
 }
 
 /** Current subscription snapshot for a tenant (for the billing page). */

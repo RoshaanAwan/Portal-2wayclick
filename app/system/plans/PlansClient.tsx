@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Plus, Pencil, Archive, ArchiveRestore, Loader2, X, AlertTriangle } from "lucide-react";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { Button } from "@/components/ui/Button";
+import { PLAN_FEATURES } from "@/lib/planFeatures";
 
 interface PlanRow {
   id: string;
@@ -33,8 +34,8 @@ interface FormState {
   interval: "month" | "year";
   trialDays: string;
   maxUsers: string;
-  // One feature per line in the textarea.
-  features: string;
+  // Selected feature labels, chosen from the PLAN_FEATURES catalog (checkboxes).
+  features: string[];
 }
 
 const EMPTY_FORM: FormState = {
@@ -45,7 +46,7 @@ const EMPTY_FORM: FormState = {
   interval: "month",
   trialDays: "0",
   maxUsers: "",
-  features: "",
+  features: [],
 };
 
 function money(cents: number, currency: string) {
@@ -93,7 +94,9 @@ export function PlansClient({
       interval: p.interval === "year" ? "year" : "month",
       trialDays: String(p.trialDays),
       maxUsers: p.maxUsers != null ? String(p.maxUsers) : "",
-      features: p.features.join("\n"),
+      // Keep only labels still in the catalog so a legacy free-text feature
+      // doesn't survive an edit-save (mirrors lib/planFeatures.sanitize on the API).
+      features: PLAN_FEATURES.filter((f) => p.features.includes(f.label)).map((f) => f.label),
     });
     setError("");
     setShowForm(true);
@@ -125,10 +128,7 @@ export function PlansClient({
       interval: form.interval,
       trialDays: Number(form.trialDays) || 0,
       maxUsers: form.maxUsers.trim() ? Number(form.maxUsers) : null,
-      features: form.features
-        .split("\n")
-        .map((f) => f.trim())
-        .filter(Boolean),
+      features: form.features,
     };
 
     try {
@@ -250,15 +250,35 @@ export function PlansClient({
                 placeholder="unlimited"
                 required={false}
               />
-              <label className="block">
-                <span className="mb-1.5 block text-sm font-medium text-ink-700">Features (one per line)</span>
-                <textarea
-                  className="input min-h-[80px]"
-                  value={form.features}
-                  placeholder={"Unlimited projects\nPriority support\nAdvanced analytics"}
-                  onChange={(e) => setForm((f) => ({ ...f, features: e.target.value }))}
-                />
-              </label>
+              <div className="block">
+                <span className="mb-1.5 block text-sm font-medium text-ink-700">Included features</span>
+                <div className="grid gap-1.5 sm:grid-cols-2">
+                  {PLAN_FEATURES.map((opt) => {
+                    const checked = form.features.includes(opt.label);
+                    return (
+                      <label
+                        key={opt.key}
+                        className="flex cursor-pointer items-start gap-2 rounded-lg border border-line px-2.5 py-1.5 text-sm text-ink-700 hover:bg-surface-2"
+                      >
+                        <input
+                          type="checkbox"
+                          className="mt-0.5 h-4 w-4 shrink-0 accent-accent"
+                          checked={checked}
+                          onChange={(e) =>
+                            setForm((f) => ({
+                              ...f,
+                              features: e.target.checked
+                                ? [...f.features, opt.label]
+                                : f.features.filter((l) => l !== opt.label),
+                            }))
+                          }
+                        />
+                        <span>{opt.label}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
               {editing && editing.priceCents !== Math.round((Number(form.price) || 0) * 100) && (
                 <p className="rounded-lg bg-amber-400/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
                   Changing the price creates a new Stripe price. Tenants already subscribed keep their

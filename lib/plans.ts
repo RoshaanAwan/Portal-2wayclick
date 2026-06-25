@@ -1,6 +1,7 @@
 import "server-only";
 import { adminDb } from "./db";
 import { getStripe, isStripeConfigured } from "./stripe";
+import { sanitizePlanFeatures } from "./planFeatures";
 
 // ── Plans (subscription package catalog) ──────────────────────────────────────
 // Platform-level CRUD for the packages a System Owner sells to tenants. Every
@@ -148,7 +149,7 @@ export async function createPlan(input: PlanInput): Promise<PlanDTO> {
       interval: input.interval,
       trialDays: input.trialDays,
       maxUsers: input.maxUsers ?? null,
-      features: input.features,
+      features: sanitizePlanFeatures(input.features),
       stripeProductId,
       stripePriceId,
     },
@@ -220,7 +221,7 @@ export async function updatePlan(id: string, input: PlanInput): Promise<PlanDTO>
       interval: input.interval,
       trialDays: input.trialDays,
       maxUsers: input.maxUsers ?? null,
-      features: input.features,
+      features: sanitizePlanFeatures(input.features),
       stripeProductId,
       stripePriceId,
     },

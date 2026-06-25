@@ -17,6 +17,27 @@ interface TenantRow {
   // The tenant's first SUPER_ADMIN (Company Owner). Null when the tenant has no
   // such user — the impersonate action is disabled in that case.
   companyOwnerId: string | null;
+  // Provisioning trial deadline (ISO) and Stripe sub status, for the trial badge.
+  trialEndsAt: string | null;
+  subscriptionStatus: string | null;
+}
+
+// Compact trial/subscription state for the tenant row, mirroring the access gate
+// in lib/billing.ts (a healthy sub supersedes the trial window).
+function trialBadge(t: TenantRow): { label: string; tone: string } | null {
+  if (t.subscriptionStatus === "active" || t.subscriptionStatus === "trialing") {
+    return { label: "Subscribed", tone: "bg-success/15 text-success" };
+  }
+  if (!t.trialEndsAt) return null;
+  const msLeft = new Date(t.trialEndsAt).getTime() - Date.now();
+  if (msLeft > 0) {
+    const days = Math.ceil(msLeft / 86_400_000);
+    return {
+      label: `Trial · ${days}d left`,
+      tone: "bg-accent-soft text-accent-ink",
+    };
+  }
+  return { label: "Trial ended", tone: "bg-danger-soft text-danger" };
 }
 
 export function TenantsClient({
@@ -40,6 +61,8 @@ export function TenantsClient({
     adminName: "",
     adminEmail: "",
     adminPassword: "",
+    // Free-trial length in days granted to this workspace ("" = no trial).
+    trialDays: "14",
   });
   const [showForm, setShowForm] = useState(false);
 
@@ -62,13 +85,13 @@ export function TenantsClient({
       const res = await fetch("/api/admin/tenants/create", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form),
+        body: JSON.stringify({ ...form, trialDays: Number(form.trialDays) || 0 }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) setError(data.error || "Could not create tenant");
       else {
         setShowForm(false);
-        setForm({ name: "", subdomain: "", adminName: "", adminEmail: "", adminPassword: "" });
+        setForm({ name: "", subdomain: "", adminName: "", adminEmail: "", adminPassword: "", trialDays: "14" });
         router.refresh();
       }
     } catch {
@@ -180,6 +203,17 @@ export function TenantsClient({
             <Input label="Company Owner name" value={form.adminName} onChange={(v) => setForm((f) => ({ ...f, adminName: v }))} placeholder="Jane Doe" />
             <Input label="Company Owner email" type="email" value={form.adminEmail} onChange={(v) => setForm((f) => ({ ...f, adminEmail: v }))} placeholder="jane@acme.com" />
             <Input label="Company Owner password" type="password" value={form.adminPassword} onChange={(v) => setForm((f) => ({ ...f, adminPassword: v }))} placeholder="min 8 chars" />
+            <Input
+              label="Free trial (days)"
+              value={form.trialDays}
+              onChange={(v) => setForm((f) => ({ ...f, trialDays: v.replace(/[^0-9]/g, "") }))}
+              placeholder="14"
+              hint={
+                Number(form.trialDays) > 0
+                  ? `Full access for ${form.trialDays} days, then must subscribe`
+                  : "No trial — subscription required immediately"
+              }
+            />
             <div className="flex items-end">
               <Button type="submit" loading={creating}>Create tenant</Button>
             </div>
@@ -241,13 +275,17 @@ export function TenantsClient({
         <div className="divide-y divide-line">
           {tenants.map((t) => {
             const suspended = t.status === "suspended";
+            const trial = trialBadge(t);
             return (
               <div key={t.id} className="flex flex-wrap items-center gap-3 p-4">
                 <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     <p className="font-medium text-ink">{t.name}</p>
                     {suspended && (
                       <span className="rounded-md bg-danger-soft px-1.5 py-0.5 text-[11px] font-semibold text-danger">Suspended</span>
+                    )}
+                    {trial && (
+                      <span className={`rounded-md px-1.5 py-0.5 text-[11px] font-semibold ${trial.tone}`}>{trial.label}</span>
                     )}
                   </div>
                   <p className="text-xs text-ink-400">
