@@ -67,9 +67,10 @@ export function TaskCard({
   const priority = (task.priority as TaskPriority) ?? "MEDIUM";
   const due = dueState(task.dueDate);
   // Trello-style cover: the card's most recent image attachment, shown as a
-  // banner at the top of the card. Attachments arrive newest-first, so [0] is
-  // the latest upload.
-  const cover = task.attachments[0] ?? null;
+  // banner at the top of the card. Provided directly by the board query as a
+  // summary field (no longer derived from the full attachments array, which is
+  // lazy-loaded into the modal).
+  const cover = task.cover;
   const mine = !!currentUserId && task.assignees.some((a) => a.id === currentUserId);
   // Tracked time has blown past the estimate — flag the whole card in red.
   const overEstimate =
@@ -77,11 +78,11 @@ export function TaskCard({
     task.timeSpentMinutes > task.estimateMinutes;
   const hasFooter =
     task.assignees.length > 0 ||
-    task.comments.length > 0 ||
+    task.commentCount > 0 ||
     task.timeSpentMinutes > 0 ||
     task.estimateMinutes != null ||
     task.storyPoints != null ||
-    task.links.length > 0;
+    task.linkCount > 0;
 
   // Card overflow menu (Edit / Delete). Closes on outside click or Escape.
   // The trigger lives inside the card (which is `overflow-hidden` to clip the
@@ -280,13 +281,13 @@ export function TaskCard({
             </div>
 
             <div className="flex items-center gap-2.5">
-              {task.links.length > 0 && (
+              {task.linkCount > 0 && (
                 <span
                   className="flex items-center gap-1 text-[11px] text-ink-400"
-                  title={`${task.links.length} linked issue${task.links.length > 1 ? "s" : ""}`}
+                  title={`${task.linkCount} linked issue${task.linkCount > 1 ? "s" : ""}`}
                 >
                   <Link2 className="h-3.5 w-3.5" />
-                  {task.links.length}
+                  {task.linkCount}
                 </span>
               )}
               <PointsBadge points={task.storyPoints} />
@@ -317,10 +318,10 @@ export function TaskCard({
                   {formatMinutes(task.timeSpentMinutes)}
                 </span>
               )}
-              {task.comments.length > 0 && (
+              {task.commentCount > 0 && (
                 <span className="flex items-center gap-1 text-[11px] text-ink-400">
                   <MessageSquare className="h-3.5 w-3.5" />
-                  {task.comments.length}
+                  {task.commentCount}
                 </span>
               )}
             </div>

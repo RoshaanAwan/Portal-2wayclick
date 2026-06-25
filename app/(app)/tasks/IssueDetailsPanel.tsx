@@ -270,7 +270,11 @@ export function IssueDetailsPanel({
         </div>
         <div className="space-y-1.5">
           {task.links.length === 0 && (
-            <p className="text-xs text-ink-400">No linked issues.</p>
+            <p className="text-xs text-ink-400">
+              {/* linkCount comes from the board summary; if it's >0 but the
+                  lazy-loaded links haven't arrived yet, show a loading hint. */}
+              {task.linkCount > 0 ? "Loading links…" : "No linked issues."}
+            </p>
           )}
           {task.links.map((l) => {
             const phrasing =

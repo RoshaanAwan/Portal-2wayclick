@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { GripVertical, KanbanSquare, ListFilter, User, X } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -86,6 +86,15 @@ export interface TaskDTO {
   assignees: MemberDTO[];
   comments: CommentDTO[];
   attachments: AttachmentDTO[];
+  // Card-level summary counts + cover, populated by the board query so cards
+  // render badges/cover WITHOUT hydrating every comment/attachment/link up
+  // front. The full `comments`/`attachments`/`links` arrays are lazy-loaded
+  // into the modal on open (see Phase 2). During the transition the arrays are
+  // still populated; cards read these counts so they don't depend on array length.
+  commentCount: number;
+  attachmentCount: number;
+  linkCount: number;
+  cover: AttachmentDTO | null;
 }
 
 export interface ListDTO {
@@ -144,6 +153,14 @@ export function BoardClient({
   const [listDropHint, setListDropHint] = useState<string | null>(null);
   // Which card's detail modal is open.
   const [openTaskId, setOpenTaskId] = useState<string | null>(null);
+  // The board query only loads each card's summary (counts + cover); the full
+  // comment thread, attachments, and issue links are fetched on demand when a
+  // card's modal opens. `detailLoadingId` drives the modal's loading state;
+  // `loadedDetailIds` remembers which cards we've already hydrated so reopening
+  // one doesn't refetch. The ref mirrors the set for the async callback without
+  // making it a dependency (which would re-run the effect on every load).
+  const [detailLoadingId, setDetailLoadingId] = useState<string | null>(null);
+  const loadedDetailIds = useRef<Set<string>>(new Set());
   // Which card is being edited inline (swaps the card for the edit form).
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
   // The card awaiting delete confirmation (drives the confirm dialog).
@@ -173,7 +190,7 @@ export function BoardClient({
             `${l.id}:${l.tasks
               .map(
                 (t) =>
-                  `${t.id}#${t.assignees.map((a) => a.id).join("+")}#${t.comments.length}#${t.attachments.length}#${t.status}#${t.storyPoints}#${t.issueType}#${t.sprintId}#${t.labels.join(".")}#${t.links.length}`,
+                  `${t.id}#${t.assignees.map((a) => a.id).join("+")}#${t.commentCount}#${t.attachmentCount}#${t.status}#${t.storyPoints}#${t.issueType}#${t.sprintId}#${t.labels.join(".")}#${t.linkCount}`,
               )
               .join(",")}`,
         )
@@ -183,7 +200,33 @@ export function BoardClient({
   const [syncedKey, setSyncedKey] = useState(listsKey);
   if (syncedKey !== listsKey) {
     setSyncedKey(listsKey);
-    setLists(initialLists);
+    // Re-apply fresh server data, but preserve any lazy-loaded card detail
+    // (comments/attachments/links) we've already fetched — the board query
+    // doesn't carry those, so a naive reset would blank an open modal. Summary
+    // fields (counts/cover) still come fresh from the server.
+    setLists((prev) => {
+      if (loadedDetailIds.current.size === 0) return initialLists;
+      const loadedById = new Map<string, TaskDTO>();
+      for (const l of prev) {
+        for (const t of l.tasks) {
+          if (loadedDetailIds.current.has(t.id)) loadedById.set(t.id, t);
+        }
+      }
+      return initialLists.map((l) => ({
+        ...l,
+        tasks: l.tasks.map((t) => {
+          const loaded = loadedById.get(t.id);
+          return loaded
+            ? {
+                ...t,
+                comments: loaded.comments,
+                attachments: loaded.attachments,
+                links: loaded.links,
+              }
+            : t;
+        }),
+      }));
+    });
   }
 
   const findTask = useCallback(
@@ -209,6 +252,50 @@ export function BoardClient({
     },
     [],
   );
+
+  // ── Lazy-load card detail ──────────────────────────────────────────────────
+  // The board ships only summary data per card (counts + cover); the full
+  // comment thread, attachments, and issue links come from this endpoint when a
+  // card's modal opens, merged into local state via patchTask. `force` re-fetches
+  // even if already hydrated — used after adding a link, whose new row the board
+  // query no longer carries.
+  const loadDetail = useCallback(
+    async (taskId: string, force = false) => {
+      if (!force && loadedDetailIds.current.has(taskId)) return;
+      setDetailLoadingId(taskId);
+      try {
+        const res = await fetch(`/api/tasks/${taskId}/detail`);
+        if (!res.ok) throw new Error("detail load failed");
+        const data = (await res.json()) as {
+          comments: CommentDTO[];
+          attachments: AttachmentDTO[];
+          links: IssueLinkDTO[];
+        };
+        // Mark loaded BEFORE patching so the re-render doesn't re-trigger the
+        // open-effect into a refetch loop.
+        loadedDetailIds.current.add(taskId);
+        patchTask(taskId, (t) => ({
+          ...t,
+          comments: data.comments,
+          attachments: data.attachments,
+          links: data.links,
+        }));
+      } catch {
+        // Leave the arrays as-is on failure; the modal shows its empty/loading
+        // states. A non-forced retry is possible by reopening (not marked
+        // loaded if we never reached the add() above).
+      } finally {
+        setDetailLoadingId((id) => (id === taskId ? null : id));
+      }
+    },
+    [patchTask],
+  );
+
+  // Hydrate the card's detail the first time its modal opens.
+  useEffect(() => {
+    if (!openTaskId) return;
+    void loadDetail(openTaskId);
+  }, [openTaskId, loadDetail]);
 
   // ── Assignment (optimistic; updates avatar stack + modal instantly) ────────
   const assign = useCallback(
@@ -260,7 +347,11 @@ export function BoardClient({
         },
       };
 
-      patchTask(taskId, (t) => ({ ...t, comments: [...t.comments, optimistic] }));
+      patchTask(taskId, (t) => ({
+        ...t,
+        comments: [...t.comments, optimistic],
+        commentCount: t.commentCount + 1,
+      }));
 
       try {
         const res = await fetch("/api/tasks/comment", {
@@ -283,6 +374,7 @@ export function BoardClient({
         patchTask(taskId, (t) => ({
           ...t,
           comments: t.comments.filter((c) => c.id !== tempId),
+          commentCount: Math.max(0, t.commentCount - 1),
         }));
         return false;
       }
@@ -307,6 +399,10 @@ export function BoardClient({
           patchTask(taskId, (t) => ({
             ...t,
             attachments: [data.attachment, ...t.attachments],
+            attachmentCount: t.attachmentCount + 1,
+            // Newest upload becomes the card cover (matches the board query,
+            // which uses the most recent attachment as the cover).
+            cover: data.attachment,
           }));
         }
         router.refresh();
@@ -320,11 +416,21 @@ export function BoardClient({
 
   const removeAttachment = useCallback(
     async (taskId: string, attachmentId: string): Promise<boolean> => {
-      const snapshot = findTask(taskId)?.task.attachments ?? [];
-      patchTask(taskId, (t) => ({
-        ...t,
-        attachments: t.attachments.filter((a) => a.id !== attachmentId),
-      }));
+      const before = findTask(taskId)?.task;
+      const snapshot = before?.attachments ?? [];
+      const snapshotCount = before?.attachmentCount ?? snapshot.length;
+      const snapshotCover = before?.cover ?? null;
+      patchTask(taskId, (t) => {
+        const attachments = t.attachments.filter((a) => a.id !== attachmentId);
+        return {
+          ...t,
+          attachments,
+          attachmentCount: Math.max(0, t.attachmentCount - 1),
+          // If the removed attachment was the cover, fall back to the next
+          // newest (attachments are newest-first), else clear it.
+          cover: t.cover?.id === attachmentId ? attachments[0] ?? null : t.cover,
+        };
+      });
       try {
         const res = await fetch("/api/tasks/attachment/delete", {
           method: "POST",
@@ -335,7 +441,12 @@ export function BoardClient({
         router.refresh();
         return true;
       } catch {
-        patchTask(taskId, (t) => ({ ...t, attachments: snapshot }));
+        patchTask(taskId, (t) => ({
+          ...t,
+          attachments: snapshot,
+          attachmentCount: snapshotCount,
+          cover: snapshotCover,
+        }));
         return false;
       }
     },
@@ -380,6 +491,7 @@ export function BoardClient({
           patchTask(taskId, (t) => ({
             ...t,
             comments: [...t.comments, data.comment],
+            commentCount: t.commentCount + 1,
           }));
         }
         router.refresh();
@@ -566,13 +678,17 @@ export function BoardClient({
           const data = await res.json().catch(() => ({}));
           return data.error ?? "Couldn’t add link";
         }
+        // The board query no longer carries links, so a refresh won't bring the
+        // new one back — re-fetch this card's detail to pull it (and its
+        // linkCount) into state.
+        await loadDetail(taskId, true);
         router.refresh();
         return null;
       } catch {
         return "Couldn’t add link";
       }
     },
-    [router],
+    [router, loadDetail],
   );
 
   const removeLink = useCallback(
@@ -580,6 +696,7 @@ export function BoardClient({
       patchTask(taskId, (t) => ({
         ...t,
         links: t.links.filter((l) => l.id !== linkId),
+        linkCount: Math.max(0, t.linkCount - 1),
       }));
       try {
         const res = await fetch("/api/tasks/unlink", {
@@ -1169,6 +1286,7 @@ export function BoardClient({
         sprints={sprints}
         currentUserId={currentUserId}
         canManage={!!openTask && canManage(openTask)}
+        detailLoading={!!openTaskId && detailLoadingId === openTaskId}
         onClose={() => setOpenTaskId(null)}
         onAssign={assign}
         onAddComment={addComment}

@@ -9,17 +9,15 @@ import {
   type ListDTO,
   type MemberDTO,
   type SprintDTO,
-  type IssueLinkDTO,
 } from "./BoardClient";
 
 export default async function TasksPage() {
   const user = await getCurrentUser();
 
-  // The seed creates a single board; load the oldest one.
-  // Comments are capped to the most recent MAX_COMMENTS per card (the thread
-  // view) so a busy board doesn't load an unbounded comment history up front;
-  // the card's count badge reads from `_count`, which stays exact.
-  const MAX_COMMENTS = 50;
+  // The seed creates a single board; load the oldest one. Each card loads only
+  // its summary counts (_count) + cover attachment; the full comment thread,
+  // attachments, and issue links are lazy-loaded into the modal on open via
+  // GET /api/tasks/[id]/detail, so a busy board stays light.
 
   const board = await db.board.findFirst({
     orderBy: { createdAt: "asc" },
@@ -33,6 +31,16 @@ export default async function TasksPage() {
           tasks: {
             orderBy: { position: "asc" },
             include: {
+              // Card-level counts so the board renders comment/attachment/link
+              // badges without hydrating every related row up front.
+              _count: {
+                select: {
+                  comments: true,
+                  attachments: true,
+                  outgoingLinks: true,
+                  incomingLinks: true,
+                },
+              },
               creator: { select: { id: true, name: true, avatarUrl: true } },
               reporter: { select: { id: true, name: true, avatarUrl: true } },
               assignees: {
@@ -42,39 +50,16 @@ export default async function TasksPage() {
                   },
                 },
               },
-              comments: {
-                // Newest-first so `take` keeps the most recent; reversed below
-                // for the oldest-first thread order the modal expects.
-                orderBy: { createdAt: "desc" },
-                take: MAX_COMMENTS,
-                include: {
-                  author: { select: { id: true, name: true, avatarUrl: true } },
-                },
-              },
-              // Card image attachments, newest-first (the modal shows the latest
-              // upload first). Capped so a heavily-attached card stays bounded.
+              // Only the cover (most recent attachment) is loaded for the
+              // board — the full comment thread, all attachments, and issue
+              // links are lazy-loaded into the modal on open via
+              // GET /api/tasks/[id]/detail. The _count above feeds the card
+              // badges without hydrating those rows.
               attachments: {
                 orderBy: { createdAt: "desc" },
-                take: 50,
+                take: 1,
                 include: {
                   uploader: { select: { id: true, name: true, avatarUrl: true } },
-                },
-              },
-              // Both directions of every issue link, with the other card's
-              // shape so the modal can render the key + status without a second
-              // round-trip.
-              outgoingLinks: {
-                include: {
-                  target: {
-                    select: { id: true, title: true, status: true, issueType: true, issueNumber: true },
-                  },
-                },
-              },
-              incomingLinks: {
-                include: {
-                  source: {
-                    select: { id: true, title: true, status: true, issueType: true, issueNumber: true },
-                  },
                 },
               },
             },
@@ -98,28 +83,21 @@ export default async function TasksPage() {
     name: list.name,
     position: list.position,
     tasks: list.tasks.map((t) => {
-      const links: IssueLinkDTO[] = [
-        ...t.outgoingLinks.map((l) => ({
-          id: l.id,
-          type: l.type,
-          direction: "outward" as const,
-          issueKey: issueKey(keyPrefix, l.target.issueNumber),
-          taskId: l.target.id,
-          title: l.target.title,
-          status: l.target.status,
-          issueType: l.target.issueType,
-        })),
-        ...t.incomingLinks.map((l) => ({
-          id: l.id,
-          type: l.type,
-          direction: "inward" as const,
-          issueKey: issueKey(keyPrefix, l.source.issueNumber),
-          taskId: l.source.id,
-          title: l.source.title,
-          status: l.source.status,
-          issueType: l.source.issueType,
-        })),
-      ];
+      // The cover is the most recent attachment (take: 1 in the query above).
+      const cover = t.attachments[0]
+        ? {
+            id: t.attachments[0].id,
+            name: t.attachments[0].name,
+            mimeType: t.attachments[0].mimeType,
+            url: `/api/tasks/attachment/proxy?id=${t.attachments[0].id}`,
+            createdAt: t.attachments[0].createdAt.toISOString(),
+            uploader: {
+              id: t.attachments[0].uploader.id,
+              name: t.attachments[0].uploader.name,
+              avatarUrl: t.attachments[0].uploader.avatarUrl,
+            },
+          }
+        : null;
 
       return {
         id: t.id,
@@ -141,7 +119,8 @@ export default async function TasksPage() {
           ? { id: t.reporter.id, name: t.reporter.name, avatarUrl: t.reporter.avatarUrl }
           : null,
         sprintId: t.sprintId,
-        links,
+        // Lazy-loaded into the modal on open via GET /api/tasks/[id]/detail.
+        links: [],
         creator: {
           id: t.creator.id,
           name: t.creator.name,
@@ -153,34 +132,15 @@ export default async function TasksPage() {
           avatarUrl: a.user.avatarUrl,
           title: a.user.title,
         })),
-        // Fetched newest-first (so `take` keeps the latest); reverse for the
-        // oldest-first thread order the card/modal renders.
-        comments: t.comments
-          .slice()
-          .reverse()
-          .map((c) => ({
-            id: c.id,
-            body: c.body,
-            createdAt: c.createdAt.toISOString(),
-            author: {
-              id: c.author.id,
-              name: c.author.name,
-              avatarUrl: c.author.avatarUrl,
-            },
-          })),
-        // Newest-first, served through the proxy (Drive files are private).
-        attachments: t.attachments.map((a) => ({
-          id: a.id,
-          name: a.name,
-          mimeType: a.mimeType,
-          url: `/api/tasks/attachment/proxy?id=${a.id}`,
-          createdAt: a.createdAt.toISOString(),
-          uploader: {
-            id: a.uploader.id,
-            name: a.uploader.name,
-            avatarUrl: a.uploader.avatarUrl,
-          },
-        })),
+        // Lazy-loaded into the modal on open (see links above).
+        comments: [],
+        attachments: [],
+        // Card summary: counts + cover, so TaskCard renders badges/cover without
+        // hydrating the full arrays (those come from the detail endpoint).
+        commentCount: t._count.comments,
+        attachmentCount: t._count.attachments,
+        linkCount: t._count.outgoingLinks + t._count.incomingLinks,
+        cover,
       };
     }),
   }));

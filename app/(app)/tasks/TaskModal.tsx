@@ -94,6 +94,7 @@ export function TaskModal({
   sprints,
   currentUserId,
   canManage,
+  detailLoading,
   onClose,
   onAssign,
   onAddComment,
@@ -114,6 +115,10 @@ export function TaskModal({
   sprints: SprintDTO[];
   currentUserId: string | null;
   canManage: boolean;
+  // True while the card's full comments/attachments/links are being lazy-loaded
+  // (the board only ships summary data). Drives the loading state in those
+  // sections so an empty array reads as "loading", not "none".
+  detailLoading: boolean;
   onClose: () => void;
   onAssign: (taskId: string, member: MemberDTO, shouldAssign: boolean) => void;
   onAddComment: (taskId: string, body: string) => Promise<boolean>;
@@ -656,9 +661,9 @@ export function TaskModal({
                     <h3 className="text-xs font-semibold uppercase tracking-wide">
                       Attachments
                     </h3>
-                    {task.attachments.length > 0 && (
+                    {task.attachmentCount > 0 && (
                       <span className="rounded-full bg-surface-2 px-2 py-0.5 text-[10px] font-medium text-ink-400">
-                        {task.attachments.length}
+                        {task.attachmentCount}
                       </span>
                     )}
                   </div>
@@ -686,7 +691,9 @@ export function TaskModal({
                   <p className="mb-2 text-[11px] text-danger-ink">{uploadError}</p>
                 )}
 
-                {task.attachments.length === 0 ? (
+                {detailLoading && task.attachments.length === 0 ? (
+                  <p className="text-xs text-ink-400">Loading attachments…</p>
+                ) : task.attachments.length === 0 ? (
                   <p className="text-xs text-ink-400">
                     No images yet. Add a screenshot or photo.
                   </p>
@@ -841,12 +848,14 @@ export function TaskModal({
                     Comments
                   </h3>
                   <span className="rounded-full bg-surface-2 px-2 py-0.5 text-[10px] font-medium text-ink-400">
-                    {task.comments.length}
+                    {task.commentCount}
                   </span>
                 </div>
 
                 <div ref={threadRef} className="mb-3 max-h-64 space-y-3 overflow-y-auto">
-                  {task.comments.length === 0 ? (
+                  {detailLoading && task.comments.length === 0 ? (
+                    <p className="py-2 text-xs text-ink-400">Loading comments…</p>
+                  ) : task.comments.length === 0 ? (
                     <p className="py-2 text-xs text-ink-400">
                       No comments yet. Start the conversation below.
                     </p>
