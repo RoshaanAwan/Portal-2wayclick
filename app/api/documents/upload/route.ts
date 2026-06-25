@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireTenantUser } from "@/lib/auth";
 import { audit } from "@/lib/audit";
+import { DOC_CATEGORIES } from "@/lib/constants";
 import {
   uploadToTenantDrive,
   DriveNotConnectedError,
@@ -62,12 +63,26 @@ export async function POST(req: Request) {
     const fileType = detectFileType(file.name, file.type);
     const sizeKb = Math.max(1, Math.round(file.size / 1024));
 
+    // Route into Documents/<category> in the workspace Drive. Validate the
+    // category against the known list so a crafted value can't create arbitrary
+    // folders; anything unknown falls back to General.
+    const rawCategory = form.get("category");
+    const category =
+      typeof rawCategory === "string" &&
+      (DOC_CATEGORIES as readonly string[]).includes(rawCategory)
+        ? rawCategory
+        : "General";
+
     const bytes = Buffer.from(await file.arrayBuffer());
-    const uploaded = await uploadToTenantDrive(user.tenantId, {
-      name: file.name || "document",
-      mimeType: file.type || "application/octet-stream",
-      bytes,
-    });
+    const uploaded = await uploadToTenantDrive(
+      user.tenantId,
+      {
+        name: file.name || "document",
+        mimeType: file.type || "application/octet-stream",
+        bytes,
+      },
+      { subfolderPath: `Documents/${category}` },
+    );
 
     await audit({
       actor: user,

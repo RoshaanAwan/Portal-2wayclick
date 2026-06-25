@@ -15,9 +15,14 @@ export function ProjectComposer({ onDone }: { onDone: () => void }) {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [memberIds, setMemberIds] = useState<Set<string>>(new Set());
+  const [projectLeadId, setProjectLeadId] = useState("");
+  const [techLeadId, setTechLeadId] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [roster, setRoster] = useState<MemberDTO[]>([]);
+
+  // Leads are chosen from the selected members. Keep the option list in sync.
+  const eligibleLeads = roster.filter((m) => memberIds.has(m.id));
 
   // Fetch roster once when the composer mounts (admin clicked "New project").
   useEffect(() => {
@@ -32,7 +37,14 @@ export function ProjectComposer({ onDone }: { onDone: () => void }) {
   function toggleMember(id: string) {
     setMemberIds((prev) => {
       const next = new Set(prev);
-      next.has(id) ? next.delete(id) : next.add(id);
+      if (next.has(id)) {
+        next.delete(id);
+        // Removing a member who was a lead empties that seat.
+        setProjectLeadId((cur) => (cur === id ? "" : cur));
+        setTechLeadId((cur) => (cur === id ? "" : cur));
+      } else {
+        next.add(id);
+      }
       return next;
     });
   }
@@ -50,6 +62,8 @@ export function ProjectComposer({ onDone }: { onDone: () => void }) {
         name: name.trim(),
         description: description.trim() || undefined,
         memberIds: Array.from(memberIds),
+        projectLeadId: projectLeadId || null,
+        techLeadId: techLeadId || null,
       }),
     });
 
@@ -58,6 +72,8 @@ export function ProjectComposer({ onDone }: { onDone: () => void }) {
       setName("");
       setDescription("");
       setMemberIds(new Set());
+      setProjectLeadId("");
+      setTechLeadId("");
       onDone();
       router.refresh();
       if (data.id) router.push(`/projects/${data.id}`);
@@ -159,6 +175,54 @@ export function ProjectComposer({ onDone }: { onDone: () => void }) {
             {memberIds.size} selected
           </p>
         </div>
+
+        {/* Leads — optional, chosen from the selected members. Assign now or
+            later from the project page. */}
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div>
+            <label className="mb-1.5 block text-xs font-medium text-ink-500">
+              Project lead{" "}
+              <span className="font-normal text-ink-400">(optional)</span>
+            </label>
+            <select
+              value={projectLeadId}
+              onChange={(e) => setProjectLeadId(e.target.value)}
+              disabled={eligibleLeads.length === 0}
+              className="input"
+            >
+              <option value="">Unassigned</option>
+              {eligibleLeads.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="mb-1.5 block text-xs font-medium text-ink-500">
+              Tech lead{" "}
+              <span className="font-normal text-ink-400">(optional)</span>
+            </label>
+            <select
+              value={techLeadId}
+              onChange={(e) => setTechLeadId(e.target.value)}
+              disabled={eligibleLeads.length === 0}
+              className="input"
+            >
+              <option value="">Unassigned</option>
+              {eligibleLeads.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+        {eligibleLeads.length === 0 && (
+          <p className="-mt-1 text-[11px] text-ink-400">
+            Add members above to pick leads (or assign them later).
+          </p>
+        )}
 
         {error && (
           <motion.p

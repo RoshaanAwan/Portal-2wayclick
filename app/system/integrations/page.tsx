@@ -50,6 +50,9 @@ export default async function SystemIntegrationsPage() {
             }))}
             apiBase="/api/system/integrations"
             testApiBase="/api/system/integrations/test"
+            // The System Owner connects Drive via the dedicated SystemDriveCard
+            // in the sidebar, so the embedded card stays credential-only here.
+            showDriveSetup={false}
           />
         </div>
 

@@ -12,6 +12,19 @@ const schema = z.object({
   body: z.string().trim().min(1).max(1000),
 });
 
+// @mentions are encoded inline as `@[Name](userId)` (the modal's composer writes
+// this when you pick someone from the @ autocomplete). Pull out the mentioned
+// user ids so we can notify them — capped so a crafted body can't fan out a flood.
+const MENTION_RE = /@\[[^\]]+\]\(([a-zA-Z0-9_-]+)\)/g;
+function parseMentionedIds(body: string): string[] {
+  const ids = new Set<string>();
+  for (const m of body.matchAll(MENTION_RE)) {
+    ids.add(m[1]);
+    if (ids.size >= 20) break;
+  }
+  return [...ids];
+}
+
 export async function POST(req: Request) {
   try {
     const user = await requireTenantUser();
@@ -49,13 +62,34 @@ export async function POST(req: Request) {
 
     await recordActivity({ actor: user, verb: "commented", target: `on “${task.title}”` });
 
-    // Notify everyone watching the card — its creator and assignees — except the
-    // commenter (notifyMany de-dupes; notify() drops the self-notification).
-    const watchers = [
+    // Everyone watching the card — its creator and assignees.
+    const watchers = new Set([
       task.creatorId,
       ...task.assignees.map((a) => a.userId),
-    ].filter((id) => id !== user.id);
-    await notifyMany(watchers, {
+    ]);
+
+    // @mentions: only people on the card (assignee or creator) can be mentioned,
+    // so intersect the parsed ids with the watcher set. Mentioned users get a
+    // distinct "mentioned you" notification; the rest get the generic "commented".
+    const mentioned = parseMentionedIds(body).filter(
+      (id) => watchers.has(id) && id !== user.id,
+    );
+    const mentionedSet = new Set(mentioned);
+
+    // Notify the mentioned users first (more specific message), then everyone
+    // else watching — except the commenter (notify drops self; notifyMany dedupes).
+    if (mentioned.length > 0) {
+      await notifyMany(mentioned, {
+        type: "task.comment",
+        message: `mentioned you on “${task.title}”`,
+        link: "/tasks",
+        actor: user,
+      });
+    }
+    const others = [...watchers].filter(
+      (id) => id !== user.id && !mentionedSet.has(id),
+    );
+    await notifyMany(others, {
       type: "task.comment",
       message: `commented on “${task.title}”`,
       link: "/tasks",

@@ -100,6 +100,8 @@ export default async function ProjectsPage({
       take: PAGE_SIZE,
       include: {
         owner: { select: { id: true, name: true, avatarUrl: true } },
+        projectLead: { select: { id: true, name: true, avatarUrl: true } },
+        techLead: { select: { id: true, name: true, avatarUrl: true } },
         _count: { select: { members: true } },
         members: {
           take: 5,
@@ -182,6 +184,12 @@ export default async function ProjectsPage({
       name: p.owner.name,
       avatarUrl: p.owner.avatarUrl,
     },
+    projectLead: p.projectLead
+      ? { id: p.projectLead.id, name: p.projectLead.name, avatarUrl: p.projectLead.avatarUrl }
+      : null,
+    techLead: p.techLead
+      ? { id: p.techLead.id, name: p.techLead.name, avatarUrl: p.techLead.avatarUrl }
+      : null,
     listCount: p.board._count.lists,
     cardCount: cardCountByBoard.get(p.board.id) ?? 0,
     memberCount: p._count.members,

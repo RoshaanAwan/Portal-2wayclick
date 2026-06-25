@@ -63,11 +63,15 @@ export async function POST(req: Request) {
     const sizeKb = Math.max(1, Math.round(file.size / 1024));
 
     const bytes = Buffer.from(await file.arrayBuffer());
-    const uploaded = await uploadToTenantDrive(user.tenantId, {
-      name: file.name || "receipt",
-      mimeType: file.type || "application/octet-stream",
-      bytes,
-    });
+    const uploaded = await uploadToTenantDrive(
+      user.tenantId,
+      {
+        name: file.name || "receipt",
+        mimeType: file.type || "application/octet-stream",
+        bytes,
+      },
+      { subfolderPath: "Invoices" },
+    );
 
     await audit({
       actor: user,

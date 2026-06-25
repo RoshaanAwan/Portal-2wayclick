@@ -50,6 +50,9 @@ export interface ProjectDTO {
   completedAt: string | null;
   createdAt: string;
   owner: { id: string; name: string; avatarUrl: string | null };
+  // Assigned leads (optional). Null when the seat is unfilled.
+  projectLead: { id: string; name: string; avatarUrl: string | null } | null;
+  techLead: { id: string; name: string; avatarUrl: string | null } | null;
   listCount: number;
   cardCount: number;
   memberCount: number;

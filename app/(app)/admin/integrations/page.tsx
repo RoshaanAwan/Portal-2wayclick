@@ -1,8 +1,9 @@
 import { Blocks } from "lucide-react";
 import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/auth";
-import { can } from "@/lib/permissions";
+import { can, isSuperAdmin } from "@/lib/permissions";
 import { getIntegrationStates } from "@/lib/integrationsServer";
+import { tenantDriveStatus } from "@/lib/integrations/driveStorage";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { IntegrationsClient } from "./IntegrationsClient";
 
@@ -17,6 +18,13 @@ export default async function AdminIntegrationsPage() {
   // Catalog merged with this tenant's saved state (enabled flag + workspace URL).
   const integrations = await getIntegrationStates();
 
+  // The Google Drive card finishes its setup inline (connect the owner's account
+  // + choose a destination folder), so it needs the live Drive connection status
+  // — distinct from the catalog's `connected` (which only means "client secret
+  // saved"). Owner-only actions (connect/folder) key off isOwner.
+  const isOwner = isSuperAdmin(user.role);
+  const drive = await tenantDriveStatus(user.tenantId);
+
   return (
     <div className="mx-auto max-w-3xl">
       <PageHeader
@@ -25,6 +33,14 @@ export default async function AdminIntegrationsPage() {
         icon={Blocks}
       />
       <IntegrationsClient
+        isOwner={isOwner}
+        driveStatus={{
+          accountConnected: drive.connected,
+          email: drive.email,
+          folderSet: !!drive.folderId,
+          folderName: drive.folderName,
+          folderShared: drive.folderShared,
+        }}
         initial={integrations.map((i) => ({
           provider: i.provider,
           name: i.name,

@@ -36,7 +36,7 @@ export const ROLE_LABELS: Record<Role, string> = {
 export const ROLE_DESCRIPTIONS: Record<Role, string> = {
   SUPER_ADMIN: "Full access to everything in this workspace, including all audit logs.",
   ADMIN: "Manages users, projects, and company content.",
-  HR: "People operations — approvals and announcements.",
+  HR: "Full workspace administration (users, projects, finance) plus people operations. Billing stays with the Company Owner.",
   LEAD: "Team lead — approvals, announcements, and projects.",
   PROJECT_MANAGER: "Runs projects and their boards.",
   EMPLOYEE: "Standard member access.",
@@ -71,8 +71,13 @@ const MANAGER_TIER: readonly Role[] = [
   "PROJECT_MANAGER",
 ];
 
-/** Roles that can administer the workspace (projects, members). */
-const ADMIN_TIER: readonly Role[] = ["SUPER_ADMIN", "ADMIN"];
+/**
+ * Roles that can administer the workspace (projects, members, finance,
+ * integrations, branding, audit log, /admin). HR is granted full admin-tier
+ * access alongside Admin. Billing stays Super-Admin-only (see `manageBilling`,
+ * which checks `isSuperAdmin`, not this tier).
+ */
+const ADMIN_TIER: readonly Role[] = ["SUPER_ADMIN", "ADMIN", "HR"];
 
 export function isSuperAdmin(role: string | null | undefined): boolean {
   return role === "SUPER_ADMIN";
@@ -140,6 +145,11 @@ export function creatableRoles(actorRole: string | null | undefined): Role[] {
   }
   if (actorRole === "ADMIN") {
     return ["HR", "LEAD", "PROJECT_MANAGER", "EMPLOYEE", "INTERN"];
+  }
+  if (actorRole === "HR") {
+    // HR is admin-tier but ranks below ADMIN, so it may not create HR or ADMIN
+    // (never mint a role at or above your own authority) — only the tiers below.
+    return ["LEAD", "PROJECT_MANAGER", "EMPLOYEE", "INTERN"];
   }
   // Everyone else cannot create users.
   return [];

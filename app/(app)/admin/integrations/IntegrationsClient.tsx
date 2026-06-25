@@ -12,6 +12,10 @@ import {
   CheckCheck,
   HelpCircle,
   ChevronDown,
+  FolderOpen,
+  ArrowRight,
+  Lock,
+  Link as LinkIcon,
 } from "lucide-react";
 import Link from "next/link";
 import { GlassCard } from "@/components/ui/GlassCard";
@@ -42,11 +46,42 @@ interface SavePayload {
   config?: Record<string, unknown>;
 }
 
+/** Live Google Drive connection status (from the GoogleDriveConnection table) —
+ *  distinct from a row's `connected`, which only means the client secret is
+ *  saved. Drives the inline connect + folder steps on the Google Drive card. */
+interface DriveStatus {
+  /** The owner has completed the Google OAuth handshake. */
+  accountConnected: boolean;
+  email: string | null;
+  /** A destination folder has been chosen. */
+  folderSet: boolean;
+  folderName: string | null;
+  /** Folder link-sharing: true = "anyone with the link can view", false =
+   *  Restricted. Only meaningful once folderSet. */
+  folderShared: boolean;
+}
+
 interface IntegrationsClientProps {
   initial: Row[];
+  /** True when the current admin is the Company Owner (SUPER_ADMIN) — only the
+   *  owner can connect the Drive account and set the folder. */
+  isOwner?: boolean;
+  driveStatus?: DriveStatus;
+  /** Render the inline Drive connect + folder setup on the Google Drive card.
+   *  Tenant admin page → true; the System Owner page has its own SystemDriveCard,
+   *  so it passes false to keep the embedded card to credential config only. */
+  showDriveSetup?: boolean;
   apiBase?: string;
   testApiBase?: string;
 }
+
+const NO_DRIVE_STATUS: DriveStatus = {
+  accountConnected: false,
+  email: null,
+  folderSet: false,
+  folderName: null,
+  folderShared: true,
+};
 
 function Toggle({
   on,
@@ -441,7 +476,20 @@ function GitHubCard({ row, apiBase, testApiBase }: { row: Row; apiBase: string; 
 }
 
 // ── Google Drive (per-USER OAuth) — admin sets the tenant's OWN Google app ─────
-function GoogleDriveCard({ row, apiBase }: { row: Row; apiBase: string }) {
+function GoogleDriveCard({
+  row,
+  apiBase,
+  isOwner,
+  driveStatus,
+  showDriveSetup,
+}: {
+  row: Row;
+  apiBase: string;
+  isOwner: boolean;
+  driveStatus: DriveStatus;
+  showDriveSetup: boolean;
+}) {
+  const router = useRouter();
   const { busy, error, setError, savedFlash, setSavedFlash, save } = useSave(
     row.provider,
     apiBase,
@@ -454,6 +502,78 @@ function GoogleDriveCard({ row, apiBase }: { row: Row; apiBase: string }) {
   const [clientSecret, setClientSecret] = useState(""); // write-only
   const [redirect, setRedirect] = useState("");
   const [copied, setCopied] = useState(false);
+
+  // Folder step (owner only, after the account is OAuth-connected): paste a Drive
+  // folder URL → POST /api/integrations/google/folder validates + stores it.
+  const [folderUrl, setFolderUrl] = useState("");
+  const [savingFolder, setSavingFolder] = useState(false);
+  const [folderMsg, setFolderMsg] = useState<string | null>(null);
+
+  // Link-sharing on the destination folder (owner only). Optimistic toggle;
+  // reverts on failure.
+  const [shared, setShared] = useState(driveStatus.folderShared);
+  const [savingShare, setSavingShare] = useState(false);
+
+  async function onChangeSharing(next: boolean) {
+    if (savingShare || next === shared) return;
+    const prev = shared;
+    setShared(next); // optimistic
+    setSavingShare(true);
+    setError("");
+    setFolderMsg(null);
+    try {
+      const res = await fetch("/api/integrations/google/folder/sharing", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ shared: next }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setShared(prev); // revert
+        setError(data.error || "Couldn’t update the folder sharing.");
+      } else {
+        setFolderMsg(
+          next
+            ? "Anyone with the link can now view files in this folder."
+            : "Folder is now restricted — only people you add can open it.",
+        );
+        router.refresh();
+      }
+    } catch {
+      setShared(prev);
+      setError("Couldn’t update the folder sharing.");
+    } finally {
+      setSavingShare(false);
+    }
+  }
+
+  async function onSaveFolder(e: React.FormEvent) {
+    e.preventDefault();
+    if (!folderUrl.trim() || savingFolder) return;
+    setSavingFolder(true);
+    setError("");
+    setFolderMsg(null);
+    try {
+      const res = await fetch("/api/integrations/google/folder", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ folderUrl }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) setError(data.error || "Couldn’t set the folder.");
+      else {
+        setFolderMsg(
+          `Files will now be saved to “${data.folder?.folderName ?? "your folder"}”.`,
+        );
+        setFolderUrl("");
+        router.refresh();
+      }
+    } catch {
+      setError("Couldn’t set the folder.");
+    } finally {
+      setSavingFolder(false);
+    }
+  }
 
   // The exact redirect URI this tenant must whitelist in their Google OAuth
   // client — derived from the current origin (subdomain-correct).
@@ -522,17 +642,18 @@ function GoogleDriveCard({ row, apiBase }: { row: Row; apiBase: string }) {
 
       <div className="mt-4 space-y-4 border-t border-line pt-4">
         <p className="text-xs text-ink-400">
-          Connect your own Google app so files members upload land in their own
-          Drive. It’s a one-time setup — follow the steps below, then paste the
-          Client ID and Secret. Each member then connects their own Google
-          account.
+          Connect your own Google app so files members upload land in the
+          workspace Drive. A one-time, two-step setup:{" "}
+          <b className="text-ink-600">1)</b> paste the Client ID and Secret here,
+          then <b className="text-ink-600">2)</b> open the Drive dashboard to
+          connect your Google account and choose the destination folder.
         </p>
 
         {/* Step-by-step guide to obtaining the credentials. */}
         <details className="group rounded-xl border border-line bg-surface-2/50">
           <summary className="flex cursor-pointer list-none items-center gap-2 px-3.5 py-2.5 text-xs font-medium text-ink-700">
             <HelpCircle className="h-4 w-4 text-accent" />
-            How do I get a Client ID and Secret?
+            Full setup guide — credentials, connect &amp; folder
             <ChevronDown className="ml-auto h-4 w-4 text-ink-400 transition-transform group-open:rotate-180" />
           </summary>
           <ol className="space-y-2.5 border-t border-line px-4 py-3 text-xs text-ink-500">
@@ -594,6 +715,22 @@ function GoogleDriveCard({ row, apiBase }: { row: Row; apiBase: string }) {
               <b className="text-ink-700">6.</b> Click <b>Create</b>. Google shows
               your <b>Client ID</b> and <b>Client Secret</b> — copy them into the
               fields below and Save.
+            </li>
+            <li>
+              <b className="text-ink-700">7.</b> Click <b>Connect Google Drive</b>{" "}
+              below and sign in with the Google account that owns your storage —
+              this links the workspace to that account.
+            </li>
+            <li>
+              <b className="text-ink-700">8.</b> Open the Drive folder you want
+              uploads saved to, copy its link from the browser address bar (it
+              looks like{" "}
+              <code className="rounded bg-surface-2 px-1 py-0.5 font-mono text-[11px]">
+                drive.google.com/drive/folders/1AbC…
+              </code>
+              ), and paste it in the <b>Destination folder</b> field below. The
+              portal creates its own subfolder inside it and stores every upload
+              there.
             </li>
           </ol>
         </details>
@@ -664,15 +801,169 @@ function GoogleDriveCard({ row, apiBase }: { row: Row; apiBase: string }) {
           <Button type="button" size="sm" loading={busy} onClick={onSave}>
             Save
           </Button>
-          {connected && row.dashboard && (
-            <Link
-              href={row.dashboard}
-              className="inline-flex items-center gap-1 text-xs font-medium text-accent hover:underline"
-            >
-              <ExternalLink className="h-3.5 w-3.5" /> Open dashboard
-            </Link>
-          )}
         </div>
+
+        {/* Steps 7–8, inline. Once the credentials are saved the rest of the
+            setup happens right here on this card:
+              • not OAuth-connected → "Connect Google Drive" (owner) / wait note
+              • connected, no folder → the Destination folder URL field (owner)
+              • folder set          → confirmation + "Change folder"
+            Connect + folder are owner-only (SUPER_ADMIN); a non-owner admin can
+            save credentials but is told the owner must finish. */}
+        {connected && showDriveSetup && (
+          <div className="space-y-3 border-t border-line pt-4">
+            {!driveStatus.accountConnected ? (
+              isOwner ? (
+                <div className="flex flex-wrap items-center gap-3 rounded-xl border border-accent/30 bg-accent-soft/40 px-3.5 py-3">
+                  <div className="min-w-0 flex-1 text-xs text-ink-600">
+                    <p className="font-medium text-ink-700">
+                      Step 7 — connect your Google account
+                    </p>
+                    <p className="mt-0.5">
+                      Sign in with the Google account that owns your storage. A
+                      one-time consent; you can disconnect anytime.
+                    </p>
+                  </div>
+                  {/* Plain link → full-page redirect to Google's consent screen. */}
+                  <a href="/api/integrations/google/connect">
+                    <Button type="button" size="sm">
+                      <KeyRound className="h-4 w-4" /> Connect Google Drive
+                    </Button>
+                  </a>
+                </div>
+              ) : (
+                <p className="rounded-xl border border-line bg-surface-2/60 px-3.5 py-3 text-xs text-ink-500">
+                  Credentials saved. Your company owner now needs to connect the
+                  Google account and choose a destination folder before uploads
+                  work.
+                </p>
+              )
+            ) : (
+              <>
+                {/* Connected — show the account + folder status. */}
+                <div className="flex items-center gap-2 text-xs text-ink-500">
+                  <Check className="h-3.5 w-3.5 shrink-0 text-success" />
+                  <span className="truncate">
+                    Connected as{" "}
+                    <b className="text-ink-700">
+                      {driveStatus.email ?? "your Google account"}
+                    </b>
+                    {driveStatus.folderSet && (
+                      <>
+                        {" "}
+                        · saving to{" "}
+                        <b className="text-ink-700">
+                          {driveStatus.folderName ?? "your folder"}
+                        </b>
+                      </>
+                    )}
+                  </span>
+                </div>
+
+                {/* Folder field — owner only. Shown to set the folder when none
+                    is chosen yet, and (collapsed under a label) to change it. */}
+                {isOwner && (
+                  <div>
+                    <label className="block">
+                      <span className="mb-1.5 block text-xs font-medium text-ink-700">
+                        {driveStatus.folderSet
+                          ? "Change destination folder"
+                          : "Step 8 — Destination folder"}{" "}
+                        <span className="text-ink-400">
+                          (paste a Google Drive folder link)
+                        </span>
+                      </span>
+                      <form
+                        onSubmit={onSaveFolder}
+                        className="flex flex-col gap-2 sm:flex-row"
+                      >
+                        <input
+                          type="url"
+                          inputMode="url"
+                          value={folderUrl}
+                          onChange={(e) => {
+                            setFolderUrl(e.target.value);
+                            setFolderMsg(null);
+                            setError("");
+                          }}
+                          placeholder="https://drive.google.com/drive/folders/…"
+                          className="input flex-1 font-mono text-xs"
+                          disabled={savingFolder}
+                        />
+                        <Button
+                          type="submit"
+                          size="sm"
+                          loading={savingFolder}
+                          disabled={!folderUrl.trim()}
+                        >
+                          <FolderOpen className="h-4 w-4" />{" "}
+                          {driveStatus.folderSet ? "Update" : "Save folder"}
+                        </Button>
+                      </form>
+                    </label>
+                    <p className="mt-1.5 text-[11px] text-ink-400">
+                      Open the folder in Google Drive and copy the link from your
+                      browser’s address bar. The portal creates its own subfolder
+                      inside it and keeps every upload there.
+                    </p>
+                    {folderMsg && (
+                      <p className="mt-1.5 inline-flex items-center gap-1 text-[11px] text-success-ink">
+                        <Check className="h-3 w-3" /> {folderMsg}
+                      </p>
+                    )}
+                  </div>
+                )}
+
+                {/* Folder link-sharing (owner only, once a folder is set). Pick
+                    Restricted vs. "anyone with the link can view". */}
+                {isOwner && driveStatus.folderSet && (
+                  <div>
+                    <span className="mb-1.5 block text-xs font-medium text-ink-700">
+                      Folder access{" "}
+                      {savingShare && (
+                        <Loader2 className="ml-1 inline h-3 w-3 animate-spin text-ink-300" />
+                      )}
+                    </span>
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      <SharingChoice
+                        active={!shared}
+                        disabled={savingShare}
+                        onClick={() => onChangeSharing(false)}
+                        icon={<Lock className="h-4 w-4" />}
+                        title="Restricted"
+                        desc="Only people you add in Drive can open the files."
+                      />
+                      <SharingChoice
+                        active={shared}
+                        disabled={savingShare}
+                        onClick={() => onChangeSharing(true)}
+                        icon={<LinkIcon className="h-4 w-4" />}
+                        title="Anyone with the link"
+                        desc="Anyone holding a file's link can view it — no sign-in."
+                      />
+                    </div>
+                    {shared && (
+                      <p className="mt-1.5 text-[11px] text-warn-ink">
+                        Files in this folder are viewable by anyone with the link.
+                      </p>
+                    )}
+                  </div>
+                )}
+
+                {/* Live dashboard link once everything's wired up. */}
+                {driveStatus.folderSet && row.dashboard && (
+                  <Link
+                    href={row.dashboard}
+                    className="inline-flex items-center gap-1 text-xs font-medium text-accent hover:underline"
+                  >
+                    Open Drive dashboard
+                    <ArrowRight className="h-3.5 w-3.5" />
+                  </Link>
+                )}
+              </>
+            )}
+          </div>
+        )}
       </div>
 
       {error && <CardError text={error} />}
@@ -688,8 +979,64 @@ function CardError({ text }: { text: string }) {
   );
 }
 
+/** One selectable card in the folder-access (Restricted / Anyone-with-link)
+ *  picker. Highlights when active. */
+function SharingChoice({
+  active,
+  disabled,
+  onClick,
+  icon,
+  title,
+  desc,
+}: {
+  active: boolean;
+  disabled?: boolean;
+  onClick: () => void;
+  icon: React.ReactNode;
+  title: string;
+  desc: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      aria-pressed={active}
+      className={cn(
+        "flex items-start gap-2.5 rounded-xl border p-3 text-left transition-colors disabled:opacity-60",
+        active
+          ? "border-accent/40 bg-accent-soft"
+          : "border-line bg-surface-2 hover:border-line-strong",
+      )}
+    >
+      <span
+        className={cn(
+          "mt-0.5 shrink-0",
+          active ? "text-accent" : "text-ink-400",
+        )}
+      >
+        {icon}
+      </span>
+      <span className="min-w-0">
+        <span
+          className={cn(
+            "block text-xs font-semibold",
+            active ? "text-accent-ink" : "text-ink-700",
+          )}
+        >
+          {title}
+        </span>
+        <span className="mt-0.5 block text-[11px] text-ink-400">{desc}</span>
+      </span>
+    </button>
+  );
+}
+
 export function IntegrationsClient({
   initial,
+  isOwner = false,
+  driveStatus = NO_DRIVE_STATUS,
+  showDriveSetup = true,
   apiBase = "/api/admin/integrations",
   testApiBase,
 }: IntegrationsClientProps) {
@@ -712,7 +1059,14 @@ export function IntegrationsClient({
               testApiBase={resolvedTestApiBase}
             />
           ) : row.provider === "google-drive" ? (
-            <GoogleDriveCard key={row.provider} row={row} apiBase={apiBase} />
+            <GoogleDriveCard
+              key={row.provider}
+              row={row}
+              apiBase={apiBase}
+              isOwner={isOwner}
+              driveStatus={driveStatus}
+              showDriveSetup={showDriveSetup}
+            />
           ) : (
             <UrlCard key={row.provider} row={row} apiBase={apiBase} />
           ),

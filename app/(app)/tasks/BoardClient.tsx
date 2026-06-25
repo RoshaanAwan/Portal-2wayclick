@@ -37,6 +37,16 @@ export interface CommentDTO {
   author: { id: string; name: string; avatarUrl: string | null };
 }
 
+export interface AttachmentDTO {
+  id: string;
+  name: string;
+  mimeType: string;
+  // Proxy URL the modal renders (/api/tasks/attachment/proxy?id=…).
+  url: string;
+  createdAt: string;
+  uploader: { id: string; name: string; avatarUrl: string | null };
+}
+
 // A linked issue, as rendered from one card's perspective. `direction` is
 // "outward" when this card is the link's source, "inward" when it's the target —
 // it picks the phrasing (issueLinkPhrasing).
@@ -75,6 +85,7 @@ export interface TaskDTO {
   creator: { id: string; name: string; avatarUrl: string | null };
   assignees: MemberDTO[];
   comments: CommentDTO[];
+  attachments: AttachmentDTO[];
 }
 
 export interface ListDTO {
@@ -162,7 +173,7 @@ export function BoardClient({
             `${l.id}:${l.tasks
               .map(
                 (t) =>
-                  `${t.id}#${t.assignees.map((a) => a.id).join("+")}#${t.comments.length}#${t.status}#${t.storyPoints}#${t.issueType}#${t.sprintId}#${t.labels.join(".")}#${t.links.length}`,
+                  `${t.id}#${t.assignees.map((a) => a.id).join("+")}#${t.comments.length}#${t.attachments.length}#${t.status}#${t.storyPoints}#${t.issueType}#${t.sprintId}#${t.labels.join(".")}#${t.links.length}`,
               )
               .join(",")}`,
         )
@@ -277,6 +288,58 @@ export function BoardClient({
       }
     },
     [findTask, members, currentUserId, patchTask, router],
+  );
+
+  // ── Image attachments (upload to tenant Drive; optimistic remove) ──────────
+  const addAttachment = useCallback(
+    async (taskId: string, file: File): Promise<string | null> => {
+      const form = new FormData();
+      form.append("taskId", taskId);
+      form.append("file", file);
+      try {
+        const res = await fetch("/api/tasks/attachment/upload", {
+          method: "POST",
+          body: form,
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) return data.error ?? "Upload failed";
+        if (data.attachment) {
+          patchTask(taskId, (t) => ({
+            ...t,
+            attachments: [data.attachment, ...t.attachments],
+          }));
+        }
+        router.refresh();
+        return null;
+      } catch {
+        return "Upload failed";
+      }
+    },
+    [patchTask, router],
+  );
+
+  const removeAttachment = useCallback(
+    async (taskId: string, attachmentId: string): Promise<boolean> => {
+      const snapshot = findTask(taskId)?.task.attachments ?? [];
+      patchTask(taskId, (t) => ({
+        ...t,
+        attachments: t.attachments.filter((a) => a.id !== attachmentId),
+      }));
+      try {
+        const res = await fetch("/api/tasks/attachment/delete", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ attachmentId }),
+        });
+        if (!res.ok) throw new Error("delete failed");
+        router.refresh();
+        return true;
+      } catch {
+        patchTask(taskId, (t) => ({ ...t, attachments: snapshot }));
+        return false;
+      }
+    },
+    [findTask, patchTask, router],
   );
 
   // ── Time tracking ("time lock") ────────────────────────────────────────────
@@ -1109,6 +1172,8 @@ export function BoardClient({
         onClose={() => setOpenTaskId(null)}
         onAssign={assign}
         onAddComment={addComment}
+        onAddAttachment={addAttachment}
+        onRemoveAttachment={removeAttachment}
         onLogTime={logTime}
         onChangeStatus={changeStatus}
         onPatchIssue={patchIssue}
@@ -1124,10 +1189,16 @@ export function BoardClient({
               )
             : Promise.resolve(false)
         }
-        onEdit={(taskId) => {
-          setOpenTaskId(null);
-          setEditingTaskId(taskId);
-        }}
+        onSaveTitle={(taskId, title) =>
+          openTask
+            ? updateTask(
+                taskId,
+                title,
+                openTask.description ?? "",
+                openTask.priority as TaskPriority,
+              )
+            : Promise.resolve(false)
+        }
         onDelete={(taskId) =>
           openTask && setDeleteTarget({ id: taskId, title: openTask.title })
         }

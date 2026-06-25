@@ -7,7 +7,9 @@ import {
   CalendarClock,
   Check,
   Clock,
+  ImagePlus,
   MessageSquare,
+  Paperclip,
   Pencil,
   Plus,
   Send,
@@ -60,6 +62,31 @@ function parseTimeComment(stored: string): { body: string } | null {
   return { body: stored.slice("[time]".length).trimStart() };
 }
 
+// @mentions are stored inline as `@[Name](userId)`. Render the comment body as a
+// mix of plain text + highlighted mention chips so "@[Jane](u_1) ping" shows
+// "@Jane ping" with the name styled, never the raw token.
+const MENTION_RENDER_RE = /@\[([^\]]+)\]\(([a-zA-Z0-9_-]+)\)/g;
+function renderCommentBody(body: string): React.ReactNode {
+  const out: React.ReactNode[] = [];
+  let last = 0;
+  let m: RegExpExecArray | null;
+  MENTION_RENDER_RE.lastIndex = 0;
+  while ((m = MENTION_RENDER_RE.exec(body)) !== null) {
+    if (m.index > last) out.push(body.slice(last, m.index));
+    out.push(
+      <span
+        key={`${m.index}-${m[2]}`}
+        className="rounded bg-accent-soft px-1 font-medium text-accent-ink"
+      >
+        @{m[1]}
+      </span>,
+    );
+    last = m.index + m[0].length;
+  }
+  if (last < body.length) out.push(body.slice(last));
+  return out.length > 0 ? out : body;
+}
+
 export function TaskModal({
   task,
   listName,
@@ -70,13 +97,15 @@ export function TaskModal({
   onClose,
   onAssign,
   onAddComment,
+  onAddAttachment,
+  onRemoveAttachment,
   onLogTime,
   onChangeStatus,
   onPatchIssue,
   onAddLink,
   onRemoveLink,
   onSaveDescription,
-  onEdit,
+  onSaveTitle,
   onDelete,
 }: {
   task: TaskDTO | null;
@@ -88,6 +117,8 @@ export function TaskModal({
   onClose: () => void;
   onAssign: (taskId: string, member: MemberDTO, shouldAssign: boolean) => void;
   onAddComment: (taskId: string, body: string) => Promise<boolean>;
+  onAddAttachment: (taskId: string, file: File) => Promise<string | null>;
+  onRemoveAttachment: (taskId: string, attachmentId: string) => Promise<boolean>;
   onLogTime: (
     taskId: string,
     mode: "add" | "set",
@@ -112,11 +143,23 @@ export function TaskModal({
   ) => Promise<string | null>;
   onRemoveLink: (taskId: string, linkId: string) => Promise<boolean>;
   onSaveDescription: (taskId: string, description: string) => Promise<boolean>;
-  onEdit: (taskId: string) => void;
+  onSaveTitle: (taskId: string, title: string) => Promise<boolean>;
   onDelete: (taskId: string) => void;
 }) {
   const [draft, setDraft] = useState("");
   const [posting, setPosting] = useState(false);
+  // Image attachment upload state — `uploading` drives the spinner, `uploadError`
+  // surfaces a Drive/validation failure inline.
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  // The attachment awaiting delete confirmation (id), and the in-flight remove.
+  const [removingId, setRemovingId] = useState<string | null>(null);
+  // @mention autocomplete: when the caret is in a `@query` token, this holds the
+  // query + the textarea position so picking inserts `@[Name](id)` in place.
+  const [mentionQuery, setMentionQuery] = useState<string | null>(null);
+  const [mentionIndex, setMentionIndex] = useState(0);
+  const composerRef = useRef<HTMLTextAreaElement>(null);
   // Time tracking: the free-text duration the user is logging ("2h 30m").
   const [timeDraft, setTimeDraft] = useState("");
   // Reason required when the new total would exceed the card's estimate.
@@ -125,14 +168,36 @@ export function TaskModal({
   // Inline description editing — `editingDesc` holds the draft while open.
   const [editingDesc, setEditingDesc] = useState<string | null>(null);
   const [savingDesc, setSavingDesc] = useState(false);
+  // Inline title editing — `editingTitle` holds the draft while open.
+  const [editingTitle, setEditingTitle] = useState<string | null>(null);
+  const [savingTitle, setSavingTitle] = useState(false);
   const threadRef = useRef<HTMLDivElement>(null);
 
-  // Close the inline description editor whenever a different card is opened.
+  // Close the inline editors whenever a different card is opened.
   const taskId = task?.id ?? null;
   useEffect(() => {
     setEditingDesc(null);
     setSavingDesc(false);
+    setEditingTitle(null);
+    setSavingTitle(false);
+    setDraft("");
+    setUploadError(null);
+    setMentionQuery(null);
   }, [taskId]);
+
+  async function saveTitle() {
+    if (!task || savingTitle || editingTitle === null) return;
+    const next = editingTitle.trim();
+    // Empty title isn't allowed; nothing changed — just close the editor.
+    if (next.length === 0 || next === task.title.trim()) {
+      setEditingTitle(null);
+      return;
+    }
+    setSavingTitle(true);
+    const ok = await onSaveTitle(task.id, next);
+    setSavingTitle(false);
+    if (ok) setEditingTitle(null);
+  }
 
   async function saveDescription() {
     if (!task || savingDesc || editingDesc === null) return;
@@ -172,9 +237,102 @@ export function TaskModal({
     if (!body || !task || posting) return;
     setPosting(true);
     setDraft("");
+    setMentionQuery(null);
     const ok = await onAddComment(task.id, body);
     if (!ok) setDraft(body); // restore on failure
     setPosting(false);
+  }
+
+  // ── Image attachment upload ──────────────────────────────────────────────────
+  async function handleFiles(files: FileList | null) {
+    if (!task || !files || files.length === 0) return;
+    setUploadError(null);
+    setUploading(true);
+    // Upload sequentially so each gets its own optimistic prepend + clear error.
+    for (const file of Array.from(files)) {
+      const err = await onAddAttachment(task.id, file);
+      if (err) {
+        setUploadError(err);
+        break;
+      }
+    }
+    setUploading(false);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  }
+
+  async function removeAttachment(attachmentId: string) {
+    if (!task || removingId) return;
+    setRemovingId(attachmentId);
+    await onRemoveAttachment(task.id, attachmentId);
+    setRemovingId(null);
+  }
+
+  // ── @mention autocomplete ────────────────────────────────────────────────────
+  // Only people on the card can be mentioned (creator + assignees) — that mirrors
+  // who the server will actually notify.
+  const mentionCandidates: MemberDTO[] = task
+    ? [
+        ...task.assignees,
+        ...(task.creator &&
+        !task.assignees.some((a) => a.id === task.creator.id)
+          ? [
+              {
+                id: task.creator.id,
+                name: task.creator.name,
+                avatarUrl: task.creator.avatarUrl,
+                title: "",
+              },
+            ]
+          : []),
+      ]
+    : [];
+  const mentionMatches =
+    mentionQuery === null
+      ? []
+      : mentionCandidates
+          .filter((m) =>
+            m.name.toLowerCase().includes(mentionQuery.toLowerCase()),
+          )
+          .slice(0, 6);
+
+  // Detect a `@query` token immediately before the caret and open the picker.
+  function onComposerChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
+    const value = e.target.value;
+    setDraft(value);
+    const caret = e.target.selectionStart ?? value.length;
+    const upto = value.slice(0, caret);
+    // Match a trailing "@word" not preceded by a word char (so emails don't trip
+    // it). The query is the run of non-space chars after the "@".
+    const match = /(?:^|\s)@([^\s@]*)$/.exec(upto);
+    if (match) {
+      setMentionQuery(match[1]);
+      setMentionIndex(0);
+    } else {
+      setMentionQuery(null);
+    }
+  }
+
+  // Replace the active `@query` token with the encoded `@[Name](id)` mention.
+  function pickMention(member: MemberDTO) {
+    const el = composerRef.current;
+    if (!el) return;
+    const caret = el.selectionStart ?? draft.length;
+    const before = draft.slice(0, caret);
+    const after = draft.slice(caret);
+    const tokenStart = before.search(/(?:^|\s)@[^\s@]*$/);
+    // Keep any leading whitespace the regex consumed before the "@".
+    const at = before.indexOf("@", tokenStart);
+    const head = draft.slice(0, at);
+    const token = `@[${member.name}](${member.id}) `;
+    const next = head + token + after;
+    setDraft(next);
+    setMentionQuery(null);
+    // Restore focus + place the caret right after the inserted mention.
+    requestAnimationFrame(() => {
+      el.focus();
+      const pos = (head + token).length;
+      el.setSelectionRange(pos, pos);
+    });
   }
 
   const priority = (task?.priority as TaskPriority) ?? "MEDIUM";
@@ -246,37 +404,79 @@ export function TaskModal({
           >
             {/* Header */}
             <div className="flex items-start justify-between gap-4 border-b border-line p-5">
-              <div className="min-w-0">
+              <div className="min-w-0 flex-1">
                 <div className="mb-1.5 flex items-center gap-2">
                   <IssueTypeIcon type={task.issueType} className="h-4 w-4" />
                   <IssueKey keyText={task.issueKey} className="text-xs" />
                   <span className="text-ink-300">·</span>
                   <p className="eyebrow !mb-0">{listName}</p>
                 </div>
-                <h2 className="text-lg font-semibold leading-snug text-ink">
-                  {task.title}
-                </h2>
+                {editingTitle !== null ? (
+                  <div className="flex w-full items-start gap-2">
+                    <textarea
+                      value={editingTitle}
+                      onChange={(e) => setEditingTitle(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Escape") setEditingTitle(null);
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          void saveTitle();
+                        }
+                      }}
+                      rows={2}
+                      maxLength={200}
+                      autoFocus
+                      aria-label="Edit title"
+                      className="input min-w-0 flex-1 resize-none text-lg font-semibold leading-snug"
+                    />
+                    <div className="flex shrink-0 items-center gap-1 pt-0.5">
+                      <button
+                        type="button"
+                        onClick={() => void saveTitle()}
+                        disabled={savingTitle}
+                        aria-label="Save title"
+                        className="hover-surface grid h-8 w-8 place-items-center rounded-lg text-ink-400 hover:text-ink disabled:opacity-50"
+                      >
+                        <Check className="h-4 w-4" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setEditingTitle(null)}
+                        disabled={savingTitle}
+                        aria-label="Cancel editing title"
+                        className="hover-surface grid h-8 w-8 place-items-center rounded-lg text-ink-400 hover:text-ink disabled:opacity-50"
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    </div>
+                  </div>
+                ) : canManage ? (
+                  <button
+                    type="button"
+                    onClick={() => setEditingTitle(task.title)}
+                    aria-label="Edit title"
+                    className="hover-surface -mx-1.5 -my-0.5 block rounded-lg px-1.5 py-0.5 text-left"
+                  >
+                    <h2 className="text-lg font-semibold leading-snug text-ink">
+                      {task.title}
+                    </h2>
+                  </button>
+                ) : (
+                  <h2 className="text-lg font-semibold leading-snug text-ink">
+                    {task.title}
+                  </h2>
+                )}
               </div>
               <div className="flex shrink-0 items-center gap-1">
                 {canManage && (
-                  <>
-                    <button
-                      type="button"
-                      onClick={() => onEdit(task.id)}
-                      aria-label="Edit card"
-                      className="hover-surface grid h-8 w-8 place-items-center rounded-lg text-ink-400 hover:text-ink"
-                    >
-                      <Pencil className="h-4 w-4" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => onDelete(task.id)}
-                      aria-label="Delete card"
-                      className="hover-surface grid h-8 w-8 place-items-center rounded-lg text-ink-400 hover:text-danger-ink"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </button>
-                  </>
+                  <button
+                    type="button"
+                    onClick={() => onDelete(task.id)}
+                    aria-label="Delete card"
+                    className="hover-surface grid h-8 w-8 place-items-center rounded-lg text-ink-400 hover:text-danger-ink"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
                 )}
                 <button
                   type="button"
@@ -443,6 +643,90 @@ export function TaskModal({
                   <p className="rounded-xl border border-dashed border-line px-3.5 py-3 text-sm leading-relaxed text-ink-400">
                     No description yet.
                   </p>
+                )}
+              </section>
+
+              {/* Attachments — images uploaded to the card. Anyone with card
+                  access can add; the uploader, card creator, or a manager can
+                  remove (enforced server-side). */}
+              <section className="mb-6">
+                <div className="mb-2.5 flex items-center justify-between gap-2 text-ink-500">
+                  <div className="flex items-center gap-2">
+                    <Paperclip className="h-4 w-4" />
+                    <h3 className="text-xs font-semibold uppercase tracking-wide">
+                      Attachments
+                    </h3>
+                    {task.attachments.length > 0 && (
+                      <span className="rounded-full bg-surface-2 px-2 py-0.5 text-[10px] font-medium text-ink-400">
+                        {task.attachments.length}
+                      </span>
+                    )}
+                  </div>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    loading={uploading}
+                    onClick={() => fileInputRef.current?.click()}
+                  >
+                    {!uploading && <ImagePlus className="h-4 w-4" />}
+                    Add image
+                  </Button>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp,image/gif"
+                    multiple
+                    className="hidden"
+                    onChange={(e) => void handleFiles(e.target.files)}
+                  />
+                </div>
+
+                {uploadError && (
+                  <p className="mb-2 text-[11px] text-danger-ink">{uploadError}</p>
+                )}
+
+                {task.attachments.length === 0 ? (
+                  <p className="text-xs text-ink-400">
+                    No images yet. Add a screenshot or photo.
+                  </p>
+                ) : (
+                  <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">
+                    {task.attachments.map((a) => (
+                      <div
+                        key={a.id}
+                        className="group relative overflow-hidden rounded-xl border border-line bg-surface-2"
+                      >
+                        <a
+                          href={a.url}
+                          target="_blank"
+                          rel="noreferrer"
+                          title={a.name}
+                          className="block"
+                        >
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
+                            src={a.url}
+                            alt={a.name}
+                            className="aspect-video w-full object-cover transition-opacity group-hover:opacity-90"
+                            loading="lazy"
+                          />
+                        </a>
+                        <button
+                          type="button"
+                          onClick={() => void removeAttachment(a.id)}
+                          disabled={removingId === a.id}
+                          aria-label={`Remove ${a.name}`}
+                          className="absolute right-1.5 top-1.5 grid h-7 w-7 place-items-center rounded-lg bg-black/55 text-white opacity-0 backdrop-blur-sm transition-opacity hover:bg-danger-ink group-hover:opacity-100 disabled:opacity-50"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                        <div className="pointer-events-none absolute inset-x-0 bottom-0 truncate bg-gradient-to-t from-black/60 to-transparent px-2 py-1 text-[10px] text-white/90">
+                          {a.name}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 )}
               </section>
 
@@ -613,7 +897,9 @@ export function TaskModal({
                               </span>
                             </div>
                             <p className="mt-0.5 whitespace-pre-wrap break-words rounded-xl rounded-tl-sm border border-line bg-surface-2 px-3 py-2 text-sm leading-relaxed text-ink-700">
-                              {client ? client.body : c.body}
+                              {client
+                                ? client.body
+                                : renderCommentBody(c.body)}
                             </p>
                           </div>
                         </div>
@@ -631,11 +917,73 @@ export function TaskModal({
                     src={members.find((m) => m.id === currentUserId)?.avatarUrl}
                     size="xs"
                   />
-                  <div className="flex-1">
+                  <div className="relative flex-1">
+                    {/* @mention autocomplete — floats above the composer while a
+                        `@query` token is active. Only card members appear. */}
+                    {mentionQuery !== null && mentionMatches.length > 0 && (
+                      <ul
+                        role="listbox"
+                        className="glass-strong absolute bottom-full z-20 mb-1 max-h-48 w-64 overflow-y-auto rounded-xl border border-line p-1 shadow-lg"
+                      >
+                        {mentionMatches.map((m, i) => (
+                          <li key={m.id}>
+                            <button
+                              type="button"
+                              // onMouseDown (not onClick) so the textarea doesn't
+                              // blur and reset the caret before we read it.
+                              onMouseDown={(e) => {
+                                e.preventDefault();
+                                pickMention(m);
+                              }}
+                              onMouseEnter={() => setMentionIndex(i)}
+                              className={cn(
+                                "flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm",
+                                i === mentionIndex
+                                  ? "bg-accent-soft text-accent-ink"
+                                  : "hover-surface text-ink-700",
+                              )}
+                            >
+                              <Avatar name={m.name} src={m.avatarUrl} size="xs" />
+                              <span className="truncate">{m.name}</span>
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
                     <textarea
+                      ref={composerRef}
                       value={draft}
-                      onChange={(e) => setDraft(e.target.value)}
+                      onChange={onComposerChange}
                       onKeyDown={(e) => {
+                        // Drive the mention picker with the keyboard when it's open.
+                        if (mentionQuery !== null && mentionMatches.length > 0) {
+                          if (e.key === "ArrowDown") {
+                            e.preventDefault();
+                            setMentionIndex(
+                              (i) => (i + 1) % mentionMatches.length,
+                            );
+                            return;
+                          }
+                          if (e.key === "ArrowUp") {
+                            e.preventDefault();
+                            setMentionIndex(
+                              (i) =>
+                                (i - 1 + mentionMatches.length) %
+                                mentionMatches.length,
+                            );
+                            return;
+                          }
+                          if (e.key === "Enter" || e.key === "Tab") {
+                            e.preventDefault();
+                            pickMention(mentionMatches[mentionIndex]);
+                            return;
+                          }
+                          if (e.key === "Escape") {
+                            e.preventDefault();
+                            setMentionQuery(null);
+                            return;
+                          }
+                        }
                         if (e.key === "Enter" && !e.shiftKey) {
                           e.preventDefault();
                           void submit(e);
@@ -643,7 +991,7 @@ export function TaskModal({
                       }}
                       rows={2}
                       maxLength={1000}
-                      placeholder="Write a comment…  (Enter to send)"
+                      placeholder="Write a comment…  (@ to mention, Enter to send)"
                       className="input resize-none text-sm"
                     />
                     <div className="mt-2 flex justify-end">
