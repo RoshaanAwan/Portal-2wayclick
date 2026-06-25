@@ -2,7 +2,7 @@ import { Blocks } from "lucide-react";
 import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/auth";
 import { can, isSuperAdmin } from "@/lib/permissions";
-import { getIntegrationStates } from "@/lib/integrationsServer";
+import { getIntegrationStates, getSlackConnection } from "@/lib/integrationsServer";
 import { tenantDriveStatus } from "@/lib/integrations/driveStorage";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { IntegrationsClient } from "./IntegrationsClient";
@@ -25,6 +25,11 @@ export default async function AdminIntegrationsPage() {
   const isOwner = isSuperAdmin(user.role);
   const drive = await tenantDriveStatus(user.tenantId);
 
+  // The Slack card shows live OAuth connection status (whether the workspace's
+  // bot token is stored) — distinct from the catalog `connected` (= the Slack app
+  // client secret is saved). Null when not connected.
+  const slack = await getSlackConnection();
+
   return (
     <div className="mx-auto max-w-3xl">
       <PageHeader
@@ -40,6 +45,10 @@ export default async function AdminIntegrationsPage() {
           folderSet: !!drive.folderId,
           folderName: drive.folderName,
           folderShared: drive.folderShared,
+        }}
+        slackStatus={{
+          connected: !!slack,
+          teamName: slack?.teamName ?? null,
         }}
         initial={integrations.map((i) => ({
           provider: i.provider,

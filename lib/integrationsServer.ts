@@ -157,3 +157,85 @@ export async function getIntegrationSecret(provider: string): Promise<{
       : {};
   return { token, config };
 }
+
+/**
+ * Resolve the Slack OAuth app credentials for the CURRENT tenant. Each tenant's
+ * admin may register their OWN Slack app and paste the Client ID
+ * (config.slackClientId) + Client Secret (encrypted in the Integration `secret`)
+ * on the admin page. Falls back to the platform-wide SLACK_CLIENT_ID/SECRET env
+ * vars. Returns null if neither is configured. Mirrors getGoogleOAuthCreds().
+ */
+export async function getSlackOAuthCreds(): Promise<{
+  clientId: string;
+  clientSecret: string;
+} | null> {
+  try {
+    const row = await db.integration.findFirst({
+      where: { provider: "slack" },
+      select: { secret: true, config: true },
+    });
+    const cfg =
+      row?.config && typeof row.config === "object"
+        ? (row.config as Record<string, unknown>)
+        : null;
+    const clientId =
+      cfg && typeof cfg.slackClientId === "string" ? cfg.slackClientId.trim() : "";
+    const clientSecret = row?.secret ? (open(row.secret) ?? "") : "";
+    if (clientId && clientSecret) return { clientId, clientSecret };
+  } catch {
+    /* fall through to env */
+  }
+
+  const envId = process.env.SLACK_CLIENT_ID;
+  const envSecret = process.env.SLACK_CLIENT_SECRET;
+  if (envId && envSecret) return { clientId: envId, clientSecret: envSecret };
+
+  return null;
+}
+
+/**
+ * The current tenant's Slack connection with its DECRYPTED bot token. Server only
+ * — used by the dashboard / post routes / notification fan-out. Returns null when
+ * Slack isn't connected (or the tile is disabled). The scoped `db` keeps this
+ * tenant-bound. NEVER expose the returned `botToken` to the client.
+ */
+export async function getSlackConnection(): Promise<{
+  botToken: string;
+  teamId: string;
+  teamName: string | null;
+  notifyChannelId: string | null;
+  notifyChannelName: string | null;
+} | null> {
+  // Respect the admin on/off switch first (mirrors getIntegrationSecret).
+  if (!(await isIntegrationEnabled("slack"))) return null;
+  let row: {
+    botToken: string;
+    teamId: string;
+    teamName: string | null;
+    notifyChannelId: string | null;
+    notifyChannelName: string | null;
+  } | null = null;
+  try {
+    row = await db.slackConnection.findFirst({
+      select: {
+        botToken: true,
+        teamId: true,
+        teamName: true,
+        notifyChannelId: true,
+        notifyChannelName: true,
+      },
+    });
+  } catch {
+    return null;
+  }
+  if (!row) return null;
+  const botToken = open(row.botToken);
+  if (!botToken) return null;
+  return {
+    botToken,
+    teamId: row.teamId,
+    teamName: row.teamName,
+    notifyChannelId: row.notifyChannelId,
+    notifyChannelName: row.notifyChannelName,
+  };
+}

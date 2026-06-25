@@ -55,6 +55,7 @@ const SCOPED_MODELS = new Set<string>([
   "BrandingSettings",
   "Integration",
   "GoogleDriveConnection",
+  "SlackConnection",
 ]);
 
 // where-ops that take a NON-unique filter (WhereInput) — safe to AND-combine.

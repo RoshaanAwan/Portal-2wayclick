@@ -74,6 +74,7 @@ model Tenant {
   branding      BrandingSettings?
   integrations  Integration[]
   driveConns    GoogleDriveConnection[]
+  slackConn     SlackConnection?
 
   @@index([status])
 }
@@ -1582,6 +1583,42 @@ model GoogleDriveConnection {
   // Restricted (only people explicitly granted access — the private default Drive
   // behavior). New folders default to true (see setTenantDriveFolder).
   folderShared Boolean @default(true)
+
+  connectedAt DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([tenantId])
+}
+
+// ── Slack (tenant-wide OAuth connection) ──────────────────────────────────────
+// Unlike Google Drive (per-user), Slack is connected ONCE per workspace via the
+// "Add to Slack" OAuth flow: an admin authorizes the portal's Slack app into the
+// tenant's Slack workspace and we store the resulting BOT token. Every member's
+// portal then talks to that one workspace (list channels, read/post messages),
+// and portal events optionally fan out to a chosen channel. One row per tenant.
+// The bot token is encrypted at rest (cryptoBox) and never returned to clients.
+model SlackConnection {
+  id String @id @default(cuid())
+
+  // One Slack connection per tenant (the whole workspace shares it).
+  tenantId String @unique
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  // The connected Slack workspace (display + sanity-check on callback).
+  teamId   String
+  teamName String?
+
+  // Encrypted Slack bot token (xoxb-…), AES-256-GCM via lib/cryptoBox.ts. Used
+  // server-side for chat.postMessage / conversations.* calls. NEVER to the client.
+  botToken String
+
+  // The channel portal notifications (task assignments, mentions, …) route to.
+  // Null = don't post portal events to Slack. Name kept for display only.
+  notifyChannelId   String?
+  notifyChannelName String?
+
+  // The admin who authorized the connection (audit/display).
+  connectedById String?
 
   connectedAt DateTime @default(now())
   updatedAt   DateTime @updatedAt
