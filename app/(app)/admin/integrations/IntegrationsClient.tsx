@@ -16,6 +16,8 @@ import {
   ArrowRight,
   Lock,
   Link as LinkIcon,
+  MessageSquare,
+  Unplug,
 } from "lucide-react";
 import Link from "next/link";
 import { GlassCard } from "@/components/ui/GlassCard";
@@ -61,12 +63,22 @@ interface DriveStatus {
   folderShared: boolean;
 }
 
+/** Live Slack connection status (from the SlackConnection table) — distinct from
+ *  a row's `connected`, which means the Slack app client secret is saved. Drives
+ *  the inline "Add to Slack" / connected state on the Slack card. */
+interface SlackStatus {
+  /** The workspace's bot token is stored (OAuth handshake completed). */
+  connected: boolean;
+  teamName: string | null;
+}
+
 interface IntegrationsClientProps {
   initial: Row[];
   /** True when the current admin is the Company Owner (SUPER_ADMIN) — only the
    *  owner can connect the Drive account and set the folder. */
   isOwner?: boolean;
   driveStatus?: DriveStatus;
+  slackStatus?: SlackStatus;
   /** Render the inline Drive connect + folder setup on the Google Drive card.
    *  Tenant admin page → true; the System Owner page has its own SystemDriveCard,
    *  so it passes false to keep the embedded card to credential config only. */
@@ -82,6 +94,8 @@ const NO_DRIVE_STATUS: DriveStatus = {
   folderName: null,
   folderShared: true,
 };
+
+const NO_SLACK_STATUS: SlackStatus = { connected: false, teamName: null };
 
 function Toggle({
   on,
@@ -971,6 +985,296 @@ function GoogleDriveCard({
   );
 }
 
+// ── Slack (workspace OAuth) — admin sets the tenant's OWN Slack app ────────────
+function SlackCard({
+  row,
+  apiBase,
+  slackStatus,
+}: {
+  row: Row;
+  apiBase: string;
+  slackStatus: SlackStatus;
+}) {
+  const router = useRouter();
+  const { busy, error, setError, savedFlash, setSavedFlash, save } = useSave(
+    row.provider,
+    apiBase,
+  );
+  const [enabled, setEnabled] = useState(row.enabled);
+  const [credSaved, setCredSaved] = useState(row.connected); // = client secret saved
+  const [clientId, setClientId] = useState(
+    (row.config.slackClientId as string) ?? "",
+  );
+  const [clientSecret, setClientSecret] = useState(""); // write-only
+  const [redirect, setRedirect] = useState("");
+  const [copied, setCopied] = useState(false);
+  const [disconnecting, setDisconnecting] = useState(false);
+
+  // The exact redirect URI to whitelist in the Slack app — subdomain-correct.
+  useEffect(() => {
+    setRedirect(`${window.location.origin}/api/integrations/slack/callback`);
+  }, []);
+
+  function payload(nextEnabled: boolean): SavePayload {
+    return {
+      enabled: nextEnabled,
+      token: clientSecret.trim() || undefined, // stored as the encrypted `secret`
+      config: { slackClientId: clientId.trim() },
+    };
+  }
+
+  async function onToggle(next: boolean) {
+    const prev = enabled;
+    setEnabled(next);
+    const data = await save(payload(next));
+    if (!data) setEnabled(prev);
+    else {
+      setCredSaved(data.connected);
+      setClientSecret("");
+    }
+  }
+
+  async function onSave() {
+    const data = await save(payload(enabled));
+    if (data) {
+      setCredSaved(data.connected);
+      setClientSecret("");
+    }
+  }
+
+  async function copyRedirect() {
+    try {
+      await navigator.clipboard.writeText(redirect);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      /* clipboard blocked — the field is selectable anyway */
+    }
+  }
+
+  async function disconnect() {
+    if (!confirm("Disconnect Slack from this workspace?")) return;
+    setDisconnecting(true);
+    setError("");
+    try {
+      const res = await fetch("/api/integrations/slack/disconnect", {
+        method: "POST",
+      });
+      if (res.ok) router.refresh();
+      else setError("Disconnect failed.");
+    } catch {
+      setError("Disconnect failed.");
+    } finally {
+      setDisconnecting(false);
+    }
+  }
+
+  const statusNote = slackStatus.connected ? (
+    <span className="inline-flex items-center gap-1 text-success">
+      <Check className="h-3 w-3" /> Connected
+      {slackStatus.teamName ? ` to ${slackStatus.teamName}` : ""}
+    </span>
+  ) : credSaved ? (
+    <span className="inline-flex items-center gap-1 text-warn-ink">
+      <KeyRound className="h-3 w-3" /> App configured · click “Add to Slack”
+    </span>
+  ) : (
+    <span className="inline-flex items-center gap-1 text-warn-ink">
+      <KeyRound className="h-3 w-3" /> Add your Slack app credentials
+    </span>
+  );
+
+  return (
+    <GlassCard hover={false}>
+      <CardHead
+        row={row}
+        enabled={enabled}
+        busy={busy}
+        savedFlash={savedFlash}
+        onToggle={onToggle}
+        statusNote={statusNote}
+      />
+
+      <div className="mt-4 space-y-4 border-t border-line pt-4">
+        <p className="text-xs text-ink-400">
+          Connect your own Slack app so the workspace can view channels, post
+          messages, and route portal notifications into Slack. One-time setup:{" "}
+          <b className="text-ink-600">1)</b> create a Slack app and paste its
+          Client ID &amp; Secret here, then <b className="text-ink-600">2)</b>{" "}
+          click <b>Add to Slack</b> to authorize it into your workspace.
+        </p>
+
+        {/* Step-by-step guide. */}
+        <details className="group rounded-xl border border-line bg-surface-2/50">
+          <summary className="flex cursor-pointer list-none items-center gap-2 px-3.5 py-2.5 text-xs font-medium text-ink-700">
+            <HelpCircle className="h-4 w-4 text-accent" />
+            Setup guide — create &amp; connect your Slack app
+            <ChevronDown className="ml-auto h-4 w-4 text-ink-400 transition-transform group-open:rotate-180" />
+          </summary>
+          <ol className="space-y-2.5 border-t border-line px-4 py-3 text-xs text-ink-500">
+            <li>
+              <b className="text-ink-700">1.</b> Go to{" "}
+              <a
+                href="https://api.slack.com/apps?new_app=1"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="font-medium text-accent hover:underline"
+              >
+                api.slack.com/apps
+              </a>{" "}
+              and create a new app <b>From scratch</b>, in your workspace.
+            </li>
+            <li>
+              <b className="text-ink-700">2.</b> Under{" "}
+              <b>OAuth &amp; Permissions → Redirect URLs</b>, click <b>Add</b> and
+              paste the redirect URI shown below — it must match exactly. Save.
+            </li>
+            <li>
+              <b className="text-ink-700">3.</b> Still under{" "}
+              <b>OAuth &amp; Permissions → Bot Token Scopes</b>, add{" "}
+              <code className="rounded bg-surface-2 px-1 py-0.5 font-mono text-[11px]">
+                channels:read
+              </code>
+              ,{" "}
+              <code className="rounded bg-surface-2 px-1 py-0.5 font-mono text-[11px]">
+                groups:read
+              </code>
+              ,{" "}
+              <code className="rounded bg-surface-2 px-1 py-0.5 font-mono text-[11px]">
+                channels:history
+              </code>
+              ,{" "}
+              <code className="rounded bg-surface-2 px-1 py-0.5 font-mono text-[11px]">
+                groups:history
+              </code>
+              , and{" "}
+              <code className="rounded bg-surface-2 px-1 py-0.5 font-mono text-[11px]">
+                chat:write
+              </code>
+              .
+            </li>
+            <li>
+              <b className="text-ink-700">4.</b> Open <b>Basic Information → App
+              Credentials</b>, copy the <b>Client ID</b> and <b>Client Secret</b>{" "}
+              into the fields below, and Save.
+            </li>
+            <li>
+              <b className="text-ink-700">5.</b> Click <b>Add to Slack</b> below
+              and approve. The bot must be invited to any private channel you want
+              to read/post in (
+              <code className="rounded bg-surface-2 px-1 py-0.5 font-mono text-[11px]">
+                /invite @yourbot
+              </code>
+              ).
+            </li>
+          </ol>
+        </details>
+
+        {/* Redirect URI to copy into the Slack app. */}
+        <label className="block">
+          <span className="mb-1.5 block text-xs font-medium text-ink-700">
+            Redirect URL{" "}
+            <span className="text-ink-400">(add this in your Slack app)</span>
+          </span>
+          <div className="flex items-center gap-2">
+            <input
+              readOnly
+              className="input flex-1 font-mono text-xs"
+              value={redirect}
+              onFocus={(e) => e.currentTarget.select()}
+            />
+            <Button type="button" variant="glass" size="sm" onClick={copyRedirect}>
+              {copied ? (
+                <CheckCheck className="h-4 w-4" />
+              ) : (
+                <Copy className="h-4 w-4" />
+              )}
+              {copied ? "Copied" : "Copy"}
+            </Button>
+          </div>
+        </label>
+
+        <div className="grid gap-4 sm:grid-cols-2">
+          <label className="block">
+            <span className="mb-1.5 block text-xs font-medium text-ink-700">
+              Client ID
+            </span>
+            <input
+              type="text"
+              className="input"
+              value={clientId}
+              placeholder="1234567890.1234567890"
+              onChange={(e) => {
+                setClientId(e.target.value);
+                setSavedFlash(false);
+                setError("");
+              }}
+            />
+          </label>
+          <label className="block">
+            <span className="mb-1.5 block text-xs font-medium text-ink-700">
+              Client Secret
+            </span>
+            <input
+              type="password"
+              autoComplete="off"
+              className="input"
+              value={clientSecret}
+              placeholder={
+                credSaved ? "•••••••• (saved — leave blank to keep)" : "••••••••"
+              }
+              onChange={(e) => {
+                setClientSecret(e.target.value);
+                setSavedFlash(false);
+                setError("");
+              }}
+            />
+          </label>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2">
+          <Button type="button" size="sm" loading={busy} onClick={onSave}>
+            Save
+          </Button>
+
+          {/* Connect / connected actions, once the app credentials are saved. */}
+          {credSaved && enabled && !slackStatus.connected && (
+            <a href="/api/integrations/slack/connect">
+              <Button type="button" size="sm" variant="glass">
+                <MessageSquare className="h-4 w-4" /> Add to Slack
+              </Button>
+            </a>
+          )}
+          {slackStatus.connected && (
+            <>
+              {row.dashboard && (
+                <Link
+                  href={row.dashboard}
+                  className="inline-flex items-center gap-1 text-xs font-medium text-accent hover:underline"
+                >
+                  Open Slack dashboard
+                  <ArrowRight className="h-3.5 w-3.5" />
+                </Link>
+              )}
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                loading={disconnecting}
+                onClick={disconnect}
+              >
+                <Unplug className="h-4 w-4" /> Disconnect
+              </Button>
+            </>
+          )}
+        </div>
+      </div>
+
+      {error && <CardError text={error} />}
+    </GlassCard>
+  );
+}
+
 function CardError({ text }: { text: string }) {
   return (
     <p className="mt-3 rounded-lg border border-danger/40 bg-danger-soft px-3 py-2 text-xs text-danger">
@@ -1036,6 +1340,7 @@ export function IntegrationsClient({
   initial,
   isOwner = false,
   driveStatus = NO_DRIVE_STATUS,
+  slackStatus = NO_SLACK_STATUS,
   showDriveSetup = true,
   apiBase = "/api/admin/integrations",
   testApiBase,
@@ -1066,6 +1371,13 @@ export function IntegrationsClient({
               isOwner={isOwner}
               driveStatus={driveStatus}
               showDriveSetup={showDriveSetup}
+            />
+          ) : row.provider === "slack" ? (
+            <SlackCard
+              key={row.provider}
+              row={row}
+              apiBase={apiBase}
+              slackStatus={slackStatus}
             />
           ) : (
             <UrlCard key={row.provider} row={row} apiBase={apiBase} />

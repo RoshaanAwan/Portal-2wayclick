@@ -45,6 +45,12 @@ export const INTEGRATIONS: IntegrationDef[] = [
     from: "from-[#4A154B]",
     to: "to-[#E01E5A]",
     glow: "rgba(224,30,90,0.45)",
+    dashboard: "/tools/slack",
+    // The credential is the workspace's OAuth bot token (one per tenant, stored
+    // in SlackConnection — NOT the Integration.secret), so the tile links to the
+    // in-app dashboard as soon as the admin enables it; the dashboard handles the
+    // "Add to Slack" connect. Like Google Drive, connection state lives elsewhere.
+    needsCredential: false,
   },
   {
     provider: "github",

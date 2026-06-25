@@ -70,6 +70,18 @@ const googleConfigSchema = z.object({
     .transform((v) => (v ? v : null)),
 });
 
+// Slack config: the tenant's OWN OAuth app Client ID (non-secret). The Client
+// Secret arrives as `token` and is stored encrypted in `secret`. The workspace
+// bot token (from the OAuth handshake) lives separately in SlackConnection.
+const slackConfigSchema = z.object({
+  slackClientId: z
+    .string()
+    .trim()
+    .max(200)
+    .optional()
+    .transform((v) => (v ? v : null)),
+});
+
 export async function POST(req: Request) {
   try {
     const user = await requireTenantUser();
@@ -132,6 +144,18 @@ export async function POST(req: Request) {
       // may exist). So we DON'T hard-block enabling here — unlike GitHub, the
       // credential is the tenant's OAuth app, which the per-user connect flow
       // (and getGoogleOAuthCreds env fallback) handles gracefully.
+    } else if (data.provider === "slack") {
+      const cfg = slackConfigSchema.parse(data.config ?? {});
+      configToStore = cfg;
+
+      // The Slack app's Client Secret comes through as `token` → store encrypted.
+      const newSecret = data.token?.trim();
+      if (newSecret) sealedSecret = seal(newSecret);
+
+      // Like Google Drive, don't hard-block enabling: the tile can be on before
+      // the app is configured (the dashboard shows "Add to Slack" / "ask an
+      // admin" states), and a platform env fallback (SLACK_CLIENT_ID/SECRET) may
+      // exist. The OAuth connect flow validates the credentials at handshake.
     }
 
     const row = await db.integration.upsert({

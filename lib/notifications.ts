@@ -2,6 +2,7 @@ import "server-only";
 import { EventEmitter } from "events";
 import { db } from "./db";
 import { sendPushToUser, sendPushToUsers } from "./push";
+import { notifySlackChannel } from "./integrations/slack";
 import { BRAND } from "./brand";
 import { requireTenantId } from "./tenantContext";
 
@@ -163,6 +164,12 @@ export async function notify(input: NotifyInput): Promise<void> {
       url: input.link ?? "/dashboard",
       tag: input.type,
     });
+
+    // Fan the event into the tenant's Slack notify channel, if connected+routed.
+    // Fire-and-forget; carries the captured tenantId since the request context
+    // may have unwound. No-ops when Slack routing isn't set up.
+    const actorPrefix = input.actor?.name ? `*${input.actor.name}* — ` : "";
+    void notifySlackChannel(tenantId, `${actorPrefix}${input.message}`);
   } catch (err) {
     console.error("[notify] failed", input.type, err);
   }
@@ -254,6 +261,11 @@ export async function notifyMany(
       url: input.link ?? "/dashboard",
       tag: input.type,
     });
+
+    // One Slack post for the whole fan-out (the channel needs a single copy, not
+    // one per recipient). Fire-and-forget; no-ops when routing isn't configured.
+    const actorPrefix = actorName ? `*${actorName}* — ` : "";
+    void notifySlackChannel(tenantId, `${actorPrefix}${input.message}`);
   } catch (err) {
     console.error("[notifyMany] failed", input.type, err);
   }
