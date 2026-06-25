@@ -22,9 +22,25 @@ const REVOKE_URL = "https://oauth2.googleapis.com/revoke";
 // create subfolders in and upload into — drive.file can only touch files the app
 // itself created, so it can't write into a folder the user already had. This is a
 // Google "sensitive/restricted" scope: production use requires app verification.
-// Add openid/email so we can show which account is connected.
+//
+// gmail.send + gmail.readonly let the workspace send email AND read the connected
+// account's inbox from the Gmail dashboard (the owner's Google account becomes the
+// portal's mailbox — same single-owner model as Drive). gmail.readonly is a
+// "restricted" scope (production needs Google verification / a security review).
+//
+// Add openid/email so we can show which account is connected. NOTE: these are
+// space-separated; the granted scope list is captured per-connection (see
+// GoogleDriveConnection.googleScopes) so the UI can tell "connected for Drive but
+// not Gmail" and prompt a reconnect. SCOPE_GMAIL_SEND/READ are exported so callers
+// can check what a token actually granted.
+export const SCOPE_DRIVE = "https://www.googleapis.com/auth/drive";
+export const SCOPE_GMAIL_SEND = "https://www.googleapis.com/auth/gmail.send";
+export const SCOPE_GMAIL_READ = "https://www.googleapis.com/auth/gmail.readonly";
+
 export const GOOGLE_SCOPES = [
-  "https://www.googleapis.com/auth/drive",
+  SCOPE_DRIVE,
+  SCOPE_GMAIL_SEND,
+  SCOPE_GMAIL_READ,
   "openid",
   "email",
 ].join(" ");

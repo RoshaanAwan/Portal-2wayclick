@@ -1,10 +1,9 @@
-import { Blocks } from "lucide-react";
 import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/auth";
 import { can, isSuperAdmin } from "@/lib/permissions";
 import { getIntegrationStates, getSlackConnection } from "@/lib/integrationsServer";
 import { tenantDriveStatus } from "@/lib/integrations/driveStorage";
-import { PageHeader } from "@/components/ui/PageHeader";
+import { tenantGmailStatus } from "@/lib/integrations/gmailServer";
 import { IntegrationsClient } from "./IntegrationsClient";
 
 export const metadata = { title: "Integrations" };
@@ -30,13 +29,12 @@ export default async function AdminIntegrationsPage() {
   // client secret is saved). Null when not connected.
   const slack = await getSlackConnection();
 
+  // Gmail rides on the same owner Google connection as Drive; its card reflects
+  // whether that connection has granted the Gmail scopes (else prompt reconnect).
+  const gmail = await tenantGmailStatus(user.tenantId);
+
   return (
-    <div className="mx-auto max-w-3xl">
-      <PageHeader
-        title="Integrations"
-        subtitle="Turn on the third-party apps your team uses. Enabled apps appear on everyone's Tools launchpad."
-        icon={Blocks}
-      />
+    <div className="mx-auto max-w-4xl">
       <IntegrationsClient
         isOwner={isOwner}
         driveStatus={{
@@ -49,6 +47,13 @@ export default async function AdminIntegrationsPage() {
         slackStatus={{
           connected: !!slack,
           teamName: slack?.teamName ?? null,
+        }}
+        gmailStatus={{
+          accountConnected: gmail.connected,
+          email: gmail.email,
+          canSend: gmail.canSend,
+          canRead: gmail.canRead,
+          needsReconnect: gmail.needsReconnect,
         }}
         initial={integrations.map((i) => ({
           provider: i.provider,

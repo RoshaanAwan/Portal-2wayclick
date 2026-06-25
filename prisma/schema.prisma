@@ -1560,6 +1560,12 @@ model GoogleDriveConnection {
   // The connected Google account's email (display only).
   googleEmail String?
 
+  // Space-separated OAuth scopes Google actually granted on the last consent
+  // (from the token response). Lets the UI detect "connected for Drive but not
+  // Gmail" and prompt a reconnect when scopes are added. Null = pre-dates this
+  // field (treat as Drive-only / unknown). See lib/integrations/google.ts.
+  googleScopes String?
+
   // Encrypted OAuth refresh token (AES-256-GCM via lib/cryptoBox.ts). Used to
   // mint short-lived access tokens. NEVER returned to the client.
   refreshToken String

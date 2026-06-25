@@ -18,10 +18,14 @@ import {
   Link as LinkIcon,
   MessageSquare,
   Unplug,
+  Blocks,
+  Zap,
+  PlugZap,
 } from "lucide-react";
 import Link from "next/link";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { Button } from "@/components/ui/Button";
+import { Badge } from "@/components/ui/Badge";
 import { cn } from "@/lib/utils";
 import { integrationIcon } from "../../tools/integrationIcons";
 
@@ -72,6 +76,17 @@ interface SlackStatus {
   teamName: string | null;
 }
 
+/** Live Gmail status — derived from the owner's Google connection scopes. Gmail
+ *  reuses the Drive connection, so its card mostly tells the admin whether that
+ *  connection has granted email access (else: reconnect). */
+interface GmailStatus {
+  accountConnected: boolean;
+  email: string | null;
+  canSend: boolean;
+  canRead: boolean;
+  needsReconnect: boolean;
+}
+
 interface IntegrationsClientProps {
   initial: Row[];
   /** True when the current admin is the Company Owner (SUPER_ADMIN) — only the
@@ -79,6 +94,7 @@ interface IntegrationsClientProps {
   isOwner?: boolean;
   driveStatus?: DriveStatus;
   slackStatus?: SlackStatus;
+  gmailStatus?: GmailStatus;
   /** Render the inline Drive connect + folder setup on the Google Drive card.
    *  Tenant admin page → true; the System Owner page has its own SystemDriveCard,
    *  so it passes false to keep the embedded card to credential config only. */
@@ -96,6 +112,14 @@ const NO_DRIVE_STATUS: DriveStatus = {
 };
 
 const NO_SLACK_STATUS: SlackStatus = { connected: false, teamName: null };
+
+const NO_GMAIL_STATUS: GmailStatus = {
+  accountConnected: false,
+  email: null,
+  canSend: false,
+  canRead: false,
+  needsReconnect: false,
+};
 
 function Toggle({
   on,
@@ -1275,6 +1299,114 @@ function SlackCard({
   );
 }
 
+// ── Gmail — rides on the owner's Google connection (shared with Drive) ─────────
+function GmailCard({
+  row,
+  apiBase,
+  isOwner,
+  gmailStatus,
+}: {
+  row: Row;
+  apiBase: string;
+  isOwner: boolean;
+  gmailStatus: GmailStatus;
+}) {
+  const { busy, error, savedFlash, save } = useSave(row.provider, apiBase);
+  const [enabled, setEnabled] = useState(row.enabled);
+
+  async function onToggle(next: boolean) {
+    const prev = enabled;
+    setEnabled(next);
+    // Gmail has no own credential — just the enable flag (it reuses the Google
+    // connection). Send the catalog's empty config.
+    const data = await save({ enabled: next });
+    if (!data) setEnabled(prev);
+  }
+
+  const statusNote = !gmailStatus.accountConnected ? (
+    <span className="inline-flex items-center gap-1 text-warn-ink">
+      <KeyRound className="h-3 w-3" /> No Google account connected
+    </span>
+  ) : gmailStatus.needsReconnect ? (
+    <span className="inline-flex items-center gap-1 text-warn-ink">
+      <KeyRound className="h-3 w-3" /> Connected · reconnect to grant email access
+    </span>
+  ) : (
+    <span className="inline-flex items-center gap-1 text-success">
+      <Check className="h-3 w-3" /> Ready
+      {gmailStatus.email ? ` · ${gmailStatus.email}` : ""}
+    </span>
+  );
+
+  return (
+    <GlassCard hover={false}>
+      <CardHead
+        row={row}
+        enabled={enabled}
+        busy={busy}
+        savedFlash={savedFlash}
+        onToggle={onToggle}
+        statusNote={statusNote}
+      />
+
+      {enabled && (
+        <div className="mt-4 space-y-3 border-t border-line pt-4">
+          <p className="text-xs text-ink-400">
+            Gmail uses the workspace’s connected Google account (the same one as
+            Google Drive). The portal can send email as that address and read its
+            inbox. Set up the Google account on the <b>Google Drive</b> card above.
+          </p>
+
+          {!gmailStatus.accountConnected ? (
+            <p className="rounded-xl border border-line bg-surface-2/60 px-3.5 py-3 text-xs text-ink-500">
+              No Google account is connected yet. Connect it on the Google Drive
+              card, then reload — Gmail will light up here.
+            </p>
+          ) : gmailStatus.needsReconnect ? (
+            <div className="flex flex-wrap items-center gap-3 rounded-xl border border-warn/30 bg-warn-soft/40 px-3.5 py-3">
+              <div className="min-w-0 flex-1 text-xs text-ink-600">
+                <p className="font-medium text-ink-700">Reconnect to enable email</p>
+                <p className="mt-0.5">
+                  The connected Google account hasn’t granted Gmail access yet
+                  {gmailStatus.email ? ` (${gmailStatus.email})` : ""}.
+                  {isOwner
+                    ? " Reconnect to add the Gmail permissions."
+                    : " The company owner needs to reconnect the account."}
+                </p>
+              </div>
+              {isOwner && (
+                <a href="/api/integrations/google/connect">
+                  <Button type="button" size="sm">
+                    <KeyRound className="h-4 w-4" /> Reconnect Google
+                  </Button>
+                </a>
+              )}
+            </div>
+          ) : (
+            <div className="flex flex-wrap items-center gap-3">
+              <p className="inline-flex items-center gap-1.5 text-xs text-success-ink">
+                <Check className="h-3.5 w-3.5" /> Email ready
+                {gmailStatus.email ? ` as ${gmailStatus.email}` : ""}
+              </p>
+              {row.dashboard && (
+                <Link
+                  href={row.dashboard}
+                  className="inline-flex items-center gap-1 text-xs font-medium text-accent hover:underline"
+                >
+                  Open Gmail dashboard
+                  <ArrowRight className="h-3.5 w-3.5" />
+                </Link>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {error && <CardError text={error} />}
+    </GlassCard>
+  );
+}
+
 function CardError({ text }: { text: string }) {
   return (
     <p className="mt-3 rounded-lg border border-danger/40 bg-danger-soft px-3 py-2 text-xs text-danger">
@@ -1336,54 +1468,161 @@ function SharingChoice({
   );
 }
 
+/** A small labelled stat in the hero banner. */
+function HeroStat({
+  value,
+  label,
+  icon,
+}: {
+  value: React.ReactNode;
+  label: string;
+  icon: React.ReactNode;
+}) {
+  return (
+    <div className="flex items-center gap-3">
+      <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-white/10 text-white/90 backdrop-blur">
+        {icon}
+      </div>
+      <div className="leading-tight">
+        <p className="text-xl font-bold text-white">{value}</p>
+        <p className="text-[11px] font-medium uppercase tracking-wide text-white/60">
+          {label}
+        </p>
+      </div>
+    </div>
+  );
+}
+
 export function IntegrationsClient({
   initial,
   isOwner = false,
   driveStatus = NO_DRIVE_STATUS,
   slackStatus = NO_SLACK_STATUS,
+  gmailStatus = NO_GMAIL_STATUS,
   showDriveSetup = true,
   apiBase = "/api/admin/integrations",
   testApiBase,
 }: IntegrationsClientProps) {
-  const connected = initial.filter((r) => r.enabled).length;
+  const connectedCount = initial.filter((r) => r.enabled).length;
   const resolvedTestApiBase = testApiBase ?? `${apiBase}/test`;
 
+  // Render one provider's card (its internal config UI is per-provider).
+  function renderCard(row: Row) {
+    if (row.provider === "github")
+      return (
+        <GitHubCard
+          key={row.provider}
+          row={row}
+          apiBase={apiBase}
+          testApiBase={resolvedTestApiBase}
+        />
+      );
+    if (row.provider === "google-drive")
+      return (
+        <GoogleDriveCard
+          key={row.provider}
+          row={row}
+          apiBase={apiBase}
+          isOwner={isOwner}
+          driveStatus={driveStatus}
+          showDriveSetup={showDriveSetup}
+        />
+      );
+    if (row.provider === "slack")
+      return (
+        <SlackCard
+          key={row.provider}
+          row={row}
+          apiBase={apiBase}
+          slackStatus={slackStatus}
+        />
+      );
+    if (row.provider === "gmail")
+      return (
+        <GmailCard
+          key={row.provider}
+          row={row}
+          apiBase={apiBase}
+          isOwner={isOwner}
+          gmailStatus={gmailStatus}
+        />
+      );
+    return <UrlCard key={row.provider} row={row} apiBase={apiBase} />;
+  }
+
+  // Split into Connected (enabled) and Available (not yet), each its own section.
+  const connected = initial.filter((r) => r.enabled);
+  const available = initial.filter((r) => !r.enabled);
+
   return (
-    <div className="space-y-4">
-      <p className="text-sm text-ink-400">
-        {connected} of {initial.length} connected. Toggling an app on adds it to
-        the Tools launchpad for everyone in your workspace.
-      </p>
-      <div className="grid grid-cols-1 gap-3">
-        {initial.map((row) =>
-          row.provider === "github" ? (
-            <GitHubCard
-              key={row.provider}
-              row={row}
-              apiBase={apiBase}
-              testApiBase={resolvedTestApiBase}
+    <div className="space-y-6">
+      {/* Hero banner — gives the page a distinct identity + at-a-glance stats. */}
+      <div className="relative overflow-hidden rounded-2xl border border-line bg-gradient-to-br from-[#3a2d6b] via-[#241d44] to-[#1a1530] p-5 sm:p-6">
+        {/* Decorative glow blobs. */}
+        <div className="pointer-events-none absolute -right-12 -top-16 h-48 w-48 rounded-full bg-accent/30 blur-3xl" />
+        <div className="pointer-events-none absolute -bottom-20 left-1/3 h-44 w-44 rounded-full bg-info/20 blur-3xl" />
+
+        <div className="relative flex flex-wrap items-center justify-between gap-5">
+          <div className="max-w-md">
+            <div className="mb-2 inline-flex items-center gap-1.5 rounded-full bg-white/10 px-2.5 py-1 text-[11px] font-medium text-white/80 backdrop-blur">
+              <Zap className="h-3 w-3" /> Live data — not just links
+            </div>
+            <h2 className="flex items-center gap-2 text-lg font-bold text-white">
+              <Blocks className="h-5 w-5" /> Integrations
+            </h2>
+            <p className="mt-1 text-sm text-white/70">
+              Connect the tools your team already uses. Enabled apps bring their
+              real data into your portal and appear on everyone’s Tools launchpad.
+            </p>
+          </div>
+
+          <div className="flex items-center gap-6">
+            <HeroStat
+              value={connectedCount}
+              label="Connected"
+              icon={<PlugZap className="h-5 w-5" />}
             />
-          ) : row.provider === "google-drive" ? (
-            <GoogleDriveCard
-              key={row.provider}
-              row={row}
-              apiBase={apiBase}
-              isOwner={isOwner}
-              driveStatus={driveStatus}
-              showDriveSetup={showDriveSetup}
+            <div className="h-10 w-px bg-white/15" />
+            <HeroStat
+              value={initial.length}
+              label="Available"
+              icon={<Blocks className="h-5 w-5" />}
             />
-          ) : row.provider === "slack" ? (
-            <SlackCard
-              key={row.provider}
-              row={row}
-              apiBase={apiBase}
-              slackStatus={slackStatus}
-            />
-          ) : (
-            <UrlCard key={row.provider} row={row} apiBase={apiBase} />
-          ),
-        )}
+          </div>
+        </div>
       </div>
+
+      {/* Connected section. */}
+      {connected.length > 0 && (
+        <section className="space-y-3">
+          <div className="flex items-center gap-2 px-0.5">
+            <h3 className="text-sm font-semibold text-ink">Connected</h3>
+            <Badge variant="emerald">{connected.length}</Badge>
+          </div>
+          <div className="grid grid-cols-1 gap-3">
+            {connected.map(renderCard)}
+          </div>
+        </section>
+      )}
+
+      {/* Available section. */}
+      {available.length > 0 && (
+        <section className="space-y-3">
+          <div className="flex items-center gap-2 px-0.5">
+            <h3 className="text-sm font-semibold text-ink">Available to connect</h3>
+            <Badge variant="neutral">{available.length}</Badge>
+          </div>
+          <div className="grid grid-cols-1 gap-3">
+            {available.map(renderCard)}
+          </div>
+        </section>
+      )}
+
+      {initial.length === 0 && (
+        <GlassCard hover={false} className="py-12 text-center text-sm text-ink-400">
+          No integrations are available yet.
+        </GlassCard>
+      )}
     </div>
   );
 }

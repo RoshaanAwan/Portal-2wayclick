@@ -33,6 +33,21 @@ export interface IntegrationDef {
   dashboard?: string;
   /** Whether connecting needs a credential (token). Drives the connect form. */
   needsCredential?: boolean;
+  /**
+   * Whether this integration is actually BUILT (has a working dashboard/connect
+   * flow), versus a placeholder catalog entry. Only implemented integrations are
+   * shown on the admin Integrations page and the Tools launchpad — placeholders
+   * stay in the catalog (so adding them later is just flipping this) but are
+   * hidden from users. Defaults to false.
+   */
+  implemented?: boolean;
+}
+
+/** The catalog entries that are actually built (implemented === true). Everything
+ *  that reads the catalog for USER-FACING display should use this, not the raw
+ *  INTEGRATIONS, so placeholder tiles never leak into the UI. */
+export function isImplemented(def: IntegrationDef): boolean {
+  return def.implemented === true;
 }
 
 export const INTEGRATIONS: IntegrationDef[] = [
@@ -46,6 +61,7 @@ export const INTEGRATIONS: IntegrationDef[] = [
     to: "to-[#E01E5A]",
     glow: "rgba(224,30,90,0.45)",
     dashboard: "/tools/slack",
+    implemented: true,
     // The credential is the workspace's OAuth bot token (one per tenant, stored
     // in SlackConnection — NOT the Integration.secret), so the tile links to the
     // in-app dashboard as soon as the admin enables it; the dashboard handles the
@@ -62,6 +78,7 @@ export const INTEGRATIONS: IntegrationDef[] = [
     to: "to-[#586069]",
     glow: "rgba(110,118,129,0.45)",
     dashboard: "/tools/github",
+    implemented: true,
     needsCredential: true,
   },
   {
@@ -114,9 +131,27 @@ export const INTEGRATIONS: IntegrationDef[] = [
     to: "to-[#FFCF63]",
     glow: "rgba(31,164,99,0.45)",
     dashboard: "/tools/google-drive",
+    implemented: true,
     // The credential is PER-USER (each person OAuth-connects their own Drive),
     // not a tenant-wide secret — so the tile links to the in-app dashboard as
     // soon as the admin enables it; the dashboard handles per-user connect.
+    needsCredential: false,
+  },
+  {
+    provider: "gmail",
+    name: "Gmail",
+    description: "Send & read workspace email",
+    href: "https://mail.google.com",
+    icon: "Mail",
+    from: "from-[#EA4335]",
+    to: "to-[#FBBC04]",
+    glow: "rgba(234,67,53,0.45)",
+    dashboard: "/tools/gmail",
+    implemented: true,
+    // Gmail rides on the SAME owner Google connection as Drive (the owner connects
+    // once; the portal sends as / reads that account). Connection state lives in
+    // GoogleDriveConnection, not Integration.secret — so like Drive, the tile links
+    // to the in-app dashboard as soon as the admin enables it.
     needsCredential: false,
   },
   {

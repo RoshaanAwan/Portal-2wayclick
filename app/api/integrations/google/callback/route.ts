@@ -61,6 +61,9 @@ export async function GET(req: Request) {
 
     const googleEmail = emailFromIdToken(tokens.id_token);
     const sealed = seal(tokens.refresh_token);
+    // The scopes Google actually granted this consent — stored so the UI can
+    // detect "connected for Drive but not Gmail" and prompt a reconnect.
+    const googleScopes = tokens.scope ?? null;
 
     await db.googleDriveConnection.upsert({
       where: { userId: user.id },
@@ -69,8 +72,9 @@ export async function GET(req: Request) {
         userId: user.id,
         refreshToken: sealed,
         googleEmail,
+        googleScopes,
       },
-      update: { refreshToken: sealed, googleEmail },
+      update: { refreshToken: sealed, googleEmail, googleScopes },
     });
 
     await runWithTenant(user.tenantId, () =>

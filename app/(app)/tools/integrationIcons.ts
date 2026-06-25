@@ -9,6 +9,7 @@ import {
   BarChart3,
   Receipt,
   Siren,
+  Mail,
   Plug,
   type LucideIcon,
 } from "lucide-react";
@@ -27,6 +28,7 @@ export const INTEGRATION_ICONS: Record<string, LucideIcon> = {
   BarChart3,
   Receipt,
   Siren,
+  Mail,
 };
 
 export function integrationIcon(name: string): LucideIcon {

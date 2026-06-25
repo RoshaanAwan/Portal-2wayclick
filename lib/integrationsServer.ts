@@ -3,6 +3,7 @@ import { cache } from "react";
 import { db } from "./db";
 import {
   INTEGRATIONS,
+  isImplemented,
   resolveLink,
   type IntegrationState,
 } from "./integrations";
@@ -48,7 +49,9 @@ export const getIntegrationStates = cache(
 
     const byProvider = new Map(rows.map((r) => [r.provider, r]));
 
-    return INTEGRATIONS.map((def) => {
+    // Only surface integrations that are actually built — placeholder catalog
+    // entries (Jira/Figma/Notion/… with no dashboard yet) stay hidden.
+    return INTEGRATIONS.filter(isImplemented).map((def) => {
       const row = byProvider.get(def.provider);
       const enabled = row?.enabled ?? false;
       const workspaceUrl = row?.workspaceUrl ?? null;
