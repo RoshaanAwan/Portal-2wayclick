@@ -117,7 +117,12 @@ export function SlackWorkspace({
         setBanner({ kind: "ok", text: "Message sent to Slack." });
         // Optimistically show it at the top (newest-first), matching the API author.
         setMessages((m) => [
-          { ts: data.ts ?? String(Date.now() / 1000), user: "you", text: draft.trim() },
+          {
+            ts: data.ts ?? String(Date.now() / 1000),
+            user: "you",
+            userName: "You",
+            text: draft.trim(),
+          },
           ...m,
         ]);
       }
@@ -274,9 +279,7 @@ export function SlackWorkspace({
             ) : (
               messages.map((m) => (
                 <div key={m.ts} className="text-sm">
-                  <span className="font-medium text-ink-500">
-                    {m.user ?? "unknown"}
-                  </span>
+                  <span className="font-medium text-ink-500">{m.userName}</span>
                   <p className="whitespace-pre-wrap text-ink-300">{m.text}</p>
                 </div>
               ))

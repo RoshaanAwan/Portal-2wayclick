@@ -30,6 +30,7 @@ export const SLACK_SCOPES = [
   "channels:history",
   "groups:history",
   "chat:write",
+  "users:read", // resolve message author IDs (U0123…) → display names
 ].join(",");
 
 export class SlackError extends Error {
@@ -253,26 +254,82 @@ export async function listChannels(token: string): Promise<SlackChannel[]> {
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
+/**
+ * Build a map of Slack user id → display name for the whole workspace, so
+ * message authors render as names instead of raw "U0123…" ids. One `users.list`
+ * call (paged) covers every author in any channel; prefers the human-set display
+ * name, then the profile real name, then the @handle. Needs the `users:read`
+ * scope — without it Slack returns `missing_scope` and we degrade to ids.
+ */
+export async function userDirectory(token: string): Promise<Map<string, string>> {
+  const map = new Map<string, string>();
+  let cursor: string | undefined;
+  try {
+    // Page through the member list (Slack caps each page at ~200–1000).
+    do {
+      const r = await slack<{
+        members: {
+          id: string;
+          name?: string;
+          real_name?: string;
+          deleted?: boolean;
+          profile?: { display_name?: string; real_name?: string };
+        }[];
+        response_metadata?: { next_cursor?: string };
+      }>("users.list", token, { limit: 200, ...(cursor ? { cursor } : {}) });
+      for (const u of r.members ?? []) {
+        const name =
+          u.profile?.display_name?.trim() ||
+          u.profile?.real_name?.trim() ||
+          u.real_name?.trim() ||
+          u.name ||
+          u.id;
+        map.set(u.id, name);
+      }
+      cursor = r.response_metadata?.next_cursor || undefined;
+    } while (cursor);
+  } catch {
+    // missing_scope or any failure → empty map; callers fall back to the id.
+  }
+  return map;
+}
+
 export interface SlackMessage {
   ts: string;
+  /** Raw Slack author id (or "bot"/null) — kept for a stable React key. */
   user: string | null;
+  /** Resolved human name when available, else the id/"bot". */
+  userName: string;
   text: string;
 }
 
-/** Read a channel's most recent messages (newest first). */
+/** Read a channel's most recent messages (newest first), with author names
+ *  resolved via the workspace directory (one cached users.list lookup). */
 export async function channelHistory(
   token: string,
   channelId: string,
   limit = 25,
 ): Promise<SlackMessage[]> {
-  const r = await slack<{
-    messages: { ts: string; user?: string; bot_id?: string; text?: string }[];
-  }>("conversations.history", token, { channel: channelId, limit });
-  return (r.messages ?? []).map((m) => ({
-    ts: m.ts,
-    user: m.user ?? (m.bot_id ? "bot" : null),
-    text: m.text ?? "",
-  }));
+  const [r, dir] = await Promise.all([
+    slack<{
+      messages: {
+        ts: string;
+        user?: string;
+        bot_id?: string;
+        username?: string;
+        text?: string;
+      }[];
+    }>("conversations.history", token, { channel: channelId, limit }),
+    userDirectory(token),
+  ]);
+  return (r.messages ?? []).map((m) => {
+    const id = m.user ?? (m.bot_id ? "bot" : null);
+    // Prefer the directory name; bots carry their own `username`; else the id.
+    const userName = m.user
+      ? dir.get(m.user) ?? m.user
+      : m.username || (m.bot_id ? "bot" : "unknown");
+    return { ts: m.ts, user: id, userName, text: m.text ?? "" };
+  });
 }
 
 /** Post a message to a channel as the bot. Returns the message ts on success. */
