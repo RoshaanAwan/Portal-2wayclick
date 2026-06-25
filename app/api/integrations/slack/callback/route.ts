@@ -6,7 +6,7 @@ import { audit } from "@/lib/audit";
 import { runWithTenant } from "@/lib/tenantContext";
 import { seal } from "@/lib/cryptoBox";
 import { getSlackOAuthCreds } from "@/lib/integrationsServer";
-import { exchangeCode, originFromRequest } from "@/lib/integrations/slack";
+import { exchangeCode, originFromRequest, SlackError } from "@/lib/integrations/slack";
 
 // Slack redirects here after consent. We verify the CSRF state cookie, exchange
 // the code for the workspace BOT token, and store it (encrypted) on the tenant's
@@ -88,6 +88,11 @@ export async function GET(req: Request) {
       return NextResponse.redirect(new URL("/login", origin));
     }
     console.error("[slack.callback]", e);
+    // Surface Slack's actual error code (bad_redirect_uri, invalid_code, …) so
+    // the dashboard explains the real reason instead of a generic failure.
+    if (e instanceof SlackError && e.code) {
+      return back(`error=${encodeURIComponent(e.code)}`);
+    }
     return back("error=connect_failed");
   }
 }

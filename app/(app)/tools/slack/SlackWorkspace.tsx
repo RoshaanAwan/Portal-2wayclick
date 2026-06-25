@@ -27,6 +27,15 @@ const OAUTH_ERRORS: Record<string, string> = {
   bad_state: "Security check failed. Please start the connection again.",
   connect_failed: "Couldn’t complete the Slack connection. Try again.",
   access_denied: "You declined the Slack permission request.",
+  // Slack's own error codes (passed through from oauth.v2.access).
+  bad_redirect_uri:
+    "The redirect URL doesn’t match. Add this exact URL to your Slack app → OAuth & Permissions → Redirect URLs: " +
+    "https://<this-host>/api/integrations/slack/callback (no trailing slash, https).",
+  invalid_code: "That authorization code is invalid or expired. Try connecting again.",
+  code_already_used: "That authorization was already used. Start the connection again.",
+  invalid_client_id:
+    "The Slack Client ID is wrong. Check Basic Information → App Credentials (it looks like 1234567890.1234567890).",
+  invalid_grant: "Slack rejected the authorization. Check the app credentials and try again.",
 };
 
 export function SlackWorkspace({

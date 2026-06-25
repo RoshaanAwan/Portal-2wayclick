@@ -34,9 +34,14 @@ export const SLACK_SCOPES = [
 
 export class SlackError extends Error {
   status: number;
-  constructor(message: string, status = 502) {
+  /** Slack's raw `error` code (e.g. "bad_redirect_uri", "invalid_code"), when
+   *  the failure came from a Slack API response. Surfaced into the callback's
+   *  ?error= so the dashboard shows the real reason, not a generic message. */
+  code?: string;
+  constructor(message: string, status = 502, code?: string) {
     super(message);
     this.status = status;
+    this.code = code;
   }
 }
 
@@ -119,6 +124,11 @@ export async function exchangeCode(
   code: string,
   origin: string,
 ): Promise<OAuthAccessResult> {
+  // MUST be byte-identical to the redirect_uri sent to the consent screen, or
+  // Slack rejects with `bad_redirect_uri`. Log it so a mismatch is diagnosable.
+  const redirect = redirectUri(origin);
+  console.log("[slack.exchangeCode] redirect_uri =", redirect);
+
   let res: Response;
   try {
     res = await fetch(ACCESS_URL, {
@@ -128,7 +138,7 @@ export async function exchangeCode(
         client_id: creds.clientId,
         client_secret: creds.clientSecret,
         code,
-        redirect_uri: redirectUri(origin),
+        redirect_uri: redirect,
       }),
     });
   } catch {
@@ -141,9 +151,13 @@ export async function exchangeCode(
     team?: { id?: string; name?: string };
   };
   if (!data.ok || !data.access_token) {
+    // Carry Slack's raw code (e.g. bad_redirect_uri, invalid_code,
+    // invalid_client_id, code_already_used) so the UI shows the real reason.
+    console.error("[slack.exchangeCode] failed:", data.error ?? "unknown");
     throw new SlackError(
       `Slack rejected the connection (${data.error ?? "unknown"}).`,
       400,
+      data.error,
     );
   }
   return {
