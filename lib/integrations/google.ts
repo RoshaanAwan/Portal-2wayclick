@@ -76,9 +76,26 @@ export interface GoogleCreds {
  */
 export function originFromRequest(req: Request): string {
   const url = new URL(req.url);
-  const proto = req.headers.get("x-forwarded-proto") ?? url.protocol.replace(":", "");
   const rawHost = req.headers.get("host") ?? url.host; // e.g. "roshaan.localhost:3000"
   const [hostname, port] = rawHost.split(":");
+
+  const isLocal =
+    hostname === "localhost" ||
+    hostname.endsWith(".localhost") ||
+    hostname === "lvh.me" ||
+    hostname.endsWith(".lvh.me") ||
+    hostname === "127.0.0.1";
+
+  // Scheme: behind a TLS-terminating proxy the connection to Node is plain http
+  // and `x-forwarded-proto` may be missing/wrong, so trusting it produced an
+  // `http://…/callback` redirect_uri that mismatched the `https://` one
+  // registered in Google Cloud (Error 400: redirect_uri_mismatch). A PUBLIC host
+  // always runs OAuth over https — the registered redirect URI is https — so
+  // force it. Only local dev (localhost/lvh.me/127.0.0.1) keeps http. An explicit
+  // GOOGLE_OAUTH_REDIRECT_URI still overrides everything (see redirectUri()).
+  const proto = isLocal
+    ? req.headers.get("x-forwarded-proto") ?? url.protocol.replace(":", "")
+    : "https";
 
   let host = hostname;
   if (hostname === "localhost") {
