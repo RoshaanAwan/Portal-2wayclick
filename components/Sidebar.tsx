@@ -35,6 +35,32 @@ import { useMobileNav } from "@/components/MobileNavProvider";
 import { useMessaging } from "@/components/MessagingProvider";
 import { useBrand } from "@/components/BrandProvider";
 import { CHAT_ENABLED } from "@/lib/features";
+import { FEATURE_ROUTES } from "@/lib/entitlementsShared";
+
+// Reverse of FEATURE_ROUTES: longest route prefix → its feature key. A nav item
+// is hidden when its href falls under a gated feature the plan doesn't include.
+// Longest-prefix-first so e.g. /admin/integrations resolves before any /admin.
+const ROUTE_FEATURE: [string, string][] = Object.entries(FEATURE_ROUTES)
+  .flatMap(([key, paths]) => paths.map((p) => [p, key] as [string, string]))
+  .sort((a, b) => b[0].length - a[0].length);
+
+function featureForHref(href: string): string | null {
+  for (const [prefix, key] of ROUTE_FEATURE) {
+    if (href === prefix || href.startsWith(prefix + "/")) return key;
+  }
+  return null;
+}
+
+// Drop nav items whose feature isn't entitled. `unrestricted` (no plan) keeps
+// everything; otherwise an item mapped to a gated feature is shown only if its
+// key is in `features`. Items not mapped to any feature are always kept.
+function gateNav(items: NavItem[], unrestricted: boolean, features: Set<string>): NavItem[] {
+  if (unrestricted) return items;
+  return items.filter((it) => {
+    const key = featureForHref(it.href);
+    return key == null || features.has(key);
+  });
+}
 
 const NAV = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -52,7 +78,17 @@ const NAV = [
   { href: "/tools", label: "Tools", icon: Wrench },
 ];
 
-export function Sidebar({ role }: { role?: string | null }) {
+export function Sidebar({
+  role,
+  unrestricted = true,
+  features = [],
+}: {
+  role?: string | null;
+  /** True when the tenant's plan imposes no entitlement restriction (or no plan). */
+  unrestricted?: boolean;
+  /** Entitled feature keys (only consulted when !unrestricted). */
+  features?: string[];
+}) {
   const pathname = usePathname();
   const router = useRouter();
   const { open, closeNav } = useMobileNav();
@@ -135,7 +171,15 @@ export function Sidebar({ role }: { role?: string | null }) {
       : []),
   ];
 
-  const sections = { adminTierNav, managerNav, adminNav };
+  // Plan entitlement gate: hide nav items whose feature the plan doesn't include
+  // (on top of the role checks above). `unrestricted` (no plan) keeps everything.
+  const featureSet = new Set(features);
+  const sections = {
+    workspaceNav: gateNav(NAV, unrestricted, featureSet),
+    adminTierNav: gateNav(adminTierNav, unrestricted, featureSet),
+    managerNav: gateNav(managerNav, unrestricted, featureSet),
+    adminNav: gateNav(adminNav, unrestricted, featureSet),
+  };
 
   return (
     <>
@@ -204,6 +248,7 @@ function SidebarBody({
   isActive: (href: string) => boolean;
   go: (e: React.MouseEvent, href: string) => void;
   sections: {
+    workspaceNav: NavItem[];
     adminTierNav: NavItem[];
     managerNav: NavItem[];
     adminNav: NavItem[];
@@ -211,7 +256,7 @@ function SidebarBody({
   scope: string;
   onClose?: () => void;
 }) {
-  const { adminTierNav, managerNav, adminNav } = sections;
+  const { workspaceNav, adminTierNav, managerNav, adminNav } = sections;
   const brand = useBrand();
   return (
     <div className="glass relative flex h-full flex-col overflow-hidden px-3 py-4">
@@ -246,7 +291,7 @@ function SidebarBody({
           the most items). min-h-0 lets this flex child actually scroll. */}
       <nav className="min-h-0 flex-1 space-y-0.5 overflow-y-auto">
         <p className="eyebrow mb-2 px-3">Workspace</p>
-        {NAV.map((item) =>
+        {workspaceNav.map((item) =>
           // The Messages entry shows a live unread badge from MessagingProvider;
           // it only exists in NAV when CHAT_ENABLED, so reading the provider here
           // is always safe (the provider is mounted iff chat is enabled).

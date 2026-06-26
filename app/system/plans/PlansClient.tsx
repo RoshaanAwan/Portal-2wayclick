@@ -2,9 +2,22 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Plus, Pencil, Archive, ArchiveRestore, Loader2, X, AlertTriangle } from "lucide-react";
+import {
+  Plus,
+  Pencil,
+  Archive,
+  ArchiveRestore,
+  Loader2,
+  X,
+  AlertTriangle,
+  Check,
+  Users,
+  Clock,
+  Building2,
+} from "lucide-react";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { Button } from "@/components/ui/Button";
+import { cn } from "@/lib/utils";
 import { PLAN_FEATURES } from "@/lib/planFeatures";
 
 interface PlanRow {
@@ -182,10 +195,18 @@ export function PlansClient({
         </div>
       )}
 
-      <div className="flex items-center justify-between">
-        <p className="text-sm text-ink-400">
-          {plans.length} {plans.length === 1 ? "plan" : "plans"}
-        </p>
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-2 text-sm">
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-surface-2 px-2.5 py-1 text-xs font-medium text-ink-600">
+            {plans.length} {plans.length === 1 ? "plan" : "plans"}
+          </span>
+          {plans.some((p) => p.active && p.sellable) && (
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-success/10 px-2.5 py-1 text-xs font-medium text-success">
+              <span className="h-1.5 w-1.5 rounded-full bg-success" />
+              {plans.filter((p) => p.active && p.sellable).length} sellable
+            </span>
+          )}
+        </div>
         <Button onClick={openCreate}>
           <Plus className="h-4 w-4" /> New plan
         </Button>
@@ -298,49 +319,103 @@ export function PlansClient({
       )}
 
       {plans.length === 0 ? (
-        <GlassCard hover={false} className="py-12 text-center">
-          <p className="text-sm text-ink-400">No plans yet. Create your first package to start selling.</p>
+        <GlassCard hover={false} className="py-16 text-center">
+          <div className="mx-auto grid h-12 w-12 place-items-center rounded-xl bg-accent-soft text-accent-ink">
+            <Plus className="h-5 w-5" />
+          </div>
+          <p className="mt-4 text-sm font-medium text-ink">No plans yet</p>
+          <p className="mt-1 text-sm text-ink-400">Create your first package to start selling.</p>
+          <div className="mt-5">
+            <Button onClick={openCreate}>
+              <Plus className="h-4 w-4" /> New plan
+            </Button>
+          </div>
         </GlassCard>
       ) : (
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid items-start gap-5 sm:grid-cols-2 xl:grid-cols-3">
           {plans.map((p) => (
-            <GlassCard key={p.id} hover={false} className={p.active ? "" : "opacity-60"}>
-              <div className="mb-2 flex items-start justify-between gap-2">
-                <div className="min-w-0">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <h3 className="font-semibold text-ink">{p.name}</h3>
-                    {!p.active && (
-                      <span className="rounded-md bg-surface-2 px-1.5 py-0.5 text-[11px] font-semibold text-ink-400">Archived</span>
-                    )}
-                    {p.active && !p.sellable && (
-                      <span className="rounded-md bg-amber-400/15 px-1.5 py-0.5 text-[11px] font-semibold text-amber-700 dark:text-amber-300">Not sellable</span>
-                    )}
-                  </div>
-                  {p.description && <p className="mt-0.5 text-xs text-ink-400">{p.description}</p>}
-                </div>
+            <div
+              key={p.id}
+              className={cn(
+                "group relative flex flex-col rounded-2xl border bg-surface p-6 transition-all duration-200",
+                p.active
+                  ? "border-line hover:border-accent/40 hover:shadow-[0_8px_40px_-16px_rgb(var(--c-accent)/0.35)]"
+                  : "border-dashed border-line bg-surface-2/40",
+              )}
+            >
+              {/* Status ribbon — top-right corner chip */}
+              <div className="absolute right-4 top-4 flex items-center gap-1.5">
+                {!p.active && (
+                  <span className="rounded-full bg-surface-2 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-ink-400">
+                    Archived
+                  </span>
+                )}
+                {p.active && !p.sellable && (
+                  <span className="rounded-full bg-amber-400/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-300">
+                    Draft
+                  </span>
+                )}
+                {p.active && p.sellable && (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-success/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-success">
+                    <span className="h-1.5 w-1.5 rounded-full bg-success" /> Live
+                  </span>
+                )}
               </div>
 
-              <p className="mb-3 text-2xl font-bold text-ink">
-                {money(p.priceCents, p.currency)}
-                <span className="text-sm font-normal text-ink-400">/{p.interval}</span>
-              </p>
+              {/* Name + description */}
+              <div className={cn("pr-16", !p.active && "opacity-70")}>
+                <h3 className="text-base font-semibold text-ink">{p.name}</h3>
+                <p className="mt-0.5 min-h-[1.25rem] text-xs text-ink-400">
+                  {p.description || "—"}
+                </p>
+              </div>
 
-              <ul className="mb-3 space-y-1 text-xs text-ink-500">
-                <li>{p.maxUsers != null ? `Up to ${p.maxUsers} users` : "Unlimited users"}</li>
-                {p.trialDays > 0 && <li>{p.trialDays}-day free trial</li>}
-                {p.features.map((f, i) => (
-                  <li key={i}>• {f}</li>
-                ))}
-                <li className="pt-1 text-ink-400">
-                  {p.tenantCount} {p.tenantCount === 1 ? "tenant" : "tenants"} subscribed
-                </li>
-              </ul>
+              {/* Price */}
+              <div className={cn("mt-4 flex items-baseline gap-1", !p.active && "opacity-70")}>
+                <span className="bg-accent-grad bg-clip-text text-3xl font-bold tracking-tight text-transparent">
+                  {money(p.priceCents, p.currency)}
+                </span>
+                <span className="text-sm font-medium text-ink-400">/{p.interval}</span>
+              </div>
 
-              <div className="flex gap-2">
+              {/* Quick facts */}
+              <div className="mt-3 flex flex-wrap gap-1.5">
+                <span className="inline-flex items-center gap-1.5 rounded-lg bg-surface-2 px-2.5 py-1 text-xs font-medium text-ink-600">
+                  <Users className="h-3.5 w-3.5 text-ink-400" />
+                  {p.maxUsers != null ? `${p.maxUsers} seats` : "Unlimited"}
+                </span>
+                {p.trialDays > 0 && (
+                  <span className="inline-flex items-center gap-1.5 rounded-lg bg-surface-2 px-2.5 py-1 text-xs font-medium text-ink-600">
+                    <Clock className="h-3.5 w-3.5 text-ink-400" />
+                    {p.trialDays}-day trial
+                  </span>
+                )}
+                <span className="inline-flex items-center gap-1.5 rounded-lg bg-surface-2 px-2.5 py-1 text-xs font-medium text-ink-600">
+                  <Building2 className="h-3.5 w-3.5 text-ink-400" />
+                  {p.tenantCount} {p.tenantCount === 1 ? "tenant" : "tenants"}
+                </span>
+              </div>
+
+              {/* Feature checklist */}
+              {p.features.length > 0 && (
+                <ul className="mt-4 space-y-2 text-sm text-ink-600">
+                  {p.features.map((f, i) => (
+                    <li key={i} className="flex items-start gap-2">
+                      <span className="mt-0.5 grid h-4 w-4 shrink-0 place-items-center rounded-full bg-success/15 text-success">
+                        <Check className="h-3 w-3" strokeWidth={3} />
+                      </span>
+                      <span>{f}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+
+              {/* Actions — pinned to the bottom so cards align */}
+              <div className="mt-5 flex gap-2 border-t border-line/70 pt-4">
                 <button
                   onClick={() => openEdit(p)}
                   disabled={busyId !== null}
-                  className="nm-button inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs text-ink-700 disabled:opacity-50"
+                  className="nm-button inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg px-2.5 py-2 text-xs font-medium text-ink-700 disabled:opacity-50"
                 >
                   <Pencil className="h-3.5 w-3.5" /> Edit
                 </button>
@@ -348,7 +423,7 @@ export function PlansClient({
                   <button
                     onClick={() => setActive(p.id, false)}
                     disabled={busyId === p.id}
-                    className="nm-button inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs text-danger disabled:opacity-50"
+                    className="nm-button inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg px-2.5 py-2 text-xs font-medium text-danger disabled:opacity-50"
                   >
                     {busyId === p.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Archive className="h-3.5 w-3.5" />} Archive
                   </button>
@@ -356,13 +431,13 @@ export function PlansClient({
                   <button
                     onClick={() => setActive(p.id, true)}
                     disabled={busyId === p.id}
-                    className="nm-button inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs text-success disabled:opacity-50"
+                    className="nm-button inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg px-2.5 py-2 text-xs font-medium text-success disabled:opacity-50"
                   >
                     {busyId === p.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ArchiveRestore className="h-3.5 w-3.5" />} Restore
                   </button>
                 )}
               </div>
-            </GlassCard>
+            </div>
           ))}
         </div>
       )}

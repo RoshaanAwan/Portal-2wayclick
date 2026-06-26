@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   Check,
   Loader2,
@@ -11,6 +11,8 @@ import {
   Sparkles,
   Users,
   Clock,
+  CreditCard,
+  ShieldCheck,
 } from "lucide-react";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { Button } from "@/components/ui/Button";
@@ -28,6 +30,19 @@ interface PlanRow {
   features: string[];
 }
 
+// The live subscription snapshot — seeded from the server render, then kept in
+// sync by polling /api/billing/status after a Checkout redirect (so the plan
+// flips to "active" the moment the Stripe webhook lands, with no manual reload).
+interface BillingSnapshot {
+  planId: string | null;
+  planName: string | null;
+  subscriptionStatus: string | null;
+  currentPeriodEnd: string | null;
+  hasSubscription: boolean;
+  seatsUsed: number;
+  seatLimit: number | null;
+}
+
 function money(cents: number, currency: string) {
   try {
     return new Intl.NumberFormat("en-US", {
@@ -40,6 +55,17 @@ function money(cents: number, currency: string) {
     return `${currency.toUpperCase()} ${(cents / 100).toFixed(0)}`;
   }
 }
+
+function fmtDate(iso: string | null) {
+  if (!iso) return null;
+  return new Date(iso).toLocaleDateString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  });
+}
+
+const HEALTHY = new Set(["active", "trialing"]);
 
 // Map Stripe's subscription status to a friendly label + tone.
 function statusBadge(status: string | null): { label: string; tone: string } | null {
@@ -64,37 +90,109 @@ export function BillingClient({
   plans,
   stripeReady,
   currentPlanName,
+  currentPlanFeatures,
+  currentPlanPriceCents,
+  currentPlanCurrency,
+  currentPlanInterval,
   subscriptionStatus,
   currentPeriodEnd,
   hasSubscription,
   activePlanId,
+  seatsUsed,
+  seatLimit,
 }: {
   plans: PlanRow[];
   stripeReady: boolean;
   currentPlanName: string | null;
+  currentPlanFeatures: string[];
+  currentPlanPriceCents: number | null;
+  currentPlanCurrency: string | null;
+  currentPlanInterval: string | null;
   subscriptionStatus: string | null;
   currentPeriodEnd: string | null;
   hasSubscription: boolean;
   activePlanId: string | null;
+  seatsUsed: number;
+  seatLimit: number | null;
 }) {
+  const router = useRouter();
   const params = useSearchParams();
   const returned = params.get("status"); // "success" | "canceled" after Checkout
+
   const [busyId, setBusyId] = useState<string | null>(null);
   const [portalBusy, setPortalBusy] = useState(false);
   const [error, setError] = useState("");
 
-  const badge = statusBadge(subscriptionStatus);
-  const periodEnd = currentPeriodEnd ? new Date(currentPeriodEnd) : null;
+  // Live snapshot, seeded from the server render. Polling keeps it current so the
+  // plan activates in-place once Stripe confirms — see the effect below.
+  const [snap, setSnap] = useState<BillingSnapshot>({
+    planId: activePlanId,
+    planName: currentPlanName,
+    subscriptionStatus,
+    currentPeriodEnd,
+    hasSubscription,
+    seatsUsed,
+    seatLimit,
+  });
+
+  // True while we're waiting for the webhook to flip a fresh checkout to active.
+  const healthy = HEALTHY.has(snap.subscriptionStatus ?? "");
+  const [activating, setActivating] = useState(returned === "success" && !healthy);
+
+  const badge = statusBadge(snap.subscriptionStatus);
+  const periodEndLabel = fmtDate(snap.currentPeriodEnd);
 
   // Whether the workspace already has a live plan (anything but a clean slate).
-  const isSubscribed = !!activePlanId && subscriptionStatus !== "canceled";
+  const isSubscribed = !!snap.planId && snap.subscriptionStatus !== "canceled";
 
-  // Highlight the priciest active plan as "Most popular" — but never override the
-  // user's current plan as the highlighted one (their own plan reads as Current).
+  // Highlight the priciest active plan as "Most popular".
   const topPlanId = plans.reduce<{ id: string | null; cents: number }>(
     (acc, p) => (p.priceCents > acc.cents ? { id: p.id, cents: p.priceCents } : acc),
     { id: null, cents: -1 },
   ).id;
+
+  // ── Poll for activation after a successful checkout ───────────────────────
+  // Stripe redirects back before the webhook lands, so the plan looks unchanged.
+  // Poll the status endpoint until it reports a healthy subscription (or we give
+  // up), then refresh the server tree so seat caps / nav reflect the new plan.
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const refresh = useCallback(async () => {
+    try {
+      const res = await fetch("/api/billing/status", { cache: "no-store" });
+      if (!res.ok) return null;
+      const data = (await res.json()) as BillingSnapshot;
+      setSnap(data);
+      return data;
+    } catch {
+      return null;
+    }
+  }, []);
+
+  useEffect(() => {
+    if (returned !== "success" || healthy) {
+      setActivating(false);
+      return;
+    }
+    setActivating(true);
+    let tries = 0;
+    const tick = async () => {
+      tries += 1;
+      const data = await refresh();
+      if ((data && HEALTHY.has(data.subscriptionStatus ?? "")) || tries >= 20) {
+        if (pollRef.current) clearInterval(pollRef.current);
+        pollRef.current = null;
+        setActivating(false);
+        router.refresh(); // pull fresh server data (seat caps, nav, gating)
+      }
+    };
+    void tick();
+    pollRef.current = setInterval(tick, 3000); // ~60s of polling at most
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current);
+      pollRef.current = null;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [returned, healthy]);
 
   async function subscribe(planId: string) {
     setBusyId(planId);
@@ -136,14 +234,28 @@ export function BillingClient({
     }
   }
 
+  const seatPct =
+    snap.seatLimit && snap.seatLimit > 0
+      ? Math.min(100, Math.round((snap.seatsUsed / snap.seatLimit) * 100))
+      : null;
+
   return (
     <div className="space-y-8">
       {/* Status / config banners */}
       <div className="space-y-3">
-        {returned === "success" && (
+        {returned === "success" && activating && (
+          <div className="flex items-start gap-2.5 rounded-xl border border-accent/40 bg-accent-soft/60 px-3.5 py-2.5 text-sm text-accent-ink">
+            <Loader2 className="mt-0.5 h-4 w-4 shrink-0 animate-spin" />
+            <span>
+              Payment received — activating your subscription. This usually takes a
+              few seconds.
+            </span>
+          </div>
+        )}
+        {returned === "success" && !activating && healthy && (
           <div className="flex items-start gap-2.5 rounded-xl border border-success/40 bg-success/10 px-3.5 py-2.5 text-sm text-success">
             <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
-            <span>Thanks! Your subscription is being activated — it may take a moment to reflect below.</span>
+            <span>You’re all set — your subscription is active. Thanks for subscribing!</span>
           </div>
         )}
         {returned === "canceled" && (
@@ -164,36 +276,144 @@ export function BillingClient({
       </div>
 
       {/* Current subscription — only meaningful once a plan exists. */}
-      {isSubscribed && (
-        <GlassCard hover={false} className="border-accent/30 bg-accent-soft/40">
-          <div className="flex flex-wrap items-center justify-between gap-4">
-            <div className="flex items-center gap-3">
-              <div className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-accent-grad text-white">
-                <CheckCircle2 className="h-5 w-5" />
+      {(isSubscribed || activating) && (
+        <div
+          className={cn(
+            "relative overflow-hidden rounded-2xl border p-6 transition-colors",
+            healthy
+              ? "border-success/40 bg-gradient-to-br from-success/10 via-surface to-surface"
+              : "border-accent/30 bg-accent-soft/40",
+          )}
+        >
+          {/* Soft glow accent */}
+          <div
+            aria-hidden
+            className={cn(
+              "pointer-events-none absolute -right-16 -top-16 h-48 w-48 rounded-full blur-3xl",
+              healthy ? "bg-success/20" : "bg-accent/20",
+            )}
+          />
+          <div className="relative flex flex-wrap items-start justify-between gap-5">
+            <div className="flex items-start gap-3.5">
+              <div
+                className={cn(
+                  "grid h-12 w-12 shrink-0 place-items-center rounded-xl text-white shadow-sm",
+                  healthy ? "bg-success" : "bg-accent-grad",
+                )}
+              >
+                {activating ? (
+                  <Loader2 className="h-5 w-5 animate-spin" />
+                ) : healthy ? (
+                  <ShieldCheck className="h-5 w-5" />
+                ) : (
+                  <CreditCard className="h-5 w-5" />
+                )}
               </div>
               <div>
-                <p className="text-xs uppercase tracking-wide text-ink-400">Current plan</p>
-                <div className="mt-0.5 flex items-center gap-2">
-                  <p className="text-lg font-semibold text-ink">{currentPlanName ?? "No plan"}</p>
+                <p className="text-xs font-medium uppercase tracking-wide text-ink-400">
+                  Current plan
+                </p>
+                <div className="mt-1 flex flex-wrap items-center gap-2">
+                  <p className="text-xl font-semibold text-ink">
+                    {snap.planName ?? (activating ? "Activating…" : "No plan")}
+                  </p>
                   {badge && (
-                    <span className={`rounded-md px-1.5 py-0.5 text-[11px] font-semibold ${badge.tone}`}>{badge.label}</span>
+                    <span className={`rounded-md px-2 py-0.5 text-[11px] font-semibold ${badge.tone}`}>
+                      {badge.label}
+                    </span>
+                  )}
+                  {activating && !badge && (
+                    <span className="rounded-md bg-accent-soft px-2 py-0.5 text-[11px] font-semibold text-accent-ink">
+                      Activating
+                    </span>
                   )}
                 </div>
-                {periodEnd && (
-                  <p className="mt-0.5 text-xs text-ink-400">
-                    {subscriptionStatus === "canceled" ? "Access until" : "Renews"}{" "}
-                    {periodEnd.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" })}
+                {currentPlanPriceCents != null && currentPlanCurrency && currentPlanInterval && (
+                  <p className="mt-1.5 flex items-baseline gap-1">
+                    <span className="text-2xl font-bold tracking-tight text-ink">
+                      {money(currentPlanPriceCents, currentPlanCurrency)}
+                    </span>
+                    <span className="text-sm font-medium text-ink-400">/{currentPlanInterval}</span>
+                  </p>
+                )}
+                {periodEndLabel && (
+                  <p className="mt-1 inline-flex items-center gap-1.5 text-xs text-ink-400">
+                    <Clock className="h-3.5 w-3.5" />
+                    {snap.subscriptionStatus === "canceled"
+                      ? "Access until"
+                      : snap.subscriptionStatus === "trialing"
+                        ? "Trial ends"
+                        : "Renews"}{" "}
+                    {periodEndLabel}
                   </p>
                 )}
               </div>
             </div>
-            {hasSubscription && (
+            {snap.hasSubscription && (
               <Button variant="glass" onClick={openPortal} loading={portalBusy}>
                 <ExternalLink className="h-4 w-4" /> Manage subscription
               </Button>
             )}
           </div>
-        </GlassCard>
+
+          {/* Seat usage meter — only when a plan with a cap is active. */}
+          {isSubscribed && seatPct != null && (
+            <div className="relative mt-5 max-w-md">
+              <div className="mb-1.5 flex items-center justify-between text-xs">
+                <span className="inline-flex items-center gap-1.5 font-medium text-ink-600">
+                  <Users className="h-3.5 w-3.5 text-ink-400" /> Seats
+                </span>
+                <span className="text-ink-400">
+                  {snap.seatsUsed} of {snap.seatLimit} used
+                </span>
+              </div>
+              <div className="h-2 overflow-hidden rounded-full bg-surface-2">
+                <div
+                  className={cn(
+                    "h-full rounded-full transition-all",
+                    seatPct >= 100 ? "bg-danger" : seatPct >= 80 ? "bg-amber-400" : "bg-accent-grad",
+                  )}
+                  style={{ width: `${seatPct}%` }}
+                />
+              </div>
+              {seatPct >= 100 && (
+                <p className="mt-1.5 text-xs text-danger">
+                  You’ve reached your seat limit. Upgrade to add more users.
+                </p>
+              )}
+            </div>
+          )}
+          {isSubscribed && seatPct == null && snap.seatLimit == null && (
+            <p className="relative mt-4 inline-flex items-center gap-1.5 text-xs text-ink-400">
+              <Users className="h-3.5 w-3.5" /> {snap.seatsUsed} users · unlimited seats
+            </p>
+          )}
+
+          {/* What's included in the plan THIS workspace is subscribed to — the
+              features the System Owner defined on that plan, nothing else. */}
+          {isSubscribed && currentPlanFeatures.length > 0 && (
+            <div className="relative mt-6 border-t border-line/70 pt-5">
+              <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-ink-400">
+                What’s included in your plan
+              </p>
+              <ul className="grid gap-x-6 gap-y-2.5 text-sm text-ink-600 sm:grid-cols-2">
+                {currentPlanFeatures.map((f, i) => (
+                  <li key={i} className="flex items-start gap-2.5">
+                    <span
+                      className={cn(
+                        "mt-0.5 grid h-4 w-4 shrink-0 place-items-center rounded-full",
+                        healthy ? "bg-success/15 text-success" : "bg-accent-soft text-accent-ink",
+                      )}
+                    >
+                      <Check className="h-3 w-3" strokeWidth={3} />
+                    </span>
+                    <span>{f}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
       )}
 
       {/* Pricing hero — shown when choosing/upgrading a plan. */}
@@ -225,36 +445,44 @@ export function BillingClient({
           )}
         >
           {plans.map((p) => {
-            const isCurrent = p.id === activePlanId;
+            const isCurrent = p.id === snap.planId && isSubscribed;
             // Spotlight the top tier, unless the user is already on another plan.
             const isFeatured = p.id === topPlanId && !isCurrent;
             const ctaLabel = isCurrent
               ? "Current plan"
-              : p.trialDays > 0
-                ? "Start free trial"
-                : "Subscribe";
+              : isSubscribed
+                ? "Switch to this plan"
+                : p.trialDays > 0
+                  ? "Start free trial"
+                  : "Subscribe";
 
             return (
               <div
                 key={p.id}
                 className={cn(
-                  "relative flex flex-col rounded-2xl border bg-surface p-6 transition-shadow",
+                  "relative flex flex-col rounded-2xl border bg-surface p-6 transition-all duration-200",
                   isCurrent
-                    ? "border-accent ring-2 ring-accent"
+                    ? "border-success ring-2 ring-success/60"
                     : isFeatured
-                      ? "border-accent/50 shadow-[0_8px_40px_-12px_rgb(var(--c-accent)/0.35)] sm:-mt-2 sm:mb-2"
-                      : "border-line",
+                      ? "border-accent/50 shadow-[0_8px_40px_-12px_rgb(var(--c-accent)/0.35)] hover:shadow-[0_12px_48px_-12px_rgb(var(--c-accent)/0.45)] sm:-mt-2 sm:mb-2"
+                      : "border-line hover:border-accent/40 hover:shadow-sm",
                 )}
               >
                 {/* Ribbon */}
                 {(isFeatured || isCurrent) && (
                   <span
                     className={cn(
-                      "absolute -top-3 left-1/2 -translate-x-1/2 rounded-full px-3 py-1 text-[11px] font-semibold shadow-sm",
-                      isCurrent ? "bg-accent-soft text-accent-ink" : "bg-accent-grad text-white",
+                      "absolute -top-3 left-1/2 -translate-x-1/2 inline-flex items-center gap-1 rounded-full px-3 py-1 text-[11px] font-semibold shadow-sm",
+                      isCurrent ? "bg-success text-white" : "bg-accent-grad text-white",
                     )}
                   >
-                    {isCurrent ? "Your plan" : "Most popular"}
+                    {isCurrent ? (
+                      <>
+                        <Check className="h-3 w-3" strokeWidth={3} /> Your plan
+                      </>
+                    ) : (
+                      "Most popular"
+                    )}
                   </span>
                 )}
 
@@ -267,7 +495,7 @@ export function BillingClient({
 
                 {/* Price */}
                 <div className="mt-4 flex items-baseline gap-1">
-                  <span className="text-4xl font-bold tracking-tight text-ink">
+                  <span className="bg-accent-grad bg-clip-text text-4xl font-bold tracking-tight text-transparent">
                     {money(p.priceCents, p.currency)}
                   </span>
                   <span className="text-sm font-medium text-ink-400">/{p.interval}</span>
@@ -290,11 +518,19 @@ export function BillingClient({
                 {/* CTA up top so it aligns across cards regardless of feature count */}
                 <Button
                   className="mt-5 w-full justify-center"
-                  variant={isFeatured ? "primary" : "glass"}
+                  variant={isCurrent ? "glass" : isFeatured ? "primary" : "glass"}
                   disabled={!stripeReady || isCurrent || busyId !== null}
                   onClick={() => subscribe(p.id)}
                 >
-                  {busyId === p.id ? <Loader2 className="h-4 w-4 animate-spin" /> : ctaLabel}
+                  {busyId === p.id ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : isCurrent ? (
+                    <>
+                      <Check className="h-4 w-4" strokeWidth={3} /> {ctaLabel}
+                    </>
+                  ) : (
+                    ctaLabel
+                  )}
                 </Button>
 
                 {/* Feature list */}

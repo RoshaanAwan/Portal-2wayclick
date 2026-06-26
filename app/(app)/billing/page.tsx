@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/auth";
 import { can } from "@/lib/permissions";
 import { listSellablePlans, getPlan } from "@/lib/plans";
-import { getTenantBilling } from "@/lib/billing";
+import { getTenantBilling, getSeatUsage } from "@/lib/billing";
 import { isStripeConfigured } from "@/lib/stripe";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { BillingClient } from "./BillingClient";
@@ -20,9 +20,10 @@ export default async function BillingPage() {
   // Only the Company Owner manages billing.
   if (!can.manageBilling(user.role)) redirect("/dashboard");
 
-  const [plans, billing] = await Promise.all([
+  const [plans, billing, seats] = await Promise.all([
     listSellablePlans(),
     getTenantBilling(user.tenantId),
+    getSeatUsage(user.tenantId),
   ]);
 
   // Resolve the current plan even if it's been archived (not in sellable list).
@@ -38,10 +39,16 @@ export default async function BillingPage() {
       <BillingClient
         stripeReady={isStripeConfigured()}
         currentPlanName={currentPlan?.name ?? billing.planName ?? null}
+        currentPlanFeatures={currentPlan?.features ?? []}
+        currentPlanPriceCents={currentPlan?.priceCents ?? null}
+        currentPlanCurrency={currentPlan?.currency ?? null}
+        currentPlanInterval={currentPlan?.interval ?? null}
         subscriptionStatus={billing.subscriptionStatus}
         currentPeriodEnd={billing.currentPeriodEnd ? billing.currentPeriodEnd.toISOString() : null}
         hasSubscription={billing.hasStripeCustomer}
         activePlanId={billing.planId}
+        seatsUsed={seats.used}
+        seatLimit={seats.limit}
         plans={plans.map((p) => ({
           id: p.id,
           name: p.name,
