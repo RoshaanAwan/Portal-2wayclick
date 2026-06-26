@@ -22,7 +22,7 @@ import {
   Zap,
   PlugZap,
 } from "lucide-react";
-import Link from "next/link";
+import Link from "@/components/Link";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";

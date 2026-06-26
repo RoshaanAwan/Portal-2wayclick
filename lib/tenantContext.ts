@@ -49,6 +49,31 @@ export function isBypass(): boolean {
 }
 
 /**
+ * Resolve the active tenantId the SAME way the scoped Prisma client does
+ * (lib/db.ts): prefer the ALS store, else fall back to the request's
+ * session-cookie tenant. Throws only if BOTH are absent.
+ *
+ * Why this exists: in API route handlers the ALS store set by getCurrentUser's
+ * enterWith() does NOT propagate back to the handler's async context (enterWith
+ * inside React.cache mutates a different context), so requireTenantId() — which
+ * reads the store directly — throws "no tenant context". The db extension never
+ * hit this because it already has the cookie fallback; the shared writers
+ * (notify/notifyMany/recordActivity) did not, so they silently failed in every
+ * route. Use this in any best-effort writer that runs inside a request handler.
+ */
+export async function resolveTenantId(): Promise<string> {
+  const fromStore = tenantStore.getStore()?.tenantId;
+  if (fromStore) return fromStore;
+  // Lazy import so this module stays usable in non-request contexts.
+  const { currentRequestTenantId } = await import("./tenant");
+  const fromRequest = await currentRequestTenantId();
+  if (fromRequest) return fromRequest;
+  throw new Error(
+    "[tenant] resolveTenantId(): no tenant context and no session-cookie tenant.",
+  );
+}
+
+/**
  * Set the active tenant for the CURRENT async execution and everything it goes
  * on to await — without wrapping a callback. Used by getCurrentUser()/auth so a
  * server component or route handler that simply calls an auth helper ends up

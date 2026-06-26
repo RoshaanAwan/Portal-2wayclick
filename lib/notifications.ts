@@ -4,7 +4,7 @@ import { db } from "./db";
 import { sendPushToUser, sendPushToUsers } from "./push";
 import { notifySlackChannel } from "./integrations/slack";
 import { BRAND } from "./brand";
-import { requireTenantId } from "./tenantContext";
+import { resolveTenantId } from "./tenantContext";
 
 // ── Notifications ─────────────────────────────────────────────────────────────
 // Per-user inbox writer + in-process event bus. notify() persists a row (so it
@@ -124,9 +124,10 @@ export async function notify(input: NotifyInput): Promise<void> {
   try {
     if (input.actor?.id && input.actor.id === input.userId) return;
 
-    // Capture the tenant now, while the request's tenant context is still live —
-    // the fire-and-forget push below runs after it has unwound and must carry it.
-    const tenantId = requireTenantId();
+    // Resolve the tenant (ALS store, else session cookie — same fallback the
+    // scoped db client uses) while the request is still live; the fire-and-forget
+    // push below runs after it has unwound and must carry it.
+    const tenantId = await resolveTenantId();
 
     const row = await db.notification.create({
       data: {
@@ -200,7 +201,7 @@ export async function notifyMany(
     const actorName = input.actor?.name ?? null;
     const actorAvatar = input.actor?.avatarUrl ?? null;
     const createdAt = new Date();
-    const tenantId = requireTenantId();
+    const tenantId = await resolveTenantId();
 
     // One insert for all recipient rows (createMany returns no IDs).
     await db.notification.createMany({

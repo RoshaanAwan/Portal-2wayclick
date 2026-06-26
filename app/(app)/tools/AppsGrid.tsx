@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import Link from "@/components/Link";
 import { motion } from "framer-motion";
 import { ArrowUpRight, ArrowRight, Plug, Settings } from "lucide-react";
 import { GlassCard } from "@/components/ui/GlassCard";

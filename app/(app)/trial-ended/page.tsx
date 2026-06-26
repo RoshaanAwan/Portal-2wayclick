@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/Link";
 import { redirect } from "next/navigation";
 import { Lock, ArrowRight } from "lucide-react";
 import { getCurrentUser } from "@/lib/auth";

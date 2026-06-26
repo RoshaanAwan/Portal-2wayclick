@@ -1,7 +1,7 @@
 import "server-only";
 import { db } from "./db";
 import { broadcastActivity } from "./notifications";
-import { requireTenantId } from "./tenantContext";
+import { resolveTenantId } from "./tenantContext";
 
 // ── Activity feed writer ──────────────────────────────────────────────────────
 // One call that BOTH persists an Activity row (so the dashboard feed survives a
@@ -50,7 +50,7 @@ interface RecordActivityInput {
  */
 export async function recordActivity(input: RecordActivityInput): Promise<void> {
   try {
-    const tenantId = requireTenantId();
+    const tenantId = await resolveTenantId();
     const row = await db.activity.create({
       data: {
         tenantId,
