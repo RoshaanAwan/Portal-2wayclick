@@ -19,6 +19,7 @@ import {
 import { Avatar } from "@/components/ui/Avatar";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { Logo } from "@/components/ui/Logo";
+import { TrialBanner } from "@/components/TrialBanner";
 import { ApproveScannerButton } from "@/components/ApproveScanner";
 import { timeAgo } from "@/lib/utils";
 import { useNotifications } from "@/lib/useNotifications";
@@ -39,10 +40,13 @@ const typeColor: Record<string, string> = {
 export function Topbar({
   user,
   impersonating = false,
+  trial,
 }: {
   user: SafeUser;
   /** True when a System Owner is impersonating — shows "Stop impersonating". */
   impersonating?: boolean;
+  /** When inside the free trial, the countdown banner is docked under the bar. */
+  trial?: { daysLeft: number; canSubscribe: boolean } | null;
 }) {
   const router = useRouter();
   const brand = useBrand();
@@ -102,7 +106,8 @@ export function Topbar({
 
   return (
     <header className="sticky top-0 z-20 px-3 pt-[calc(0.75rem+env(safe-area-inset-top))] lg:px-6 lg:pt-3">
-      <div className="frost flex items-center gap-2 rounded-2xl border border-line px-3 py-2.5 shadow-card sm:gap-3">
+      <div className="frost flex flex-col rounded-2xl border border-line shadow-card">
+      <div className="flex items-center gap-2 px-3 py-2.5 sm:gap-3">
         {/* Mobile: hamburger opens the nav drawer (the sidebar is hidden below
             lg). Paired with a compact brand mark so the bar still reads as the
             app on phones, where the sidebar logo isn't visible. */}
@@ -347,6 +352,13 @@ export function Topbar({
             )}
           </AnimatePresence>
         </div>
+      </div>
+
+        {/* Trial countdown — docked inside the bar so it sticks as one unit. The
+            banner self-hides when dismissed / outside the trial (returns null). */}
+        {trial && (
+          <TrialBanner daysLeft={trial.daysLeft} canSubscribe={trial.canSubscribe} />
+        )}
       </div>
     </header>
   );

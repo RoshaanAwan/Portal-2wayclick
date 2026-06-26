@@ -138,6 +138,9 @@ export function BillingClient({
   // True while we're waiting for the webhook to flip a fresh checkout to active.
   const healthy = HEALTHY.has(snap.subscriptionStatus ?? "");
   const [activating, setActivating] = useState(returned === "success" && !healthy);
+  // The auto-poll ran its course without activation (webhook lag / misconfig).
+  const [pollTimedOut, setPollTimedOut] = useState(false);
+  const [rechecking, setRechecking] = useState(false);
 
   const badge = statusBadge(snap.subscriptionStatus);
   const periodEndLabel = fmtDate(snap.currentPeriodEnd);
@@ -174,15 +177,20 @@ export function BillingClient({
       return;
     }
     setActivating(true);
+    setPollTimedOut(false);
     let tries = 0;
     const tick = async () => {
       tries += 1;
       const data = await refresh();
-      if ((data && HEALTHY.has(data.subscriptionStatus ?? "")) || tries >= 20) {
+      const nowHealthy = data && HEALTHY.has(data.subscriptionStatus ?? "");
+      if (nowHealthy || tries >= 20) {
         if (pollRef.current) clearInterval(pollRef.current);
         pollRef.current = null;
         setActivating(false);
-        router.refresh(); // pull fresh server data (seat caps, nav, gating)
+        // Gave up without ever seeing a healthy status → the webhook is slow or
+        // misconfigured. Surface a recheck path instead of silently stopping.
+        if (!nowHealthy) setPollTimedOut(true);
+        else router.refresh(); // activated — pull fresh server data (caps, nav)
       }
     };
     void tick();
@@ -193,6 +201,17 @@ export function BillingClient({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [returned, healthy]);
+
+  // Manual recheck when the auto-poll timed out (webhook lag / misconfig).
+  async function recheck() {
+    setRechecking(true);
+    const data = await refresh();
+    setRechecking(false);
+    if (data && HEALTHY.has(data.subscriptionStatus ?? "")) {
+      setPollTimedOut(false);
+      router.refresh();
+    }
+  }
 
   async function subscribe(planId: string) {
     setBusyId(planId);
@@ -256,6 +275,23 @@ export function BillingClient({
           <div className="flex items-start gap-2.5 rounded-xl border border-success/40 bg-success/10 px-3.5 py-2.5 text-sm text-success">
             <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
             <span>You’re all set — your subscription is active. Thanks for subscribing!</span>
+          </div>
+        )}
+        {returned === "success" && !activating && !healthy && pollTimedOut && (
+          <div className="flex flex-wrap items-start gap-2.5 rounded-xl border border-amber-400/40 bg-amber-400/10 px-3.5 py-2.5 text-sm text-amber-700 dark:text-amber-300">
+            <Clock className="mt-0.5 h-4 w-4 shrink-0" />
+            <span className="flex-1">
+              Your payment went through, but activation is taking longer than usual.
+              It’ll update automatically — you can also check now.
+            </span>
+            <button
+              onClick={recheck}
+              disabled={rechecking}
+              className="nm-button inline-flex shrink-0 items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-medium text-ink-700 disabled:opacity-50"
+            >
+              {rechecking ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+              Check again
+            </button>
           </div>
         )}
         {returned === "canceled" && (

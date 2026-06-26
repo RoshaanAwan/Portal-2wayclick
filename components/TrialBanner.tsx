@@ -64,7 +64,7 @@ export function TrialBanner({
   return (
     <div
       className={
-        "relative overflow-hidden border-b " +
+        "relative overflow-hidden rounded-b-2xl border-t " +
         (urgent
           ? "border-amber-400/30 bg-gradient-to-r from-amber-400/15 via-amber-400/5 to-transparent"
           : "border-accent/20 bg-gradient-to-r from-accent-soft via-accent-soft/60 to-transparent")

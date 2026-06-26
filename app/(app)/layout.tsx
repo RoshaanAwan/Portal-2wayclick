@@ -7,7 +7,6 @@ import { getTenantEntitlements, isRouteAllowed, hasFeature } from "@/lib/entitle
 import { can } from "@/lib/permissions";
 import { Sidebar } from "@/components/Sidebar";
 import { Topbar } from "@/components/Topbar";
-import { TrialBanner } from "@/components/TrialBanner";
 import { AssistantWidgetLazy } from "@/components/AssistantWidgetLazy";
 import { MobileNavProvider } from "@/components/MobileNavProvider";
 import { MessagingProvider } from "@/components/MessagingProvider";
@@ -75,13 +74,18 @@ export default async function AppLayout({
         features={[...entitlements.keys]}
       />
       <div className="lg:pl-64">
-        <Topbar user={user} impersonating={!!impersonating} />
-        {access.inTrial && (
-          <TrialBanner
-            daysLeft={access.trialDaysLeft ?? 0}
-            canSubscribe={can.manageBilling(user.role)}
-          />
-        )}
+        <Topbar
+          user={user}
+          impersonating={!!impersonating}
+          trial={
+            access.inTrial
+              ? {
+                  daysLeft: access.trialDaysLeft ?? 0,
+                  canSubscribe: can.manageBilling(user.role),
+                }
+              : null
+          }
+        />
         <main className="px-4 py-6 lg:px-8">{children}</main>
       </div>
       {/* Floating AI assistant (bottom-right) — answers from scoped portal data.

@@ -184,6 +184,19 @@ async function linkTenantSubscription(session: Stripe.Checkout.Session): Promise
   const customerId =
     typeof session.customer === "string" ? session.customer : (session.customer?.id ?? null);
 
+  // Guard against a stale/foreign tenant id (e.g. checkout created against a
+  // different DB): updating a non-existent id throws P2025. Verify it exists
+  // first and log loudly instead of 500-ing — the subscription.* events will
+  // still resolve via the customer id once it's linked.
+  const exists = await adminDb.tenant.findUnique({ where: { id: tenantId }, select: { id: true } });
+  if (!exists) {
+    console.error(
+      "[stripe.webhook] checkout tenantId not found in DB — cannot link subscription",
+      JSON.stringify({ sessionId: session.id, tenantId, customerId }),
+    );
+    return;
+  }
+
   await adminDb.tenant.update({
     where: { id: tenantId },
     data: {
@@ -207,14 +220,27 @@ async function syncTenantSubscription(sub: Stripe.Subscription): Promise<void> {
   const metaTenantId = sub.metadata?.tenantId;
   const customerId = typeof sub.customer === "string" ? sub.customer : sub.customer?.id;
 
-  const tenant = metaTenantId
-    ? await adminDb.tenant.findUnique({ where: { id: metaTenantId }, select: { id: true, status: true } })
-    : customerId
-      ? await adminDb.tenant.findUnique({ where: { stripeCustomerId: customerId }, select: { id: true, status: true } })
+  // Resolve the tenant by metadata.tenantId FIRST, then fall back to the Stripe
+  // customer id if that misses. Critically, the fallback must run when the
+  // metadata lookup returns NULL (stale/foreign id) — not only when metadata is
+  // absent. (The previous nested ternary skipped the fallback on a null hit,
+  // silently no-op'ing the activation while still returning 200 to Stripe.)
+  let tenant =
+    metaTenantId
+      ? await adminDb.tenant.findUnique({ where: { id: metaTenantId }, select: { id: true, status: true } })
       : null;
+  if (!tenant && customerId) {
+    tenant = await adminDb.tenant.findUnique({
+      where: { stripeCustomerId: customerId },
+      select: { id: true, status: true },
+    });
+  }
 
   if (!tenant) {
-    console.error("[stripe.webhook] no tenant for subscription", sub.id);
+    console.error(
+      "[stripe.webhook] no tenant for subscription",
+      JSON.stringify({ subId: sub.id, metaTenantId: metaTenantId ?? null, customerId: customerId ?? null }),
+    );
     return;
   }
 
