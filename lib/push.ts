@@ -87,7 +87,29 @@ async function deliverToSubs(
         if (status === 404 || status === 410) {
           staleIds.push(sub.id);
         } else {
-          console.error("[push] send failed", status ?? err);
+          // Log the push service's explanation (body/headers) — the status code
+          // alone (e.g. 400) doesn't say WHY. Helps diagnose VAPID/JWT/endpoint
+          // issues that only surface from the live server process.
+          const e = err as {
+            statusCode?: number;
+            body?: unknown;
+            headers?: unknown;
+            endpoint?: string;
+            message?: string;
+          };
+          let host = "?";
+          try {
+            host = new URL(sub.endpoint).host;
+          } catch {
+            /* ignore */
+          }
+          console.error(
+            "[push] send failed",
+            status ?? "ERR",
+            host,
+            "body:",
+            typeof e?.body === "string" ? e.body.slice(0, 300) : e?.message,
+          );
         }
       }
     }),
