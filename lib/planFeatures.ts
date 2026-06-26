@@ -8,9 +8,10 @@
 // they already render features as a string[]. Keep this list curated: adding an
 // entry here is all it takes for it to appear as a new checkbox.
 //
-// This is a marketing/positioning list — what the plan advertises. It is NOT an
-// access-control gate; entitlement enforcement (seat caps, suspension) lives in
-// lib/billing.ts. Treat these as descriptive copy.
+// These labels are ALSO the access gate: a plan's chosen features determine which
+// modules its tenant may use. The mapping from feature key → modules/routes, and
+// the actual enforcement (sidebar filtering + page guards), live in
+// lib/entitlements.ts. Seat caps / suspension still live in lib/billing.ts.
 
 export interface PlanFeatureOption {
   /** Stable identifier (for keys / future entitlement wiring); not persisted. */
@@ -34,6 +35,18 @@ export const PLAN_FEATURES: readonly PlanFeatureOption[] = [
 ] as const;
 
 const VALID_LABELS = new Set(PLAN_FEATURES.map((f) => f.label));
+
+// label → stable key, so persisted Plan.features (labels) can be resolved back to
+// feature keys for entitlement checks (see lib/entitlements.ts).
+const LABEL_TO_KEY = new Map(PLAN_FEATURES.map((f) => [f.label, f.key]));
+
+/** Resolve persisted feature LABELS to their stable feature KEYS (catalog order). */
+export function featureKeysFromLabels(features: string[]): string[] {
+  const chosen = new Set(
+    features.map((f) => LABEL_TO_KEY.get(f)).filter((k): k is string => !!k),
+  );
+  return PLAN_FEATURES.filter((f) => chosen.has(f.key)).map((f) => f.key);
+}
 
 /**
  * Keep only labels that are still in the catalog, de-duplicated, in catalog

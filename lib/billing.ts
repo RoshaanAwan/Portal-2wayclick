@@ -58,6 +58,26 @@ export async function getTenantBilling(tenantId: string): Promise<TenantBillingS
 }
 
 /**
+ * Current seat usage for a tenant: how many users exist vs the plan's cap.
+ * `limit` is null when the plan has no cap (or there's no plan) — unlimited.
+ * Used by the billing UI to show "N of M seats used".
+ *
+ * Reads the Tenant + Plan + user count via adminDb (Tenant/Plan are not scoped).
+ */
+export async function getSeatUsage(
+  tenantId: string,
+): Promise<{ used: number; limit: number | null }> {
+  const [tenant, used] = await Promise.all([
+    adminDb.tenant.findUnique({
+      where: { id: tenantId },
+      select: { plan: { select: { maxUsers: true } } },
+    }),
+    adminDb.user.count({ where: { tenantId, isSystemOwner: false } }),
+  ]);
+  return { used, limit: tenant?.plan?.maxUsers ?? null };
+}
+
+/**
  * Whether a tenant can add another user under its plan's maxUsers cap. Returns
  * the cap details so callers can surface a precise message. A tenant with no
  * plan, or a plan with no cap (maxUsers null), is always allowed.

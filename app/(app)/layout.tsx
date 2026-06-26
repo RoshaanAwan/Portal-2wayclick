@@ -3,6 +3,7 @@ import { headers } from "next/headers";
 import { getCurrentUser, getImpersonation } from "@/lib/auth";
 import { getTenantBySubdomain } from "@/lib/tenant";
 import { getTenantAccess } from "@/lib/billing";
+import { getTenantEntitlements, isRouteAllowed, hasFeature } from "@/lib/entitlements";
 import { can } from "@/lib/permissions";
 import { Sidebar } from "@/components/Sidebar";
 import { Topbar } from "@/components/Topbar";
@@ -51,6 +52,16 @@ export default async function AppLayout({
     pathname.startsWith("/billing") || pathname.startsWith("/trial-ended");
   if (!access.hasAccess && !gateExempt) redirect("/trial-ended");
 
+  // Plan entitlements: the tenant's plan decides which modules it may use. This
+  // is the central guard — even pages that don't call requireFeature() are caught
+  // here. Unmapped/core routes (dashboard, billing, settings) are always allowed;
+  // a tenant with no plan is unrestricted (see lib/entitlements.ts). Blocked
+  // routes go to /upgrade, which itself must stay reachable.
+  const entitlements = await getTenantEntitlements(user.tenantId);
+  if (pathname && !pathname.startsWith("/upgrade") && !isRouteAllowed(entitlements, pathname)) {
+    redirect("/upgrade");
+  }
+
   const brand = await resolveClientBrand();
   const impersonating = await getImpersonation();
 
@@ -58,7 +69,11 @@ export default async function AppLayout({
   // SSE stream) client-side — see components/Topbar.tsx.
   const shell = (
     <div className="min-h-screen">
-      <Sidebar role={user.role} />
+      <Sidebar
+        role={user.role}
+        unrestricted={entitlements.unrestricted}
+        features={[...entitlements.keys]}
+      />
       <div className="lg:pl-64">
         <Topbar user={user} impersonating={!!impersonating} />
         {access.inTrial && (
@@ -70,8 +85,9 @@ export default async function AppLayout({
         <main className="px-4 py-6 lg:px-8">{children}</main>
       </div>
       {/* Floating AI assistant (bottom-right) — answers from scoped portal data.
-          Lazy-loaded so its JS stays off every page's critical hydration path. */}
-      <AssistantWidgetLazy />
+          Lazy-loaded so its JS stays off every page's critical hydration path.
+          Gated by the "ai" plan feature. */}
+      {hasFeature(entitlements, "ai") && <AssistantWidgetLazy />}
     </div>
   );
 
