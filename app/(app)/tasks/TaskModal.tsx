@@ -87,6 +87,74 @@ function renderCommentBody(body: string): React.ReactNode {
   return out.length > 0 ? out : body;
 }
 
+// Escape a name for safe use inside a RegExp (names can hold ., (, ), etc.).
+function escapeRe(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+// Build a regex that matches `@Name` for any of the picked mentions, longest
+// name first so "@Ann Marie" wins over "@Ann". Returns null when nothing's been
+// picked (so the composer renders as plain text). The capture group is the name.
+function buildMentionMatcher(mentions: MemberDTO[]): RegExp | null {
+  if (mentions.length === 0) return null;
+  const names = [...new Set(mentions.map((m) => m.name))]
+    .sort((a, b) => b.length - a.length)
+    .map(escapeRe);
+  return new RegExp(`@(${names.join("|")})`, "g");
+}
+
+// The textarea holds plain `@Name` for readability; on submit we re-encode each
+// to the `@[Name](id)` form the server/notifications expect. Match the same set
+// the composer recognises so only deliberately-picked mentions get encoded.
+function encodeMentions(body: string, mentions: MemberDTO[]): string {
+  const re = buildMentionMatcher(mentions);
+  if (!re) return body;
+  return body.replace(re, (_full, name: string) => {
+    const member = mentions.find((m) => m.name === name);
+    return member ? `@[${name}](${member.id})` : `@${name}`;
+  });
+}
+
+// Mirror of the textarea contents that turns the plain `@Name` mentions into
+// styled chips. It sits *behind* a transparent-text textarea sharing the exact
+// same typography/padding/scroll, so the chip lines up perfectly over the real
+// caret/selection — the composer equivalent of `renderCommentBody`. Because the
+// field now holds `@Name` (not the wide `@[Name](id)`), chip and caret geometry
+// match exactly. Trailing newline is padded so the mirror tracks the last line.
+function renderComposerHighlights(
+  body: string,
+  mentions: MemberDTO[],
+): React.ReactNode {
+  const re = buildMentionMatcher(mentions);
+  const out: React.ReactNode[] = [];
+  if (re) {
+    let last = 0;
+    let m: RegExpExecArray | null;
+    re.lastIndex = 0;
+    while ((m = re.exec(body)) !== null) {
+      if (m.index > last) out.push(body.slice(last, m.index));
+      out.push(
+        <span
+          key={`${m.index}-${m[1]}`}
+          // No padding/font-weight change here: the chip must occupy the exact
+          // same glyph width as the textarea's plain `@Name` so caret/selection
+          // stay aligned. Colour + background alone reads as a chip.
+          className="rounded bg-accent-soft text-accent-ink"
+        >
+          @{m[1]}
+        </span>,
+      );
+      last = m.index + m[0].length;
+    }
+    if (last < body.length) out.push(body.slice(last));
+  } else {
+    out.push(body);
+  }
+  // Keep a trailing newline visible so the mirror grows with the textarea.
+  if (body.endsWith("\n")) out.push("​");
+  return out;
+}
+
 export function TaskModal({
   task,
   listName,
@@ -164,7 +232,13 @@ export function TaskModal({
   // query + the textarea position so picking inserts `@[Name](id)` in place.
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
   const [mentionIndex, setMentionIndex] = useState(0);
+  // Mentions picked into the current draft. The textarea holds the *plain*
+  // `@Name` (so the field shows only `@Name`, no hidden id stretching the line);
+  // we re-attach the id here and re-encode to `@[Name](id)` at submit time.
+  const [pickedMentions, setPickedMentions] = useState<MemberDTO[]>([]);
   const composerRef = useRef<HTMLTextAreaElement>(null);
+  // Mirror behind the textarea that renders `@Name` mentions as chips.
+  const highlightRef = useRef<HTMLDivElement>(null);
   // Time tracking: the free-text duration the user is logging ("2h 30m").
   const [timeDraft, setTimeDraft] = useState("");
   // Reason required when the new total would exceed the card's estimate.
@@ -188,6 +262,7 @@ export function TaskModal({
     setDraft("");
     setUploadError(null);
     setMentionQuery(null);
+    setPickedMentions([]);
   }, [taskId]);
 
   async function saveTitle() {
@@ -238,13 +313,20 @@ export function TaskModal({
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
-    const body = draft.trim();
-    if (!body || !task || posting) return;
+    const display = draft.trim();
+    if (!display || !task || posting) return;
+    // Re-encode plain `@Name` back to `@[Name](id)` for the server to store.
+    const body = encodeMentions(display, pickedMentions);
     setPosting(true);
     setDraft("");
     setMentionQuery(null);
+    setPickedMentions([]);
     const ok = await onAddComment(task.id, body);
-    if (!ok) setDraft(body); // restore on failure
+    if (!ok) {
+      // Restore the (plain) draft + mentions so the user can retry.
+      setDraft(display);
+      setPickedMentions(pickedMentions);
+    }
     setPosting(false);
   }
 
@@ -328,9 +410,14 @@ export function TaskModal({
     // Keep any leading whitespace the regex consumed before the "@".
     const at = before.indexOf("@", tokenStart);
     const head = draft.slice(0, at);
-    const token = `@[${member.name}](${member.id}) `;
+    // Insert the *plain* `@Name` (the id is tracked in pickedMentions and
+    // re-attached at submit) so the field shows just `@Name`.
+    const token = `@${member.name} `;
     const next = head + token + after;
     setDraft(next);
+    setPickedMentions((prev) =>
+      prev.some((m) => m.id === member.id) ? prev : [...prev, member],
+    );
     setMentionQuery(null);
     // Restore focus + place the caret right after the inserted mention.
     requestAnimationFrame(() => {
@@ -959,10 +1046,35 @@ export function TaskModal({
                         ))}
                       </ul>
                     )}
+                    {/* Highlight overlay + textarea share this positioning box so
+                        the overlay's `inset-0` covers only the text field (not the
+                        button row below). The textarea on top has transparent text
+                        (caret stays visible) so the user sees chips while still
+                        editing/submitting the raw `@[Name](id)` tokens. */}
+                    <div className="relative">
+                    <div
+                      aria-hidden
+                      ref={highlightRef}
+                      // Same box model as `.input` (padding/radius/text) minus
+                      // the border/bg/ring — those stay on the textarea on top so
+                      // the chrome (and focus ring) isn't doubled. `border` is
+                      // kept transparent so the text box width matches exactly.
+                      className="pointer-events-none absolute inset-0 overflow-y-auto whitespace-pre-wrap break-words rounded-xl border border-transparent px-3.5 py-2.5 text-sm text-ink-700"
+                    >
+                      {renderComposerHighlights(draft, pickedMentions)}
+                    </div>
                     <textarea
                       ref={composerRef}
                       value={draft}
                       onChange={onComposerChange}
+                      onScroll={(e) => {
+                        // Keep the mirror's scroll glued to the textarea's so
+                        // chips stay aligned once the content overflows.
+                        if (highlightRef.current) {
+                          highlightRef.current.scrollTop =
+                            e.currentTarget.scrollTop;
+                        }
+                      }}
                       onKeyDown={(e) => {
                         // Drive the mention picker with the keyboard when it's open.
                         if (mentionQuery !== null && mentionMatches.length > 0) {
@@ -1001,8 +1113,12 @@ export function TaskModal({
                       rows={2}
                       maxLength={1000}
                       placeholder="Write a comment…  (@ to mention, Enter to send)"
-                      className="input resize-none text-sm"
+                      // Transparent text but visible caret — the overlay below
+                      // supplies the rendered chips. `relative z-10` keeps the
+                      // textarea on top so it stays clickable/focusable.
+                      className="input relative z-10 resize-none break-words bg-transparent text-sm text-transparent caret-ink-700"
                     />
+                    </div>
                     <div className="mt-2 flex justify-end">
                       <Button
                         type="submit"
