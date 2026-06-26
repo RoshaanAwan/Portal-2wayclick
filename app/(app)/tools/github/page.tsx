@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/Link";
 import { redirect } from "next/navigation";
 import { GitPullRequest, Settings, AlertCircle } from "lucide-react";
 import { getCurrentUser } from "@/lib/auth";
