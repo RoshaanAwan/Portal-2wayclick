@@ -148,6 +148,21 @@ export async function createSubscriptionCheckout(
   if (!plan || !plan.active) throw new Error("PLAN_UNAVAILABLE");
   if (!plan.stripePriceId) throw new Error("PLAN_NOT_SELLABLE");
 
+  // Guard against stacking subscriptions: if this tenant already has a live
+  // (active/trialing) subscription, a plan change must go through switchTenantPlan
+  // (in-place update), NOT a fresh Checkout — otherwise every "switch" creates a
+  // second subscription on the same customer and they get billed for both.
+  const existing = await adminDb.tenant.findUnique({
+    where: { id: tenantId },
+    select: { subscriptionStatus: true, stripeSubscriptionId: true },
+  });
+  if (
+    existing?.stripeSubscriptionId &&
+    (existing.subscriptionStatus === "active" || existing.subscriptionStatus === "trialing")
+  ) {
+    throw new Error("ALREADY_SUBSCRIBED");
+  }
+
   const customerId = await ensureStripeCustomer(tenantId);
   const stripe = getStripe();
   const base = appBaseUrl(subdomain);
@@ -193,6 +208,54 @@ export async function createBillingPortal(
     return_url: `${base}/billing`,
   });
   return session.url;
+}
+
+/**
+ * Switch an ALREADY-SUBSCRIBED tenant to a different plan IN PLACE: update the
+ * price on the existing Stripe subscription rather than creating a new one. This
+ * is the correct path for "Switch to this plan" — going through Checkout again
+ * would create a SECOND subscription on the same customer (double billing).
+ *
+ * Syncs the result onto the tenant immediately (no wait on the webhook), so the
+ * billing page reflects the new plan the moment the call returns. Returns the
+ * fresh billing snapshot.
+ */
+export async function switchTenantPlan(
+  tenantId: string,
+  planId: string,
+): Promise<TenantBillingState> {
+  const plan = await adminDb.plan.findUnique({
+    where: { id: planId },
+    select: { id: true, active: true, stripePriceId: true },
+  });
+  if (!plan || !plan.active) throw new Error("PLAN_UNAVAILABLE");
+  if (!plan.stripePriceId) throw new Error("PLAN_NOT_SELLABLE");
+
+  const tenant = await adminDb.tenant.findUnique({
+    where: { id: tenantId },
+    select: { stripeSubscriptionId: true, planId: true },
+  });
+  // No live subscription to switch — the caller should start a Checkout instead.
+  if (!tenant?.stripeSubscriptionId) throw new Error("NO_SUBSCRIPTION");
+  // Already on this plan — nothing to do.
+  if (tenant.planId === plan.id) return getTenantBilling(tenantId);
+
+  const stripe = getStripe();
+  const sub = await stripe.subscriptions.retrieve(tenant.stripeSubscriptionId);
+  const itemId = sub.items?.data?.[0]?.id;
+  if (!itemId) throw new Error("NO_SUBSCRIPTION");
+
+  // Swap the price on the existing item. Prorations only bite once a trial ends;
+  // during a trial this is a clean swap with no immediate charge. Keep the plan
+  // id in metadata so syncSubscriptionToTenant stamps the right plan.
+  const updated = await stripe.subscriptions.update(tenant.stripeSubscriptionId, {
+    items: [{ id: itemId, price: plan.stripePriceId }],
+    proration_behavior: "create_prorations",
+    metadata: { ...(sub.metadata ?? {}), tenantId, planId: plan.id },
+  });
+
+  await syncSubscriptionToTenant(updated);
+  return getTenantBilling(tenantId);
 }
 
 /**

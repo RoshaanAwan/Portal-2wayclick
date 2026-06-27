@@ -259,6 +259,33 @@ export function BillingClient({
     }
   }
 
+  // Switch an existing subscription to a different plan IN PLACE — updates the
+  // current Stripe subscription (no new Checkout, no duplicate sub) and reflects
+  // the new plan immediately without a redirect.
+  async function switchPlan(planId: string) {
+    setBusyId(planId);
+    setError("");
+    try {
+      const res = await fetch("/api/billing/switch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ planId }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(data.error || "Could not switch plan");
+        setBusyId(null);
+        return;
+      }
+      setSnap(data as BillingSnapshot);
+      setBusyId(null);
+      router.refresh(); // pull fresh server tree (seat caps, nav, features)
+    } catch {
+      setError("Could not switch plan");
+      setBusyId(null);
+    }
+  }
+
   async function openPortal() {
     setPortalBusy(true);
     setError("");
@@ -580,7 +607,7 @@ export function BillingClient({
                   className="mt-5 w-full justify-center"
                   variant={isCurrent ? "glass" : isFeatured ? "primary" : "glass"}
                   disabled={!stripeReady || isCurrent || busyId !== null}
-                  onClick={() => subscribe(p.id)}
+                  onClick={() => (isSubscribed ? switchPlan(p.id) : subscribe(p.id))}
                 >
                   {busyId === p.id ? (
                     <Loader2 className="h-4 w-4 animate-spin" />

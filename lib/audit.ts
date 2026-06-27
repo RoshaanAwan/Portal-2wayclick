@@ -107,6 +107,7 @@ export type AuditAction =
   | "plan.archive"
   | "plan.restore"
   | "billing.checkout_started"
+  | "billing.plan_switched"
   | "subscription.sync";
 
 interface AuditInput {
