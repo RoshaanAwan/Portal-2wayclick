@@ -173,9 +173,19 @@ export async function createSubscriptionCheckout(
     line_items: [{ price: plan.stripePriceId, quantity: 1 }],
     // The trustworthy link from the Stripe subscription back to our tenant + plan.
     client_reference_id: tenantId,
+    // Require a card UP FRONT, even for trials — so a subscription can never reach
+    // its first billing date with nothing to charge.
+    payment_method_collection: "always",
     subscription_data: {
       metadata: { tenantId, planId: plan.id },
-      ...(plan.trialDays > 0 ? { trial_period_days: plan.trialDays } : {}),
+      ...(plan.trialDays > 0
+        ? {
+            trial_period_days: plan.trialDays,
+            // Belt-and-suspenders: if a trial ever somehow ends without a usable
+            // payment method, cancel it rather than create an unpaid invoice.
+            trial_settings: { end_behavior: { missing_payment_method: "cancel" } },
+          }
+        : {}),
     },
     metadata: { tenantId, planId: plan.id },
     success_url: `${base}/billing?status=success`,
