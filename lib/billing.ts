@@ -254,14 +254,126 @@ export async function createBillingPortal(
 }
 
 /**
- * Switch an ALREADY-SUBSCRIBED tenant to a different plan IN PLACE: update the
- * price on the existing Stripe subscription rather than creating a new one. This
- * is the correct path for "Switch to this plan" — going through Checkout again
- * would create a SECOND subscription on the same customer (double billing).
+ * UPGRADE via Stripe's hosted Billing Portal confirmation page. Rather than swap
+ * the price silently (a charge the user never explicitly OK'd), this deep-links the
+ * tenant straight to Stripe's "confirm subscription update" screen, where Stripe
+ * itself shows the prorated amount due and the user confirms ON STRIPE. On confirm,
+ * Stripe updates the EXISTING subscription (no second subscription, no double-bill,
+ * card on file reused) and fires customer.subscription.updated — which our webhook
+ * syncs back onto the tenant.
  *
- * Syncs the result onto the tenant immediately (no wait on the webhook), so the
- * billing page reflects the new plan the moment the call returns. Returns the
- * fresh billing snapshot.
+ * Used for upgrades only; downgrades stay deferred-to-renewal (switchTenantPlan).
+ * Returns the portal URL to redirect to.
+ */
+export async function createUpgradePortalSession(
+  tenantId: string,
+  planId: string,
+  subdomain: string | null,
+): Promise<string> {
+  const plan = await adminDb.plan.findUnique({
+    where: { id: planId },
+    select: { id: true, active: true, stripePriceId: true },
+  });
+  if (!plan || !plan.active) throw new Error("PLAN_UNAVAILABLE");
+  if (!plan.stripePriceId) throw new Error("PLAN_NOT_SELLABLE");
+
+  const tenant = await adminDb.tenant.findUnique({
+    where: { id: tenantId },
+    select: { stripeSubscriptionId: true, planId: true },
+  });
+  if (!tenant?.stripeSubscriptionId) throw new Error("NO_SUBSCRIPTION");
+  if (tenant.planId === plan.id) throw new Error("ALREADY_ON_PLAN");
+
+  const customerId = await ensureStripeCustomer(tenantId);
+  const stripe = getStripe();
+
+  // Need the live subscription item id to target the update flow.
+  let sub: Stripe.Subscription;
+  try {
+    sub = await stripe.subscriptions.retrieve(tenant.stripeSubscriptionId);
+  } catch (err) {
+    // Subscription gone from the active account (key switched) — clear it and tell
+    // the caller to start a fresh Checkout instead.
+    if (isStripeResourceMissing(err)) {
+      await adminDb.tenant.update({
+        where: { id: tenantId },
+        data: { stripeSubscriptionId: null, subscriptionStatus: null, currentPeriodEnd: null },
+      });
+      throw new Error("NO_SUBSCRIPTION");
+    }
+    throw err;
+  }
+  const itemId = sub.items?.data?.[0]?.id;
+  if (!itemId) throw new Error("NO_SUBSCRIPTION");
+
+  const base = appBaseUrl(subdomain);
+  const session = await stripe.billingPortal.sessions.create({
+    customer: customerId,
+    return_url: `${base}/billing`,
+    // Deep-link straight to the confirm-update screen for THIS subscription + price.
+    // Stripe renders the proration preview and applies it on confirm.
+    flow_data: {
+      type: "subscription_update_confirm",
+      subscription_update_confirm: {
+        subscription: tenant.stripeSubscriptionId,
+        items: [{ id: itemId, price: plan.stripePriceId, quantity: 1 }],
+      },
+      after_completion: {
+        type: "redirect",
+        redirect: { return_url: `${base}/billing?status=upgraded` },
+      },
+    },
+  });
+  return session.url;
+}
+
+/**
+ * True if moving the tenant onto `planId` is an UPGRADE (the target plan costs more
+ * than the tenant's current plan). Upgrades go through the hosted-portal confirm
+ * flow (createUpgradePortalSession); everything else (same price, downgrade, or no
+ * resolvable current plan) is handled in place by switchTenantPlan. Returns false
+ * when there's nothing to compare against, so the conservative in-place path runs.
+ */
+export async function isPlanUpgrade(tenantId: string, planId: string): Promise<boolean> {
+  const target = await adminDb.plan.findUnique({
+    where: { id: planId },
+    select: { priceCents: true },
+  });
+  if (!target) return false;
+
+  const tenant = await adminDb.tenant.findUnique({
+    where: { id: tenantId },
+    select: { planId: true, stripeSubscriptionId: true },
+  });
+  // Only an already-subscribed tenant with a known current plan can "upgrade".
+  if (!tenant?.stripeSubscriptionId || !tenant.planId) return false;
+
+  const current = await adminDb.plan.findUnique({
+    where: { id: tenant.planId },
+    select: { priceCents: true },
+  });
+  if (!current) return false;
+
+  return target.priceCents > current.priceCents;
+}
+
+/**
+ * Switch an ALREADY-SUBSCRIBED tenant to a different plan, without creating a
+ * second subscription (going through Checkout again would double-bill). The
+ * behavior depends on the DIRECTION of the change:
+ *
+ *   • UPGRADE (new plan costs more) — applies IMMEDIATELY. The price swaps on the
+ *     live subscription and the prorated difference is charged now. Synced to the
+ *     tenant on the spot, so the billing page reflects it right away.
+ *
+ *   • DOWNGRADE (new plan costs less) — DEFERRED to the next renewal via a Stripe
+ *     Subscription Schedule. The tenant keeps the (more expensive) plan they've
+ *     already paid for until the current period ends — no immediate charge, no
+ *     credit — then renews onto the cheaper plan. The DB plan flips only when
+ *     Stripe phases into the new price (synced by the subscription.updated webhook),
+ *     so the returned snapshot still shows the current plan until then.
+ *
+ * Returns the fresh billing snapshot.
  */
 export async function switchTenantPlan(
   tenantId: string,
@@ -269,7 +381,7 @@ export async function switchTenantPlan(
 ): Promise<TenantBillingState> {
   const plan = await adminDb.plan.findUnique({
     where: { id: planId },
-    select: { id: true, active: true, stripePriceId: true },
+    select: { id: true, active: true, stripePriceId: true, priceCents: true },
   });
   if (!plan || !plan.active) throw new Error("PLAN_UNAVAILABLE");
   if (!plan.stripePriceId) throw new Error("PLAN_NOT_SELLABLE");
@@ -282,6 +394,16 @@ export async function switchTenantPlan(
   if (!tenant?.stripeSubscriptionId) throw new Error("NO_SUBSCRIPTION");
   // Already on this plan — nothing to do.
   if (tenant.planId === plan.id) return getTenantBilling(tenantId);
+
+  // Compare prices to decide UPGRADE vs DOWNGRADE. A downgrade must NOT take effect
+  // (or charge/credit) immediately — the tenant keeps the plan they already paid for
+  // until the current period ends, then renews onto the cheaper plan.
+  const currentPlan = tenant.planId
+    ? await adminDb.plan.findUnique({ where: { id: tenant.planId }, select: { priceCents: true } })
+    : null;
+  // If we can't determine the current price, treat as an upgrade (apply now) — the
+  // conservative choice, since downgrades are the case that needs deferral.
+  const isDowngrade = currentPlan != null && plan.priceCents < currentPlan.priceCents;
 
   const stripe = getStripe();
   let sub: Stripe.Subscription;
@@ -300,12 +422,61 @@ export async function switchTenantPlan(
     }
     throw err;
   }
-  const itemId = sub.items?.data?.[0]?.id;
+  const item = sub.items?.data?.[0];
+  const itemId = item?.id;
   if (!itemId) throw new Error("NO_SUBSCRIPTION");
 
-  // Swap the price on the existing item. Prorations only bite once a trial ends;
-  // during a trial this is a clean swap with no immediate charge. Keep the plan
-  // id in metadata so syncSubscriptionToTenant stamps the right plan.
+  if (isDowngrade) {
+    // DOWNGRADE → schedule the price change for the next renewal via a Subscription
+    // Schedule. Phase 1 runs the CURRENT price to period end (no proration, no charge,
+    // no credit — they keep what they paid for); phase 2 switches to the new price
+    // ongoing. We deliberately do NOT change metadata.planId now: the tenant stays on
+    // the current plan in our DB until Stripe phases into the new price at renewal, at
+    // which point customer.subscription.updated fires and syncSubscriptionToTenant
+    // resolves the new plan from the live price id (the price-derived plan wins).
+    const currentPriceId = item.price?.id;
+    if (!currentPriceId) throw new Error("NO_SUBSCRIPTION");
+    const periodEndUnix = item.current_period_end;
+    if (!periodEndUnix) throw new Error("NO_SUBSCRIPTION");
+
+    // Reuse an existing schedule on this subscription, else create one FROM it so the
+    // current phase keeps its real start. release on completion so it reverts to a
+    // plain subscription once the downgrade has landed.
+    const scheduleId =
+      typeof sub.schedule === "string" ? sub.schedule : (sub.schedule?.id ?? null);
+    const schedule = scheduleId
+      ? await stripe.subscriptionSchedules.retrieve(scheduleId)
+      : await stripe.subscriptionSchedules.create({ from_subscription: sub.id });
+
+    await stripe.subscriptionSchedules.update(schedule.id, {
+      end_behavior: "release",
+      phases: [
+        {
+          // Phase 1: the plan they're on now, to the end of the paid period.
+          items: [{ price: currentPriceId, quantity: 1 }],
+          start_date: schedule.phases[0]?.start_date ?? "now",
+          end_date: periodEndUnix,
+          proration_behavior: "none",
+        },
+        {
+          // Phase 2: the cheaper plan, starting at renewal. Stamp metadata.planId so
+          // the post-transition sync has it too (belt-and-suspenders with the
+          // price-derived resolution).
+          items: [{ price: plan.stripePriceId, quantity: 1 }],
+          proration_behavior: "none",
+          metadata: { tenantId, planId: plan.id },
+        },
+      ],
+    });
+
+    // No immediate plan change in our DB: snapshot still shows the current plan,
+    // which is exactly what the tenant keeps until renewal.
+    return getTenantBilling(tenantId);
+  }
+
+  // UPGRADE → apply NOW. Swap the price on the existing item and prorate the
+  // difference (charged immediately, standard upgrade behavior). Keep the plan id in
+  // metadata so syncSubscriptionToTenant stamps the right plan.
   const updated = await stripe.subscriptions.update(tenant.stripeSubscriptionId, {
     items: [{ id: itemId, price: plan.stripePriceId }],
     proration_behavior: "create_prorations",
@@ -358,7 +529,23 @@ export async function syncSubscriptionToTenant(sub: Stripe.Subscription): Promis
   // top-level field was removed). It's a Unix timestamp in seconds.
   const periodEndUnix = sub.items?.data?.[0]?.current_period_end ?? null;
   const status = sub.status;
-  const planId = sub.metadata?.planId ?? undefined;
+
+  // Which plan is the subscription ACTUALLY on? Prefer the explicit metadata.planId
+  // (set at checkout / immediate switch), but fall back to resolving the plan from
+  // the live price id on the line item. The fallback is what makes a SCHEDULED
+  // downgrade land at the right moment: when the schedule phases into the new price
+  // at period end, the price id is authoritative even if metadata lags. Resolving by
+  // price keeps the DB plan in lock-step with what Stripe is billing.
+  let planId = sub.metadata?.planId ?? undefined;
+  const livePriceId = sub.items?.data?.[0]?.price?.id;
+  if (livePriceId) {
+    const byPrice = await adminDb.plan.findFirst({
+      where: { stripePriceId: livePriceId },
+      select: { id: true },
+    });
+    // The price-derived plan WINS over stale metadata: it's what's being billed.
+    if (byPrice) planId = byPrice.id;
+  }
 
   await adminDb.tenant.update({
     where: { id: tenant.id },

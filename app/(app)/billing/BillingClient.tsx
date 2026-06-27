@@ -261,9 +261,11 @@ export function BillingClient({
     }
   }
 
-  // Switch an existing subscription to a different plan IN PLACE — updates the
-  // current Stripe subscription (no new Checkout, no duplicate sub) and reflects
-  // the new plan immediately without a redirect.
+  // Change the plan on an existing subscription. The server decides direction:
+  //   • UPGRADE  → responds with { redirectUrl } to Stripe's hosted confirm page,
+  //     where the user OKs the prorated charge; we redirect there.
+  //   • DOWNGRADE → applied in place (deferred to renewal); responds with the fresh
+  //     snapshot, which we reflect without leaving the page.
   async function switchPlan(planId: string) {
     setBusyId(planId);
     setError("");
@@ -278,6 +280,10 @@ export function BillingClient({
         setError(data.error || "Could not switch plan");
         setBusyId(null);
         return;
+      }
+      if (data.redirectUrl) {
+        window.location.href = data.redirectUrl; // Stripe portal confirm (upgrade)
+        return; // keep busy state through the redirect
       }
       setSnap(data as BillingSnapshot);
       setBusyId(null);
