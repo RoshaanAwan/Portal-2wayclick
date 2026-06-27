@@ -254,6 +254,60 @@ export async function createBillingPortal(
 }
 
 /**
+ * Build (once per process) a Billing Portal CONFIGURATION that allows subscription
+ * plan updates across all sellable plans, and return its id. We do NOT rely on the
+ * account's DEFAULT portal configuration: that has "Customers can switch plans" off
+ * by default (Stripe rejects subscription_update flows with "the subscription update
+ * feature in the portal configuration is disabled"), and even when enabled it must
+ * be hand-edited to list every product — so a newly-created Plan would silently
+ * break upgrades. Creating our own config from the live plan catalog keeps the
+ * upgrade flow self-sufficient and free of dashboard upkeep.
+ *
+ * Cached in-process by the set of price ids it covers, so we don't recreate it on
+ * every call but DO refresh when the plan catalog changes.
+ */
+let cachedPortalConfig: { key: string; id: string } | null = null;
+
+async function ensureUpgradePortalConfig(): Promise<string> {
+  const plans = await adminDb.plan.findMany({
+    where: { active: true, stripePriceId: { not: null }, stripeProductId: { not: null } },
+    select: { stripeProductId: true, stripePriceId: true },
+  });
+
+  // The products customers may switch to, in Stripe's expected shape.
+  const products = plans
+    .filter((p): p is { stripeProductId: string; stripePriceId: string } =>
+      !!p.stripeProductId && !!p.stripePriceId,
+    )
+    .map((p) => ({ product: p.stripeProductId, prices: [p.stripePriceId] }));
+
+  if (products.length === 0) throw new Error("PLAN_NOT_SELLABLE");
+
+  // Cache key = the exact set of price ids covered; if the catalog changes we rebuild.
+  const key = products.map((p) => p.prices[0]).sort().join(",");
+  if (cachedPortalConfig?.key === key) return cachedPortalConfig.id;
+
+  const stripe = getStripe();
+  const config = await stripe.billingPortal.configurations.create({
+    // Minimal feature set — we only need the subscription_update path enabled. The
+    // hosted confirm flow we deep-link to uses this config's update permissions.
+    features: {
+      subscription_update: {
+        enabled: true,
+        default_allowed_updates: ["price"],
+        proration_behavior: "create_prorations",
+        products,
+      },
+    },
+    // No business_profile/headline needed for a flow we drive programmatically (the
+    // account's default business profile is used).
+  });
+
+  cachedPortalConfig = { key, id: config.id };
+  return config.id;
+}
+
+/**
  * UPGRADE via Stripe's hosted Billing Portal confirmation page. Rather than swap
  * the price silently (a charge the user never explicitly OK'd), this deep-links the
  * tenant straight to Stripe's "confirm subscription update" screen, where Stripe
@@ -306,9 +360,14 @@ export async function createUpgradePortalSession(
   const itemId = sub.items?.data?.[0]?.id;
   if (!itemId) throw new Error("NO_SUBSCRIPTION");
 
+  // Use OUR portal configuration (subscription updates enabled across all sellable
+  // plans), not the account default — see ensureUpgradePortalConfig.
+  const configuration = await ensureUpgradePortalConfig();
+
   const base = appBaseUrl(subdomain);
   const session = await stripe.billingPortal.sessions.create({
     customer: customerId,
+    configuration,
     return_url: `${base}/billing`,
     // Deep-link straight to the confirm-update screen for THIS subscription + price.
     // Stripe renders the proration preview and applies it on confirm.

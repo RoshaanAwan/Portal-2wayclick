@@ -188,6 +188,27 @@ export function BillingClient({
     }
   }, []);
 
+  // After an UPGRADE confirmed on Stripe's portal (?status=upgraded), the
+  // subscription was already active, so there's no "activation" to poll for — only
+  // the new plan to pull in. The webhook updates planId, but it may not have landed
+  // by the time Stripe redirects back, so reconcile once against Stripe directly
+  // (which resolves the plan from the live price) and refresh the server tree.
+  useEffect(() => {
+    if (returned !== "upgraded") return;
+    let cancelled = false;
+    void (async () => {
+      // The webhook is usually quick; a brief wait avoids a redundant Stripe call,
+      // then reconcile is the authoritative pull if the DB hasn't caught up.
+      const data = await reconcile();
+      if (cancelled) return;
+      if (data) router.refresh(); // pull fresh server data (plan, caps, nav)
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [returned]);
+
   useEffect(() => {
     if (returned !== "success" || healthy) {
       setActivating(false);
