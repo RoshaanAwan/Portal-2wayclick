@@ -297,7 +297,10 @@ async function ensureUpgradePortalConfig(): Promise<string> {
       subscription_update: {
         enabled: true,
         default_allowed_updates: ["price"],
-        proration_behavior: "create_prorations",
+        // Charge the prorated upgrade difference IMMEDIATELY (finalize + pay an
+        // invoice the moment the user confirms on Stripe), rather than letting it
+        // ride on the next renewal invoice.
+        proration_behavior: "always_invoice",
         products,
       },
       payment_method_update: { enabled: true },
@@ -536,12 +539,13 @@ export async function switchTenantPlan(
     return getTenantBilling(tenantId);
   }
 
-  // UPGRADE → apply NOW. Swap the price on the existing item and prorate the
-  // difference (charged immediately, standard upgrade behavior). Keep the plan id in
-  // metadata so syncSubscriptionToTenant stamps the right plan.
+  // UPGRADE → apply NOW and CHARGE the prorated difference immediately. "always_invoice"
+  // makes Stripe finalize + pay an invoice for the proration on the spot (card on file),
+  // rather than "create_prorations" which only stages the difference onto the next
+  // renewal invoice. Keep the plan id in metadata so syncSubscriptionToTenant stamps it.
   const updated = await stripe.subscriptions.update(tenant.stripeSubscriptionId, {
     items: [{ id: itemId, price: plan.stripePriceId }],
-    proration_behavior: "create_prorations",
+    proration_behavior: "always_invoice",
     metadata: { ...(sub.metadata ?? {}), tenantId, planId: plan.id },
   });
 
