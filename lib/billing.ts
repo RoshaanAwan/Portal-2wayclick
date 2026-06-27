@@ -289,8 +289,10 @@ async function ensureUpgradePortalConfig(): Promise<string> {
 
   const stripe = getStripe();
   const config = await stripe.billingPortal.configurations.create({
-    // Minimal feature set — we only need the subscription_update path enabled. The
-    // hosted confirm flow we deep-link to uses this config's update permissions.
+    // Minimal feature set — we need the subscription_update path enabled. Stripe
+    // requires payment_method_update to be enabled alongside it (a plan switch can
+    // prorate a charge, so the customer must be able to manage their card), so we
+    // enable both. The hosted confirm flow we deep-link to uses these permissions.
     features: {
       subscription_update: {
         enabled: true,
@@ -298,6 +300,7 @@ async function ensureUpgradePortalConfig(): Promise<string> {
         proration_behavior: "create_prorations",
         products,
       },
+      payment_method_update: { enabled: true },
     },
     // No business_profile/headline needed for a flow we drive programmatically (the
     // account's default business profile is used).
