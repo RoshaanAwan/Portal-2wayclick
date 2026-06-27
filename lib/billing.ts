@@ -1,8 +1,12 @@
 import "server-only";
+import type Stripe from "stripe";
 import { adminDb } from "./db";
 import { getStripe } from "./stripe";
 import { appBaseUrl } from "./share";
 import { computeTenantAccess, type TenantAccess } from "./access";
+import { setTenantStatus } from "./platform";
+import { audit } from "./audit";
+import { runWithTenant } from "./tenantContext";
 
 export type { TenantAccess } from "./access";
 
@@ -189,4 +193,129 @@ export async function createBillingPortal(
     return_url: `${base}/billing`,
   });
   return session.url;
+}
+
+/**
+ * Sync a Stripe Subscription's state onto its tenant. This is the SOURCE OF TRUTH
+ * for "is the tenant's plan active". Per the auto-suspend policy: a canceled or
+ * past_due/unpaid subscription suspends the tenant; any healthy status reactivates.
+ *
+ * Resolves the tenant by metadata.tenantId first (set at checkout), then falls
+ * back to the Stripe customer id — both via adminDb (no request context here).
+ *
+ * Called from TWO places that must stay in lock-step: the Stripe webhook (the
+ * normal path) and reconcileTenantBillingFromStripe (the self-heal path used when
+ * the webhook is delayed or misconfigured). Keep the logic here, not duplicated.
+ */
+export async function syncSubscriptionToTenant(sub: Stripe.Subscription): Promise<void> {
+  const metaTenantId = sub.metadata?.tenantId;
+  const customerId = typeof sub.customer === "string" ? sub.customer : sub.customer?.id;
+
+  // Resolve by metadata.tenantId FIRST, then fall back to the Stripe customer id
+  // if that misses. The fallback must run when the metadata lookup returns NULL
+  // (stale/foreign id), not only when metadata is absent.
+  let tenant =
+    metaTenantId
+      ? await adminDb.tenant.findUnique({ where: { id: metaTenantId }, select: { id: true, status: true } })
+      : null;
+  if (!tenant && customerId) {
+    tenant = await adminDb.tenant.findUnique({
+      where: { stripeCustomerId: customerId },
+      select: { id: true, status: true },
+    });
+  }
+
+  if (!tenant) {
+    console.error(
+      "[billing.sync] no tenant for subscription",
+      JSON.stringify({ subId: sub.id, metaTenantId: metaTenantId ?? null, customerId: customerId ?? null }),
+    );
+    return;
+  }
+
+  // current_period_end lives on the subscription ITEM in this API version (the
+  // top-level field was removed). It's a Unix timestamp in seconds.
+  const periodEndUnix = sub.items?.data?.[0]?.current_period_end ?? null;
+  const status = sub.status;
+  const planId = sub.metadata?.planId ?? undefined;
+
+  await adminDb.tenant.update({
+    where: { id: tenant.id },
+    data: {
+      subscriptionStatus: status,
+      stripeSubscriptionId: sub.id,
+      currentPeriodEnd: periodEndUnix ? new Date(periodEndUnix * 1000) : null,
+      ...(planId ? { planId } : {}),
+      ...(customerId ? { stripeCustomerId: customerId } : {}),
+    },
+  });
+
+  // Auto-suspend / reactivate policy. "active" and "trialing" are healthy;
+  // everything terminal/unpaid suspends access.
+  const healthy = status === "active" || status === "trialing";
+  const shouldSuspend = !healthy && (status === "canceled" || status === "past_due" || status === "unpaid");
+
+  if (shouldSuspend && tenant.status !== "suspended") {
+    await setTenantStatus(tenant.id, "suspended");
+  } else if (healthy && tenant.status === "suspended") {
+    await setTenantStatus(tenant.id, "active");
+  }
+
+  await runWithTenant(tenant.id, () =>
+    audit({
+      actor: { id: null, name: "Stripe", role: "SYSTEM" },
+      action: "subscription.sync",
+      entity: "Tenant",
+      entityId: tenant.id,
+      summary: `Subscription is now ${status}`,
+      detail: { subscriptionId: sub.id, status, suspended: shouldSuspend },
+    }),
+  );
+}
+
+/**
+ * Self-heal: pull the tenant's subscription straight from Stripe and sync it,
+ * then return the fresh billing snapshot. This is the fallback for when the
+ * webhook hasn't landed (delayed delivery, or a misconfigured endpoint) — it
+ * makes activation NOT depend solely on Stripe reaching our webhook.
+ *
+ * Resolves the live subscription by the stored stripeSubscriptionId, falling
+ * back to the most recent subscription on the stored Stripe customer. A tenant
+ * that never started checkout (no customer/subscription) is a cheap no-op.
+ */
+export async function reconcileTenantBillingFromStripe(
+  tenantId: string,
+): Promise<TenantBillingState> {
+  const tenant = await adminDb.tenant.findUnique({
+    where: { id: tenantId },
+    select: { stripeSubscriptionId: true, stripeCustomerId: true },
+  });
+  if (!tenant) throw new Error("TENANT_NOT_FOUND");
+
+  // No Stripe footprint yet — nothing to reconcile against.
+  if (!tenant.stripeSubscriptionId && !tenant.stripeCustomerId) {
+    return getTenantBilling(tenantId);
+  }
+
+  const stripe = getStripe();
+  let sub: Stripe.Subscription | null = null;
+  try {
+    if (tenant.stripeSubscriptionId) {
+      sub = await stripe.subscriptions.retrieve(tenant.stripeSubscriptionId);
+    } else if (tenant.stripeCustomerId) {
+      const list = await stripe.subscriptions.list({
+        customer: tenant.stripeCustomerId,
+        status: "all",
+        limit: 1,
+      });
+      sub = list.data[0] ?? null;
+    }
+  } catch (err) {
+    // A failed Stripe lookup shouldn't blow up the billing page — return the
+    // current DB snapshot and let the caller retry.
+    console.error("[billing.reconcile] stripe lookup failed", err);
+  }
+
+  if (sub) await syncSubscriptionToTenant(sub);
+  return getTenantBilling(tenantId);
 }

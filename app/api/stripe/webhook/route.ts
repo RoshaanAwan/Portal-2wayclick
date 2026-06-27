@@ -5,7 +5,7 @@ import { audit } from "@/lib/audit";
 import { notify } from "@/lib/notifications";
 import { getStripe, stripeWebhookSecret } from "@/lib/stripe";
 import { formatMoney } from "@/lib/invoices";
-import { setTenantStatus } from "@/lib/platform";
+import { syncSubscriptionToTenant } from "@/lib/billing";
 import { runWithTenant } from "@/lib/tenantContext";
 
 // ── Stripe webhook ─────────────────────────────────────────────────────────────
@@ -72,7 +72,7 @@ export async function POST(req: Request) {
       case "customer.subscription.updated":
       case "customer.subscription.deleted": {
         const sub = event.data.object as Stripe.Subscription;
-        await syncTenantSubscription(sub);
+        await syncSubscriptionToTenant(sub);
         break;
       }
       default:
@@ -205,83 +205,4 @@ async function linkTenantSubscription(session: Stripe.Checkout.Session): Promise
       ...(customerId ? { stripeCustomerId: customerId } : {}),
     },
   });
-}
-
-/**
- * Sync a Stripe Subscription's state onto its tenant. This is the SOURCE OF TRUTH
- * for "is the tenant's plan active". Per the auto-suspend policy: a canceled or
- * past_due/unpaid subscription suspends the tenant (the existing middleware block
- * + /suspended page); any healthy status reactivates it.
- *
- * Resolves the tenant by metadata.tenantId first (set at checkout), then falls
- * back to the Stripe customer id — both via adminDb (the webhook has no context).
- */
-async function syncTenantSubscription(sub: Stripe.Subscription): Promise<void> {
-  const metaTenantId = sub.metadata?.tenantId;
-  const customerId = typeof sub.customer === "string" ? sub.customer : sub.customer?.id;
-
-  // Resolve the tenant by metadata.tenantId FIRST, then fall back to the Stripe
-  // customer id if that misses. Critically, the fallback must run when the
-  // metadata lookup returns NULL (stale/foreign id) — not only when metadata is
-  // absent. (The previous nested ternary skipped the fallback on a null hit,
-  // silently no-op'ing the activation while still returning 200 to Stripe.)
-  let tenant =
-    metaTenantId
-      ? await adminDb.tenant.findUnique({ where: { id: metaTenantId }, select: { id: true, status: true } })
-      : null;
-  if (!tenant && customerId) {
-    tenant = await adminDb.tenant.findUnique({
-      where: { stripeCustomerId: customerId },
-      select: { id: true, status: true },
-    });
-  }
-
-  if (!tenant) {
-    console.error(
-      "[stripe.webhook] no tenant for subscription",
-      JSON.stringify({ subId: sub.id, metaTenantId: metaTenantId ?? null, customerId: customerId ?? null }),
-    );
-    return;
-  }
-
-  // current_period_end lives on the subscription ITEM in this API version (the
-  // top-level field was removed). It's a Unix timestamp in seconds.
-  const periodEndUnix = sub.items?.data?.[0]?.current_period_end ?? null;
-  // A deletion event always means canceled, regardless of the object's status.
-  const status = sub.status;
-  const planId = sub.metadata?.planId ?? undefined;
-
-  await adminDb.tenant.update({
-    where: { id: tenant.id },
-    data: {
-      subscriptionStatus: status,
-      stripeSubscriptionId: sub.id,
-      currentPeriodEnd: periodEndUnix ? new Date(periodEndUnix * 1000) : null,
-      ...(planId ? { planId } : {}),
-      ...(customerId ? { stripeCustomerId: customerId } : {}),
-    },
-  });
-
-  // Auto-suspend / reactivate policy. "active" and "trialing" are healthy;
-  // everything terminal/unpaid suspends access.
-  const healthy = status === "active" || status === "trialing";
-  const shouldSuspend = !healthy && (status === "canceled" || status === "past_due" || status === "unpaid");
-
-  if (shouldSuspend && tenant.status !== "suspended") {
-    await setTenantStatus(tenant.id, "suspended");
-  } else if (healthy && tenant.status === "suspended") {
-    // Payment recovered (e.g. past_due → active) — restore access.
-    await setTenantStatus(tenant.id, "active");
-  }
-
-  await runWithTenant(tenant.id, () =>
-    audit({
-      actor: { id: null, name: "Stripe", role: "SYSTEM" },
-      action: "subscription.sync",
-      entity: "Tenant",
-      entityId: tenant.id,
-      summary: `Subscription is now ${status}`,
-      detail: { subscriptionId: sub.id, status, suspended: shouldSuspend },
-    }),
-  );
 }

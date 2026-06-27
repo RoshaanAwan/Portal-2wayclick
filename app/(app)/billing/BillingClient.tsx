@@ -171,6 +171,21 @@ export function BillingClient({
     }
   }, []);
 
+  // Authoritative check: ask the server to reconcile against Stripe directly
+  // (not just re-read our DB). This is what actually recovers activation when the
+  // webhook is delayed or misconfigured — see /api/billing/recheck.
+  const reconcile = useCallback(async () => {
+    try {
+      const res = await fetch("/api/billing/recheck", { method: "POST" });
+      if (!res.ok) return null;
+      const data = (await res.json()) as BillingSnapshot;
+      setSnap(data);
+      return data;
+    } catch {
+      return null;
+    }
+  }, []);
+
   useEffect(() => {
     if (returned !== "success" || healthy) {
       setActivating(false);
@@ -182,7 +197,14 @@ export function BillingClient({
     const tick = async () => {
       tries += 1;
       const data = await refresh();
-      const nowHealthy = data && HEALTHY.has(data.subscriptionStatus ?? "");
+      let nowHealthy = data && HEALTHY.has(data.subscriptionStatus ?? "");
+      // Last attempt and still not active via the webhook → do one authoritative
+      // reconcile straight against Stripe before giving up. Handles a delayed or
+      // misconfigured webhook so most users never have to click "Check again".
+      if (!nowHealthy && tries >= 20) {
+        const rec = await reconcile();
+        nowHealthy = !!rec && HEALTHY.has(rec.subscriptionStatus ?? "");
+      }
       if (nowHealthy || tries >= 20) {
         if (pollRef.current) clearInterval(pollRef.current);
         pollRef.current = null;
@@ -203,9 +225,11 @@ export function BillingClient({
   }, [returned, healthy]);
 
   // Manual recheck when the auto-poll timed out (webhook lag / misconfig).
+  // Reconciles directly against Stripe so it activates even if the webhook never
+  // arrives.
   async function recheck() {
     setRechecking(true);
-    const data = await refresh();
+    const data = await reconcile();
     setRechecking(false);
     if (data && HEALTHY.has(data.subscriptionStatus ?? "")) {
       setPollTimedOut(false);
