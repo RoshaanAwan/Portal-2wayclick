@@ -13,6 +13,8 @@ import {
   Clock,
   CreditCard,
   ShieldCheck,
+  ArrowUp,
+  ArrowDown,
 } from "lucide-react";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { Button } from "@/components/ui/Button";
@@ -510,7 +512,7 @@ export function BillingClient({
           {isSubscribed ? "Change your plan" : "Pricing"}
         </span>
         <h2 className="mt-3 font-display text-2xl font-semibold tracking-tight text-ink sm:text-3xl">
-          {isSubscribed ? "Switch to the plan that fits" : "Choose the plan that fits your team"}
+          {isSubscribed ? "Upgrade or downgrade anytime" : "Choose the plan that fits your team"}
         </h2>
         <p className="mx-auto mt-2 max-w-md text-sm text-ink-500">
           Simple, transparent pricing. Cancel or change anytime from the billing portal.
@@ -535,13 +537,33 @@ export function BillingClient({
             const isCurrent = p.id === snap.planId && isSubscribed;
             // Spotlight the top tier, unless the user is already on another plan.
             const isFeatured = p.id === topPlanId && !isCurrent;
-            const ctaLabel = isCurrent
-              ? "Current plan"
-              : isSubscribed
-                ? "Switch to this plan"
-                : p.trialDays > 0
-                  ? "Start free trial"
-                  : "Subscribe";
+            // When already subscribed, a pricier plan is an upgrade and a cheaper
+            // one a downgrade — relative to the plan they're currently on. Drives
+            // the CTA label + arrow so "Switch" reads as up/down, not just sideways.
+            const relation: "current" | "upgrade" | "downgrade" | "switch" | "new" =
+              isCurrent
+                ? "current"
+                : !isSubscribed
+                  ? "new"
+                  : currentPlanPriceCents == null
+                    ? "switch"
+                    : p.priceCents > currentPlanPriceCents
+                      ? "upgrade"
+                      : p.priceCents < currentPlanPriceCents
+                        ? "downgrade"
+                        : "switch";
+            const ctaLabel =
+              relation === "current"
+                ? "Current plan"
+                : relation === "upgrade"
+                  ? "Upgrade to this plan"
+                  : relation === "downgrade"
+                    ? "Downgrade to this plan"
+                    : relation === "switch"
+                      ? "Switch to this plan"
+                      : p.trialDays > 0
+                        ? "Start free trial"
+                        : "Subscribe";
 
             return (
               <div
@@ -605,7 +627,13 @@ export function BillingClient({
                 {/* CTA up top so it aligns across cards regardless of feature count */}
                 <Button
                   className="mt-5 w-full justify-center"
-                  variant={isCurrent ? "glass" : isFeatured ? "primary" : "glass"}
+                  variant={
+                    isCurrent
+                      ? "glass"
+                      : relation === "upgrade" || isFeatured
+                        ? "primary"
+                        : "glass"
+                  }
                   disabled={!stripeReady || isCurrent || busyId !== null}
                   onClick={() => (isSubscribed ? switchPlan(p.id) : subscribe(p.id))}
                 >
@@ -614,6 +642,14 @@ export function BillingClient({
                   ) : isCurrent ? (
                     <>
                       <Check className="h-4 w-4" strokeWidth={3} /> {ctaLabel}
+                    </>
+                  ) : relation === "upgrade" ? (
+                    <>
+                      <ArrowUp className="h-4 w-4" strokeWidth={2.5} /> {ctaLabel}
+                    </>
+                  ) : relation === "downgrade" ? (
+                    <>
+                      <ArrowDown className="h-4 w-4" strokeWidth={2.5} /> {ctaLabel}
                     </>
                   ) : (
                     ctaLabel

@@ -108,6 +108,11 @@ export async function canAddUser(
  * Find (or lazily create) the Stripe Customer for a tenant. We key the Customer
  * by tenantId in its metadata so the webhook can map events back even if our
  * stored id is ever lost. The created id is persisted on the Tenant row.
+ *
+ * A stored stripeCustomerId is VALIDATED against Stripe before we trust it: if it
+ * no longer exists (test→live key switch, wiped test account, deleted customer)
+ * we recreate the customer and overwrite the dead id, instead of letting every
+ * Checkout/Portal call 500 with "No such customer: cus_…" (resource_missing).
  */
 async function ensureStripeCustomer(tenantId: string): Promise<string> {
   const tenant = await adminDb.tenant.findUnique({
@@ -115,9 +120,24 @@ async function ensureStripeCustomer(tenantId: string): Promise<string> {
     select: { id: true, name: true, subdomain: true, stripeCustomerId: true },
   });
   if (!tenant) throw new Error("TENANT_NOT_FOUND");
-  if (tenant.stripeCustomerId) return tenant.stripeCustomerId;
 
   const stripe = getStripe();
+
+  if (tenant.stripeCustomerId) {
+    try {
+      const existing = await stripe.customers.retrieve(tenant.stripeCustomerId);
+      // A deleted customer still resolves but is flagged `deleted: true`.
+      if (!("deleted" in existing) || !existing.deleted) {
+        return tenant.stripeCustomerId;
+      }
+    } catch (err) {
+      // Only self-heal on "this customer doesn't exist here". Re-throw anything
+      // else (network, auth, rate limit) so we don't mask real Stripe outages.
+      if (!isStripeResourceMissing(err)) throw err;
+    }
+    // Fell through: the stored id is dead — recreate below and overwrite it.
+  }
+
   const customer = await stripe.customers.create({
     name: tenant.name,
     metadata: { tenantId: tenant.id, subdomain: tenant.subdomain },
@@ -127,6 +147,15 @@ async function ensureStripeCustomer(tenantId: string): Promise<string> {
     data: { stripeCustomerId: customer.id },
   });
   return customer.id;
+}
+
+/** True when a Stripe error is the "No such <resource>" (resource_missing) case. */
+function isStripeResourceMissing(err: unknown): boolean {
+  return (
+    typeof err === "object" &&
+    err !== null &&
+    (err as { code?: string }).code === "resource_missing"
+  );
 }
 
 /**
@@ -209,12 +238,16 @@ export async function createBillingPortal(
     where: { id: tenantId },
     select: { stripeCustomerId: true },
   });
+  // Only tenants who have actually subscribed get a portal — don't lazily mint a
+  // customer here. But if their stored id is stale, ensureStripeCustomer re-creates
+  // a valid one (and overwrites the dead id) so the portal still opens.
   if (!tenant?.stripeCustomerId) throw new Error("NO_SUBSCRIPTION");
 
+  const customerId = await ensureStripeCustomer(tenantId);
   const stripe = getStripe();
   const base = appBaseUrl(subdomain);
   const session = await stripe.billingPortal.sessions.create({
-    customer: tenant.stripeCustomerId,
+    customer: customerId,
     return_url: `${base}/billing`,
   });
   return session.url;
@@ -251,7 +284,22 @@ export async function switchTenantPlan(
   if (tenant.planId === plan.id) return getTenantBilling(tenantId);
 
   const stripe = getStripe();
-  const sub = await stripe.subscriptions.retrieve(tenant.stripeSubscriptionId);
+  let sub: Stripe.Subscription;
+  try {
+    sub = await stripe.subscriptions.retrieve(tenant.stripeSubscriptionId);
+  } catch (err) {
+    // Stored subscription is gone from the active Stripe account (account key
+    // switched). Clear the dead id and signal NO_SUBSCRIPTION so the caller starts
+    // a fresh Checkout instead of trying to switch a ghost subscription.
+    if (isStripeResourceMissing(err)) {
+      await adminDb.tenant.update({
+        where: { id: tenantId },
+        data: { stripeSubscriptionId: null, subscriptionStatus: null, currentPeriodEnd: null },
+      });
+      throw new Error("NO_SUBSCRIPTION");
+    }
+    throw err;
+  }
   const itemId = sub.items?.data?.[0]?.id;
   if (!itemId) throw new Error("NO_SUBSCRIPTION");
 
@@ -384,8 +432,19 @@ export async function reconcileTenantBillingFromStripe(
       sub = list.data[0] ?? null;
     }
   } catch (err) {
-    // A failed Stripe lookup shouldn't blow up the billing page — return the
-    // current DB snapshot and let the caller retry.
+    // The stored subscription doesn't exist in the active Stripe account (e.g. the
+    // account key was switched). Clear the dead ids so the tenant shows as "not
+    // subscribed" and can start a clean Checkout, rather than looking subscribed
+    // against a ghost id forever.
+    if (isStripeResourceMissing(err)) {
+      await adminDb.tenant.update({
+        where: { id: tenantId },
+        data: { stripeSubscriptionId: null, subscriptionStatus: null, currentPeriodEnd: null },
+      });
+      return getTenantBilling(tenantId);
+    }
+    // Any other failed Stripe lookup shouldn't blow up the billing page — return
+    // the current DB snapshot and let the caller retry.
     console.error("[billing.reconcile] stripe lookup failed", err);
   }
 
