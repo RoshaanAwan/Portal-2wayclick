@@ -50,6 +50,13 @@ model Tenant {
   // window (access depends solely on subscriptionStatus).
   trialEndsAt          DateTime?
 
+  // JazzCash (one-off, pay-per-period). JazzCash has no recurring subscriptions,
+  // so a payment buys a single plan period: on a verified payment we set
+  // subscriptionStatus="active" + currentPeriodEnd = now + interval, and record
+  // the gateway txn ref below so a replayed callback can't double-credit the same
+  // payment. Renewal is a fresh JazzCash payment.
+  jazzCashLastTxnRef   String?
+
   // Back-relations from every tenant-root model.
   users         User[]
   sessions      Session[]

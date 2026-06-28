@@ -706,6 +706,81 @@ export async function syncSubscriptionToTenant(sub: Stripe.Subscription): Promis
 }
 
 /**
+ * Activate a tenant's plan for ONE billing period off a verified JazzCash payment.
+ *
+ * JazzCash has no recurring subscriptions, so a payment buys a single period: we
+ * stamp the chosen plan, mark the tenant "active", and set currentPeriodEnd to
+ * now + the plan's interval (month/year). The access gate (lib/access.ts) already
+ * treats "active" + a future period end as full access, so no schema or gate
+ * changes are needed — the tenant simply re-pays via JazzCash to renew.
+ *
+ * This is the JazzCash counterpart to syncSubscriptionToTenant (which is Stripe's
+ * source-of-truth sync). It does NOT touch any Stripe ids — a tenant could have
+ * paid one period with JazzCash and later move to a Stripe subscription; the
+ * Stripe sync, being the live source of truth, would then take over.
+ *
+ * Idempotent on the period: if the SAME txnRef was already recorded we no-op, so
+ * the redirect-return and a retried callback can't double-extend the period.
+ */
+export async function activateTenantPlanFromJazzCash(
+  tenantId: string,
+  planId: string,
+  txnRef: string,
+): Promise<TenantBillingState> {
+  const plan = await adminDb.plan.findUnique({
+    where: { id: planId },
+    select: { id: true, active: true, interval: true },
+  });
+  if (!plan || !plan.active) throw new Error("PLAN_UNAVAILABLE");
+
+  const tenant = await adminDb.tenant.findUnique({
+    where: { id: tenantId },
+    select: { id: true, status: true, jazzCashLastTxnRef: true },
+  });
+  if (!tenant) throw new Error("TENANT_NOT_FOUND");
+
+  // Already credited this exact payment — don't extend the period twice.
+  if (tenant.jazzCashLastTxnRef === txnRef) return getTenantBilling(tenantId);
+
+  // One period from now, by the plan's cadence. "year" advances the year; anything
+  // else (default "month") advances one month, matching Stripe's interval values.
+  const periodEnd = new Date();
+  if (plan.interval === "year") {
+    periodEnd.setFullYear(periodEnd.getFullYear() + 1);
+  } else {
+    periodEnd.setMonth(periodEnd.getMonth() + 1);
+  }
+
+  await adminDb.tenant.update({
+    where: { id: tenant.id },
+    data: {
+      planId: plan.id,
+      subscriptionStatus: "active",
+      currentPeriodEnd: periodEnd,
+      jazzCashLastTxnRef: txnRef,
+    },
+  });
+
+  // A previously-suspended (lapsed) tenant becomes active again on payment.
+  if (tenant.status === "suspended") {
+    await setTenantStatus(tenant.id, "active");
+  }
+
+  await runWithTenant(tenant.id, () =>
+    audit({
+      actor: { id: null, name: "JazzCash", role: "SYSTEM" },
+      action: "billing.jazzcash_paid",
+      entity: "Tenant",
+      entityId: tenant.id,
+      summary: `JazzCash payment confirmed — plan active until ${periodEnd.toISOString().slice(0, 10)}`,
+      detail: { planId: plan.id, txnRef, periodEnd: periodEnd.toISOString() },
+    }),
+  );
+
+  return getTenantBilling(tenantId);
+}
+
+/**
  * Self-heal: pull the tenant's subscription straight from Stripe and sync it,
  * then return the fresh billing snapshot. This is the fallback for when the
  * webhook hasn't landed (delayed delivery, or a misconfigured endpoint) — it

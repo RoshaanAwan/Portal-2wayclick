@@ -109,6 +109,9 @@ export type AuditAction =
   | "billing.checkout_started"
   | "billing.plan_switched"
   | "billing.upgrade_started"
+  | "billing.jazzcash_started"
+  | "billing.jazzcash_paid"
+  | "billing.jazzcash_failed"
   | "subscription.sync";
 
 interface AuditInput {
