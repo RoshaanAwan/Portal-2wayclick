@@ -58,15 +58,12 @@ export async function POST(req: Request) {
     const base = appBaseUrl(subdomain);
     const txnRef = newTxnRef();
 
-    // JazzCash redirects (POSTs) back here on completion. We carry the context as
-    // query params so the callback can resolve the tenant/plan even though JazzCash
-    // doesn't echo arbitrary metadata. The callback re-verifies the signed hash
-    // before trusting any of it — these params alone can't fake a payment.
-    const callbackUrl =
-      `${base}/api/billing/jazzcash/callback` +
-      `?tenantId=${encodeURIComponent(user.tenantId)}` +
-      `&planId=${encodeURIComponent(plan.id)}` +
-      `&txnRef=${encodeURIComponent(txnRef)}`;
+    // CLEAN Return URL — no query string. JazzCash's hosted checkout can reject a
+    // Return URL containing "?...&..." (the "&" also collides with its hash-value
+    // separator). We carry the tenant/plan/txn context through JazzCash's own
+    // pass-through fields (ppmpf_1..3) instead, which it echoes back to the
+    // callback. The callback re-verifies the signed hash before trusting any of it.
+    const callbackUrl = `${base}/api/billing/jazzcash/callback`;
 
     const form = buildJazzCashForm({
       amountPkr: plan.priceCents / 100,
@@ -74,7 +71,15 @@ export async function POST(req: Request) {
       billRef: `PLAN-${plan.id.slice(0, 8)}`,
       description: `Subscription: ${plan.name}`,
       returnUrl: callbackUrl,
+      passThrough: [user.tenantId, plan.id, txnRef],
     });
+
+    // TEMP DIAGNOSTIC: log the exact outgoing payload (password redacted) so we can
+    // see what JazzCash rejects. Remove once the sandbox accepts the request.
+    console.log(
+      "[billing.jazzcash.checkout] payload",
+      JSON.stringify({ ...form.fields, pp_Password: "***" }, null, 2),
+    );
 
     // ALS tenant context can be lost across the awaits above; wrap the scoped
     // audit write in the tenant context explicitly (recurring gotcha in this repo).
