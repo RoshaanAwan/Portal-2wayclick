@@ -96,12 +96,20 @@ export function verifySecureHash(
   return timingSafeEqual(Buffer.from(provided), Buffer.from(expected));
 }
 
-/** A compact, JazzCash-friendly UTC timestamp: yyyyMMddHHmmss. */
+/**
+ * A compact JazzCash timestamp (yyyyMMddHHmmss) in PAKISTAN time (UTC+5).
+ * JazzCash validates pp_TxnDateTime / pp_TxnExpiryDateTime against its own PKT
+ * clock — a UTC timestamp reads as 5 hours in the past, which can fail validation
+ * or make the expiry window look already-elapsed. We shift to PKT by adding 5h to
+ * the UTC epoch and formatting with the *UTC* getters (so no local-tz drift).
+ */
+const PKT_OFFSET_MS = 5 * 60 * 60 * 1000;
 function txnDateTime(d = new Date()): string {
+  const pkt = new Date(d.getTime() + PKT_OFFSET_MS);
   const p = (n: number) => String(n).padStart(2, "0");
   return (
-    `${d.getUTCFullYear()}${p(d.getUTCMonth() + 1)}${p(d.getUTCDate())}` +
-    `${p(d.getUTCHours())}${p(d.getUTCMinutes())}${p(d.getUTCSeconds())}`
+    `${pkt.getUTCFullYear()}${p(pkt.getUTCMonth() + 1)}${p(pkt.getUTCDate())}` +
+    `${p(pkt.getUTCHours())}${p(pkt.getUTCMinutes())}${p(pkt.getUTCSeconds())}`
   );
 }
 
@@ -135,6 +143,14 @@ export function buildJazzCashForm(opts: {
   billRef: string;
   description: string;
   returnUrl: string;
+  /**
+   * Up to 5 merchant pass-through values (ppmpf_1..5). JazzCash echoes these back
+   * verbatim in the callback, so we use them to carry our tenant/plan context
+   * INSTEAD of query params on the Return URL — the hosted checkout can reject a
+   * Return URL that contains a query string, and the "&" in it also collides with
+   * JazzCash's own hash-value separator. Empty/extra slots are fine.
+   */
+  passThrough?: string[];
 }): JazzCashFormParams {
   const cfg = getJazzCashConfig();
   const now = new Date();
@@ -144,11 +160,17 @@ export function buildJazzCashForm(opts: {
   // Amount in the smallest unit (paisa). JazzCash expects an integer string.
   const amountMinor = String(Math.round(opts.amountPkr * 100));
 
+  // Field set for HOSTED CHECKOUT v1.1 (the page-redirect form flow). Notably this
+  // flow does NOT send pp_TxnType (that's the direct REST wallet flow — sending
+  // "MWALLET" here makes JazzCash reject with "insufficient merchant information")
+  // and does NOT send pp_BankID/pp_ProductID. The hosted page lets the customer
+  // pick the instrument. Empty fields are excluded from the hash (skips empties),
+  // so listing the optional ones empty is harmless but we keep to the minimal set.
   const fields: Record<string, string> = {
     pp_Version: "1.1",
-    pp_TxnType: "MWALLET",
     pp_Language: "EN",
     pp_MerchantID: cfg.merchantId,
+    pp_SubMerchantID: "",
     pp_Password: cfg.password,
     pp_TxnRefNo: opts.txnRef,
     pp_Amount: amountMinor,
@@ -158,15 +180,13 @@ export function buildJazzCashForm(opts: {
     pp_BillReference: opts.billRef,
     pp_Description: opts.description,
     pp_ReturnURL: opts.returnUrl,
-    // Bank/sub-merchant fields are unused for the basic flow but must be present
-    // (empty) — they're excluded from the hash since the hash skips empty values.
-    pp_BankID: "",
-    pp_ProductID: "",
-    ppmpf_1: "",
-    ppmpf_2: "",
-    ppmpf_3: "",
-    ppmpf_4: "",
-    ppmpf_5: "",
+    // Up to 5 free-form merchant pass-through fields, echoed back in the response.
+    // We carry tenant/plan/txn context here (see passThrough doc above).
+    ppmpf_1: opts.passThrough?.[0] ?? "",
+    ppmpf_2: opts.passThrough?.[1] ?? "",
+    ppmpf_3: opts.passThrough?.[2] ?? "",
+    ppmpf_4: opts.passThrough?.[3] ?? "",
+    ppmpf_5: opts.passThrough?.[4] ?? "",
   };
 
   fields.pp_SecureHash = computeSecureHash(fields, cfg.integritySalt);

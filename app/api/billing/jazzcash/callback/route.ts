@@ -35,12 +35,6 @@ export async function POST(req: Request) {
   // No JazzCash config → nothing could have legitimately been signed; bail.
   if (!isJazzCashConfigured()) return redirectToBilling("failed");
 
-  // Context we issued at checkout, echoed back in the return URL.
-  const url = new URL(req.url);
-  const tenantId = url.searchParams.get("tenantId");
-  const planId = url.searchParams.get("planId");
-  const expectedTxnRef = url.searchParams.get("txnRef");
-
   // JazzCash posts the response as application/x-www-form-urlencoded.
   let fields: Record<string, string> = {};
   try {
@@ -52,17 +46,25 @@ export async function POST(req: Request) {
 
   const cfg = getJazzCashConfig();
 
-  // 1) Authenticity: the response hash must verify against our integrity salt.
+  // 1) Authenticity FIRST: the response hash must verify against our integrity
+  // salt over ALL echoed fields (including the ppmpf_* we sent). Only once this
+  // passes do we trust the pass-through context below — a forged POST can't both
+  // carry our tenant id AND produce a valid hash without the salt.
   if (!verifySecureHash(fields, cfg.integritySalt)) {
     console.error("[billing.jazzcash.callback] secure hash mismatch", {
-      tenantId,
       txnRef: fields.pp_TxnRefNo,
     });
     return redirectToBilling("failed");
   }
 
-  // 2) Integrity of the linkage: the echoed txn ref must match the one we issued,
-  // and we must have a tenant + plan to credit.
+  // Context we issued at checkout, echoed back verbatim in the pass-through fields.
+  const tenantId = fields.ppmpf_1 || null;
+  const planId = fields.ppmpf_2 || null;
+  const expectedTxnRef = fields.ppmpf_3 || null;
+
+  // 2) Integrity of the linkage: we must have tenant/plan/txn context, and the
+  // pass-through txn ref must match the authoritative one JazzCash echoes in
+  // pp_TxnRefNo (guards against a malformed/replayed bundle).
   if (!tenantId || !planId || !expectedTxnRef) return redirectToBilling("failed");
   if (fields.pp_TxnRefNo !== expectedTxnRef) {
     console.error("[billing.jazzcash.callback] txn ref mismatch", {
@@ -123,10 +125,10 @@ export async function GET(req: Request) {
   // Only the pp_* response fields are in the query for a GET return; rebuild a
   // form-encoded body and delegate to POST so verification logic stays in one place.
   const params = new URLSearchParams();
+  // pp_* are the response fields; ppmpf_* carry our echoed tenant/plan/txn context.
   for (const [k, v] of url.searchParams.entries()) {
     if (k.startsWith("pp_") || k.startsWith("ppmpf_")) params.set(k, v);
   }
-  // Preserve our issued context (tenantId/planId/txnRef) on the delegated URL.
   const forwarded = new Request(req.url, {
     method: "POST",
     headers: { "content-type": "application/x-www-form-urlencoded" },
