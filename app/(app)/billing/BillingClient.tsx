@@ -16,6 +16,7 @@ import {
   ArrowUp,
   ArrowDown,
   CalendarClock,
+  Wallet,
   X,
 } from "lucide-react";
 import { GlassCard } from "@/components/ui/GlassCard";
@@ -100,6 +101,7 @@ function statusBadge(status: string | null): { label: string; tone: string } | n
 export function BillingClient({
   plans,
   stripeReady,
+  jazzCashReady,
   currentPlanName,
   currentPlanFeatures,
   currentPlanPriceCents,
@@ -115,6 +117,7 @@ export function BillingClient({
 }: {
   plans: PlanRow[];
   stripeReady: boolean;
+  jazzCashReady: boolean;
   currentPlanName: string | null;
   currentPlanFeatures: string[];
   currentPlanPriceCents: number | null;
@@ -131,8 +134,12 @@ export function BillingClient({
   const router = useRouter();
   const params = useSearchParams();
   const returned = params.get("status"); // "success" | "canceled" after Checkout
+  const jazzcashReturned = params.get("jazzcash"); // "success" | "failed" after JazzCash
 
   const [busyId, setBusyId] = useState<string | null>(null);
+  // The plan whose JazzCash payment is being started (kept separate from busyId so
+  // the Stripe and JazzCash buttons on the same card spin independently).
+  const [jazzBusyId, setJazzBusyId] = useState<string | null>(null);
   const [portalBusy, setPortalBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -225,6 +232,22 @@ export function BillingClient({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [returned]);
+
+  // JazzCash already activated the plan server-side before redirecting here, so
+  // there's nothing to poll — but the current snapshot/server tree may predate it.
+  // Pull a fresh status once and refresh the server data (caps, nav, gate).
+  useEffect(() => {
+    if (jazzcashReturned !== "success") return;
+    let cancelled = false;
+    void (async () => {
+      const data = await refresh();
+      if (!cancelled && data) router.refresh();
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [jazzcashReturned]);
 
   useEffect(() => {
     if (returned !== "success" || healthy) {
@@ -337,6 +360,44 @@ export function BillingClient({
     }
   }
 
+  // Pay for one plan period with JazzCash. JazzCash needs a real cross-origin form
+  // POST to its hosted page (a fetch can't render their payment UI), so we ask the
+  // server for the signed pp_* fields, build a hidden form, and submit it — which
+  // navigates the browser to JazzCash. On completion JazzCash POSTs the customer
+  // back to our callback, which verifies + activates and redirects to ?jazzcash=…
+  async function payWithJazzCash(planId: string) {
+    setJazzBusyId(planId);
+    setError("");
+    try {
+      const res = await fetch("/api/billing/jazzcash/checkout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ planId }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.endpoint || !data.fields) {
+        setError(data.error || "Could not start JazzCash payment");
+        setJazzBusyId(null);
+        return;
+      }
+      const form = document.createElement("form");
+      form.method = "POST";
+      form.action = data.endpoint;
+      for (const [name, value] of Object.entries(data.fields as Record<string, string>)) {
+        const input = document.createElement("input");
+        input.type = "hidden";
+        input.name = name;
+        input.value = value;
+        form.appendChild(input);
+      }
+      document.body.appendChild(form);
+      form.submit(); // navigates to JazzCash; keep the busy state through it
+    } catch {
+      setError("Could not start JazzCash payment");
+      setJazzBusyId(null);
+    }
+  }
+
   async function openPortal() {
     setPortalBusy(true);
     setError("");
@@ -402,6 +463,18 @@ export function BillingClient({
             <span>Checkout canceled — no charge was made.</span>
           </div>
         )}
+        {jazzcashReturned === "success" && (
+          <div className="flex items-start gap-2.5 rounded-xl border border-success/40 bg-success/10 px-3.5 py-2.5 text-sm text-success">
+            <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
+            <span>JazzCash payment received — your plan is active. Thanks!</span>
+          </div>
+        )}
+        {jazzcashReturned === "failed" && (
+          <div className="flex items-start gap-2.5 rounded-xl border border-danger/40 bg-danger-soft px-3.5 py-2.5 text-sm text-danger">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+            <span>JazzCash payment didn’t complete — no plan change was made. Please try again.</span>
+          </div>
+        )}
         {downgradeNotice && (
           <div className="flex items-start gap-2.5 rounded-xl border border-accent/40 bg-accent-soft/60 px-3.5 py-2.5 text-sm text-accent-ink">
             <CalendarClock className="mt-0.5 h-4 w-4 shrink-0" />
@@ -420,7 +493,7 @@ export function BillingClient({
             </button>
           </div>
         )}
-        {!stripeReady && (
+        {!stripeReady && !jazzCashReady && (
           <div className="flex items-start gap-2.5 rounded-xl border border-amber-400/40 bg-amber-400/10 px-3.5 py-2.5 text-sm text-amber-700 dark:text-amber-300">
             <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
             <span>Billing isn’t set up on this platform yet. Please check back later.</span>
@@ -741,6 +814,27 @@ export function BillingClient({
                     ctaLabel
                   )}
                 </Button>
+
+                {/* JazzCash — pay one plan period via the local gateway (PKR). A
+                    separate provider from Stripe; shown when configured and not the
+                    current plan. Pay-per-period: it activates a fresh period for
+                    this plan regardless of any existing subscription. */}
+                {jazzCashReady && !isCurrent && !isScheduled && (
+                  <Button
+                    className="mt-2.5 w-full justify-center"
+                    variant="glass"
+                    disabled={jazzBusyId !== null || busyId !== null}
+                    onClick={() => payWithJazzCash(p.id)}
+                  >
+                    {jazzBusyId === p.id ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <>
+                        <Wallet className="h-4 w-4" /> Pay with JazzCash
+                      </>
+                    )}
+                  </Button>
+                )}
 
                 {/* Feature list */}
                 {p.features.length > 0 && (

@@ -5,6 +5,7 @@ import { can } from "@/lib/permissions";
 import { listSellablePlans, getPlan } from "@/lib/plans";
 import { getTenantBilling, getSeatUsage } from "@/lib/billing";
 import { isStripeConfigured } from "@/lib/stripe";
+import { isJazzCashConfigured } from "@/lib/jazzcash";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { BillingClient } from "./BillingClient";
 
@@ -38,6 +39,7 @@ export default async function BillingPage() {
       />
       <BillingClient
         stripeReady={isStripeConfigured()}
+        jazzCashReady={isJazzCashConfigured()}
         currentPlanName={currentPlan?.name ?? billing.planName ?? null}
         currentPlanFeatures={currentPlan?.features ?? []}
         currentPlanPriceCents={currentPlan?.priceCents ?? null}

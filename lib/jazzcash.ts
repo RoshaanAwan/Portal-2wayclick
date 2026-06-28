@@ -1,0 +1,179 @@
+import "server-only";
+import { createHmac, timingSafeEqual } from "crypto";
+
+// ── JazzCash (hosted redirect payment) ────────────────────────────────────────
+// JazzCash is a Pakistani payment gateway. Unlike Stripe it has NO native
+// auto-renewing subscriptions: it's a one-shot hosted-form redirect. We sign a
+// `pp_*` parameter bundle, auto-POST it to JazzCash's merchant page, the customer
+// pays there, and JazzCash redirects back (POST) to our ReturnURL with a response
+// code we re-verify. A successful payment buys ONE plan period — we set the tenant
+// to active and stamp currentPeriodEnd = now + interval (lib/billing.ts). Renewal
+// is a fresh payment; the gateway can't auto-charge a card on file.
+//
+// Test vs live is decided entirely by which JAZZCASH_ENDPOINT + credentials you
+// set (sandbox.jazzcash.com.pk vs payments.jazzcash.com.pk) — no separate flag.
+//
+// Integrity: every request and response carries a pp_SecureHash that is an
+// HMAC-SHA256 over the sorted non-empty field VALUES, keyed by the integrity salt
+// (JAZZCASH_HASH_KEY). We compute it on the way out and re-verify it on the way
+// back, so a forged callback can't mark a tenant paid.
+
+export interface JazzCashConfig {
+  merchantId: string;
+  password: string;
+  integritySalt: string;
+  endpoint: string;
+  returnUrl: string;
+}
+
+/** True when all JazzCash credentials are present (gates the "Pay with JazzCash" UI). */
+export function isJazzCashConfigured(): boolean {
+  return !!(
+    process.env.JAZZCASH_MERCHANT_ID &&
+    process.env.JAZZCASH_PASSWORD &&
+    process.env.JAZZCASH_HASH_KEY &&
+    process.env.JAZZCASH_ENDPOINT &&
+    process.env.JAZZCASH_RETURN_URL
+  );
+}
+
+/**
+ * The resolved JazzCash config. Throws if anything is missing — callers should
+ * gate on isJazzCashConfigured() first and surface a friendly message.
+ */
+export function getJazzCashConfig(): JazzCashConfig {
+  const merchantId = process.env.JAZZCASH_MERCHANT_ID;
+  const password = process.env.JAZZCASH_PASSWORD;
+  const integritySalt = process.env.JAZZCASH_HASH_KEY;
+  const endpoint = process.env.JAZZCASH_ENDPOINT;
+  const returnUrl = process.env.JAZZCASH_RETURN_URL;
+  if (!merchantId || !password || !integritySalt || !endpoint || !returnUrl) {
+    throw new Error(
+      "JazzCash is not configured — set JAZZCASH_MERCHANT_ID, JAZZCASH_PASSWORD, " +
+        "JAZZCASH_HASH_KEY, JAZZCASH_ENDPOINT and JAZZCASH_RETURN_URL.",
+    );
+  }
+  return { merchantId, password, integritySalt, endpoint, returnUrl };
+}
+
+/**
+ * Compute the JazzCash pp_SecureHash for a field bundle.
+ *
+ * Spec: take every field with a NON-EMPTY value (excluding pp_SecureHash itself),
+ * sort the keys ascending, join the VALUES with "&", prepend the integrity salt +
+ * "&", then HMAC-SHA256 with the integrity salt as the key. Hex, UPPERCASE.
+ */
+export function computeSecureHash(
+  fields: Record<string, string>,
+  integritySalt: string,
+): string {
+  const ordered = Object.keys(fields)
+    .filter((k) => k !== "pp_SecureHash" && fields[k] !== "" && fields[k] != null)
+    .sort()
+    .map((k) => fields[k]);
+
+  const message = `${integritySalt}&${ordered.join("&")}`;
+  return createHmac("sha256", integritySalt)
+    .update(message)
+    .digest("hex")
+    .toUpperCase();
+}
+
+/**
+ * Constant-time check that a returned pp_SecureHash matches what we recompute over
+ * the rest of the response fields. Guards the callback against a forged "paid".
+ */
+export function verifySecureHash(
+  fields: Record<string, string>,
+  integritySalt: string,
+): boolean {
+  const provided = (fields.pp_SecureHash ?? "").toUpperCase();
+  if (!provided) return false;
+  const expected = computeSecureHash(fields, integritySalt);
+  // Lengths must match for timingSafeEqual; bail early (and in constant-ish time)
+  // if they don't rather than throwing.
+  if (provided.length !== expected.length) return false;
+  return timingSafeEqual(Buffer.from(provided), Buffer.from(expected));
+}
+
+/** A compact, JazzCash-friendly UTC timestamp: yyyyMMddHHmmss. */
+function txnDateTime(d = new Date()): string {
+  const p = (n: number) => String(n).padStart(2, "0");
+  return (
+    `${d.getUTCFullYear()}${p(d.getUTCMonth() + 1)}${p(d.getUTCDate())}` +
+    `${p(d.getUTCHours())}${p(d.getUTCMinutes())}${p(d.getUTCSeconds())}`
+  );
+}
+
+/** A unique JazzCash transaction reference: "T" + timestamp + short random tail. */
+export function newTxnRef(): string {
+  const rand = Math.floor(1000 + Math.random() * 9000);
+  return `T${txnDateTime()}${rand}`;
+}
+
+export interface JazzCashFormParams {
+  /** The merchant hosted-form endpoint to POST to. */
+  endpoint: string;
+  /** The signed pp_* fields to submit (includes pp_SecureHash). */
+  fields: Record<string, string>;
+}
+
+/**
+ * Build the signed JazzCash hosted-form parameters for a one-off plan payment.
+ *
+ * @param amountPkr  the charge in PKR (whole rupees) — JazzCash wants the amount
+ *                   in the smallest unit (paisa), so we ×100 here.
+ * @param txnRef     our unique transaction reference (also our reconciliation key).
+ * @param billRef    a human-ish bill reference shown to the customer.
+ * @param description short order description.
+ * @param returnUrl  where JazzCash redirects (POSTs) back to — our callback route,
+ *                   carrying the tenant/plan/txn context as query params.
+ */
+export function buildJazzCashForm(opts: {
+  amountPkr: number;
+  txnRef: string;
+  billRef: string;
+  description: string;
+  returnUrl: string;
+}): JazzCashFormParams {
+  const cfg = getJazzCashConfig();
+  const now = new Date();
+  // The payment is valid for 1 hour; JazzCash rejects an expired request.
+  const expiry = new Date(now.getTime() + 60 * 60 * 1000);
+
+  // Amount in the smallest unit (paisa). JazzCash expects an integer string.
+  const amountMinor = String(Math.round(opts.amountPkr * 100));
+
+  const fields: Record<string, string> = {
+    pp_Version: "1.1",
+    pp_TxnType: "MWALLET",
+    pp_Language: "EN",
+    pp_MerchantID: cfg.merchantId,
+    pp_Password: cfg.password,
+    pp_TxnRefNo: opts.txnRef,
+    pp_Amount: amountMinor,
+    pp_TxnCurrency: "PKR",
+    pp_TxnDateTime: txnDateTime(now),
+    pp_TxnExpiryDateTime: txnDateTime(expiry),
+    pp_BillReference: opts.billRef,
+    pp_Description: opts.description,
+    pp_ReturnURL: opts.returnUrl,
+    // Bank/sub-merchant fields are unused for the basic flow but must be present
+    // (empty) — they're excluded from the hash since the hash skips empty values.
+    pp_BankID: "",
+    pp_ProductID: "",
+    ppmpf_1: "",
+    ppmpf_2: "",
+    ppmpf_3: "",
+    ppmpf_4: "",
+    ppmpf_5: "",
+  };
+
+  fields.pp_SecureHash = computeSecureHash(fields, cfg.integritySalt);
+  return { endpoint: cfg.endpoint, fields };
+}
+
+/** JazzCash signals a fully successful payment with response code "000". */
+export function isJazzCashSuccess(responseCode: string | null | undefined): boolean {
+  return responseCode === "000";
+}

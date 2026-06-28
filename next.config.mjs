@@ -16,6 +16,17 @@
 // allowance is scoped to development only and never weakens the prod policy.
 const devEval = process.env.NODE_ENV === "production" ? "" : " 'unsafe-eval'";
 
+// JazzCash is a hosted-redirect gateway: we auto-submit a signed form straight to
+// its merchant page (a cross-origin POST), so its origins must be allowed in
+// form-action or the browser silently blocks the submit. These are fixed, public
+// payment hosts (sandbox + live), so we list them unconditionally — there's no
+// risk in allowing a form POST to JazzCash, and this avoids depending on env-var
+// availability at config-eval time. A non-PK deployment simply never POSTs there.
+const jazzCashFormActions = [
+  "https://sandbox.jazzcash.com.pk",
+  "https://payments.jazzcash.com.pk",
+];
+
 const cspDirectives = [
   "default-src 'self'",
   `script-src 'self' 'unsafe-inline'${devEval}`,
@@ -30,7 +41,7 @@ const cspDirectives = [
   "frame-src 'none'",
   "object-src 'none'",
   "base-uri 'self'",
-  "form-action 'self'",
+  ["form-action 'self'", ...jazzCashFormActions].join(" "),
   "upgrade-insecure-requests",
 ].join("; ");
 
