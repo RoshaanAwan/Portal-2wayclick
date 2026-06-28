@@ -49,6 +49,14 @@ export default async function BillingPage() {
         activePlanId={billing.planId}
         seatsUsed={seats.used}
         seatLimit={seats.limit}
+        scheduledChange={
+          billing.scheduledChange
+            ? {
+                planName: billing.scheduledChange.planName,
+                effectiveAt: billing.scheduledChange.effectiveAt.toISOString(),
+              }
+            : null
+        }
         plans={plans.map((p) => ({
           id: p.id,
           name: p.name,

@@ -39,6 +39,12 @@ export async function POST() {
       hasSubscription: billing.hasStripeCustomer,
       seatsUsed: seats.used,
       seatLimit: seats.limit,
+      scheduledChange: billing.scheduledChange
+        ? {
+            planName: billing.scheduledChange.planName,
+            effectiveAt: billing.scheduledChange.effectiveAt.toISOString(),
+          }
+        : null,
     });
   } catch (e: any) {
     if (e?.message === "UNAUTHENTICATED")

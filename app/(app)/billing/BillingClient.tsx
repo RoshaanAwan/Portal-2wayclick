@@ -15,6 +15,8 @@ import {
   ShieldCheck,
   ArrowUp,
   ArrowDown,
+  CalendarClock,
+  X,
 } from "lucide-react";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { Button } from "@/components/ui/Button";
@@ -35,6 +37,11 @@ interface PlanRow {
 // The live subscription snapshot — seeded from the server render, then kept in
 // sync by polling /api/billing/status after a Checkout redirect (so the plan
 // flips to "active" the moment the Stripe webhook lands, with no manual reload).
+interface ScheduledChange {
+  planName: string | null;
+  effectiveAt: string; // ISO — when the downgrade takes effect (renewal)
+}
+
 interface BillingSnapshot {
   planId: string | null;
   planName: string | null;
@@ -43,6 +50,8 @@ interface BillingSnapshot {
   hasSubscription: boolean;
   seatsUsed: number;
   seatLimit: number | null;
+  // A downgrade pending at renewal, if any — drives the "switching to X" badge.
+  scheduledChange: ScheduledChange | null;
 }
 
 function money(cents: number, currency: string) {
@@ -102,6 +111,7 @@ export function BillingClient({
   activePlanId,
   seatsUsed,
   seatLimit,
+  scheduledChange,
 }: {
   plans: PlanRow[];
   stripeReady: boolean;
@@ -116,6 +126,7 @@ export function BillingClient({
   activePlanId: string | null;
   seatsUsed: number;
   seatLimit: number | null;
+  scheduledChange: ScheduledChange | null;
 }) {
   const router = useRouter();
   const params = useSearchParams();
@@ -135,7 +146,13 @@ export function BillingClient({
     hasSubscription,
     seatsUsed,
     seatLimit,
+    scheduledChange,
   });
+
+  // One-shot confirmation after the user schedules a downgrade in this session.
+  // (The persistent badge below covers the across-reload case; this is the
+  // immediate "got it" feedback right after they click.)
+  const [downgradeNotice, setDowngradeNotice] = useState<ScheduledChange | null>(null);
 
   // True while we're waiting for the webhook to flip a fresh checkout to active.
   const healthy = HEALTHY.has(snap.subscriptionStatus ?? "");
@@ -306,7 +323,12 @@ export function BillingClient({
         window.location.href = data.redirectUrl; // Stripe portal confirm (upgrade)
         return; // keep busy state through the redirect
       }
-      setSnap(data as BillingSnapshot);
+      const next = data as BillingSnapshot;
+      setSnap(next);
+      // A downgrade was scheduled (deferred to renewal) — confirm it explicitly,
+      // since the current-plan card deliberately still shows the plan they keep
+      // until then.
+      if (next.scheduledChange) setDowngradeNotice(next.scheduledChange);
       setBusyId(null);
       router.refresh(); // pull fresh server tree (seat caps, nav, features)
     } catch {
@@ -378,6 +400,24 @@ export function BillingClient({
           <div className="flex items-start gap-2.5 rounded-xl border border-line bg-surface-2 px-3.5 py-2.5 text-sm text-ink-500">
             <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
             <span>Checkout canceled — no charge was made.</span>
+          </div>
+        )}
+        {downgradeNotice && (
+          <div className="flex items-start gap-2.5 rounded-xl border border-accent/40 bg-accent-soft/60 px-3.5 py-2.5 text-sm text-accent-ink">
+            <CalendarClock className="mt-0.5 h-4 w-4 shrink-0" />
+            <span className="flex-1">
+              Downgrade scheduled — you’ll move to{" "}
+              <strong>{downgradeNotice.planName ?? "your new plan"}</strong> on{" "}
+              <strong>{fmtDate(downgradeNotice.effectiveAt)}</strong>. You keep{" "}
+              {snap.planName ?? "your current plan"} until then.
+            </span>
+            <button
+              onClick={() => setDowngradeNotice(null)}
+              className="shrink-0 rounded-md p-0.5 text-accent-ink/70 hover:bg-accent/10 hover:text-accent-ink"
+              aria-label="Dismiss"
+            >
+              <X className="h-4 w-4" />
+            </button>
           </div>
         )}
         {!stripeReady && (
@@ -461,6 +501,15 @@ export function BillingClient({
                         ? "Trial ends"
                         : "Renews"}{" "}
                     {periodEndLabel}
+                  </p>
+                )}
+                {/* Pending downgrade — persists across reloads (read from Stripe's
+                    schedule). The tenant keeps THIS plan until the date shown. */}
+                {snap.scheduledChange && (
+                  <p className="mt-2 inline-flex items-center gap-1.5 rounded-md bg-amber-400/15 px-2 py-1 text-xs font-medium text-amber-700 dark:text-amber-300">
+                    <CalendarClock className="h-3.5 w-3.5 shrink-0" />
+                    Switching to {snap.scheduledChange.planName ?? "your new plan"} on{" "}
+                    {fmtDate(snap.scheduledChange.effectiveAt)}
                   </p>
                 )}
               </div>
@@ -562,6 +611,12 @@ export function BillingClient({
         >
           {plans.map((p) => {
             const isCurrent = p.id === snap.planId && isSubscribed;
+            // This plan is the pending downgrade target (matched by name — that's
+            // what the schedule resolves to). Show it as scheduled, not switchable.
+            const isScheduled =
+              !!snap.scheduledChange &&
+              snap.scheduledChange.planName === p.name &&
+              !isCurrent;
             // Spotlight the top tier, unless the user is already on another plan.
             const isFeatured = p.id === topPlanId && !isCurrent;
             // When already subscribed, a pricier plan is an upgrade and a cheaper
@@ -661,11 +716,15 @@ export function BillingClient({
                         ? "primary"
                         : "glass"
                   }
-                  disabled={!stripeReady || isCurrent || busyId !== null}
+                  disabled={!stripeReady || isCurrent || isScheduled || busyId !== null}
                   onClick={() => (isSubscribed ? switchPlan(p.id) : subscribe(p.id))}
                 >
                   {busyId === p.id ? (
                     <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : isScheduled ? (
+                    <>
+                      <CalendarClock className="h-4 w-4" /> Scheduled
+                    </>
                   ) : isCurrent ? (
                     <>
                       <Check className="h-4 w-4" strokeWidth={3} /> {ctaLabel}

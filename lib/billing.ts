@@ -1,7 +1,7 @@
 import "server-only";
 import type Stripe from "stripe";
 import { adminDb } from "./db";
-import { getStripe } from "./stripe";
+import { getStripe, isStripeConfigured } from "./stripe";
 import { appBaseUrl } from "./share";
 import { computeTenantAccess, type TenantAccess } from "./access";
 import { setTenantStatus } from "./platform";
@@ -23,6 +23,10 @@ export interface TenantBillingState {
   subscriptionStatus: string | null;
   currentPeriodEnd: Date | null;
   hasStripeCustomer: boolean;
+  // A downgrade scheduled to take effect at renewal (null when none is pending).
+  // Surfaced so the billing UI can show "switching to X on <date>" — the tenant
+  // keeps the current plan until then, see switchTenantPlan's downgrade branch.
+  scheduledChange: { planName: string | null; effectiveAt: Date } | null;
 }
 
 /**
@@ -48,6 +52,7 @@ export async function getTenantBilling(tenantId: string): Promise<TenantBillingS
       subscriptionStatus: true,
       currentPeriodEnd: true,
       stripeCustomerId: true,
+      stripeSubscriptionId: true,
       plan: { select: { name: true } },
     },
   });
@@ -58,7 +63,60 @@ export async function getTenantBilling(tenantId: string): Promise<TenantBillingS
     subscriptionStatus: tenant.subscriptionStatus,
     currentPeriodEnd: tenant.currentPeriodEnd,
     hasStripeCustomer: !!tenant.stripeCustomerId,
+    scheduledChange: await getScheduledChange(
+      tenant.stripeSubscriptionId,
+      tenant.planId,
+    ),
   };
+}
+
+/**
+ * Read a pending DOWNGRADE off the subscription's Stripe schedule, if any.
+ * switchTenantPlan defers downgrades by attaching a Subscription Schedule whose
+ * SECOND phase carries the cheaper price (starting at renewal). We surface that
+ * future phase so the UI can show "switching to X on <date>" while the tenant
+ * keeps the current plan until then.
+ *
+ * Returns null when there's no subscription, no schedule, or the schedule's next
+ * phase is the same plan they're already on (nothing meaningfully pending).
+ * Best-effort: any Stripe error resolves to null so the billing page still renders.
+ */
+async function getScheduledChange(
+  stripeSubscriptionId: string | null,
+  currentPlanId: string | null,
+): Promise<{ planName: string | null; effectiveAt: Date } | null> {
+  if (!stripeSubscriptionId || !isStripeConfigured()) return null;
+  try {
+    const stripe = getStripe();
+    const sub = await stripe.subscriptions.retrieve(stripeSubscriptionId);
+    const scheduleId =
+      typeof sub.schedule === "string" ? sub.schedule : (sub.schedule?.id ?? null);
+    if (!scheduleId) return null;
+
+    const schedule = await stripe.subscriptionSchedules.retrieve(scheduleId);
+    // The upcoming phase = the first phase that starts in the future.
+    const nowUnix = Math.floor(Date.now() / 1000);
+    const next = schedule.phases.find((p) => (p.start_date ?? 0) > nowUnix);
+    if (!next) return null;
+
+    const nextPriceId =
+      typeof next.items?.[0]?.price === "string"
+        ? next.items[0].price
+        : (next.items?.[0]?.price as { id?: string } | undefined)?.id ?? null;
+    if (!nextPriceId) return null;
+
+    const plan = await adminDb.plan.findFirst({
+      where: { stripePriceId: nextPriceId },
+      select: { id: true, name: true },
+    });
+    // Already on this plan (e.g. a downgrade that's effectively a no-op) — nothing
+    // to announce.
+    if (plan && plan.id === currentPlanId) return null;
+
+    return { planName: plan?.name ?? null, effectiveAt: new Date(next.start_date! * 1000) };
+  } catch {
+    return null;
+  }
 }
 
 /**
