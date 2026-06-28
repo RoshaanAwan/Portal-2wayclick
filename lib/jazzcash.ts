@@ -160,18 +160,22 @@ export function buildJazzCashForm(opts: {
   // Amount in the smallest unit (paisa). JazzCash expects an integer string.
   const amountMinor = String(Math.round(opts.amountPkr * 100));
 
-  // Field set for HOSTED CHECKOUT v1.1 (the page-redirect form flow). Notably this
-  // flow does NOT send pp_TxnType (that's the direct REST wallet flow — sending
-  // "MWALLET" here makes JazzCash reject with "insufficient merchant information")
-  // and does NOT send pp_BankID/pp_ProductID. The hosted page lets the customer
-  // pick the instrument. Empty fields are excluded from the hash (skips empties),
-  // so listing the optional ones empty is harmless but we keep to the minimal set.
+  // Field set for HOSTED CHECKOUT v1.1 (the page-redirect form flow). Per the
+  // official sandbox docs, this flow expects the FULL field set — every pp_* below
+  // must be PRESENT, even when empty. pp_TxnType is left EMPTY here (the hosted
+  // page itself lets the customer pick MIGS / MWALLET / OTC); pinning it to one
+  // type — or omitting required fields entirely — is what produces "insufficient
+  // merchant information". Empty values are excluded from the secure hash (the hash
+  // skips empties), but they MUST still be posted as form fields.
   const fields: Record<string, string> = {
     pp_Version: "1.1",
+    pp_TxnType: "",
     pp_Language: "EN",
     pp_MerchantID: cfg.merchantId,
     pp_SubMerchantID: "",
     pp_Password: cfg.password,
+    pp_BankID: "",
+    pp_ProductID: "",
     pp_TxnRefNo: opts.txnRef,
     pp_Amount: amountMinor,
     pp_TxnCurrency: "PKR",
