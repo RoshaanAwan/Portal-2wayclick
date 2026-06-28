@@ -97,6 +97,25 @@ export function verifySecureHash(
 }
 
 /**
+ * "Now" as JazzCash should see it. Two adjustments:
+ *
+ *  • JAZZCASH_CLOCK_SKEW_MS (optional): a millisecond offset added to the real
+ *    clock. JazzCash REJECTS a transaction whose pp_TxnDateTime is far from its
+ *    own server clock ("insufficient merchant information"). This lets a host
+ *    whose clock disagrees with JazzCash (e.g. a dev box pinned to a future date)
+ *    shift the timestamp back into JazzCash's real window WITHOUT touching the
+ *    system clock. Defaults to 0 — a correctly-clocked production server needs it
+ *    unset and is completely unaffected. Negative values shift into the past
+ *    (e.g. "-31536000000" = back one year).
+ *
+ * Returns a Date; format it with txnDateTime().
+ */
+function jazzCashNow(): Date {
+  const skew = Number(process.env.JAZZCASH_CLOCK_SKEW_MS ?? "0");
+  return new Date(Date.now() + (Number.isFinite(skew) ? skew : 0));
+}
+
+/**
  * A compact JazzCash timestamp (yyyyMMddHHmmss) in PAKISTAN time (UTC+5).
  * JazzCash validates pp_TxnDateTime / pp_TxnExpiryDateTime against its own PKT
  * clock — a UTC timestamp reads as 5 hours in the past, which can fail validation
@@ -104,7 +123,7 @@ export function verifySecureHash(
  * the UTC epoch and formatting with the *UTC* getters (so no local-tz drift).
  */
 const PKT_OFFSET_MS = 5 * 60 * 60 * 1000;
-function txnDateTime(d = new Date()): string {
+function txnDateTime(d = jazzCashNow()): string {
   const pkt = new Date(d.getTime() + PKT_OFFSET_MS);
   const p = (n: number) => String(n).padStart(2, "0");
   return (
@@ -153,20 +172,32 @@ export function buildJazzCashForm(opts: {
   passThrough?: string[];
 }): JazzCashFormParams {
   const cfg = getJazzCashConfig();
-  const now = new Date();
+  // "Now" per JazzCash's clock (honors JAZZCASH_CLOCK_SKEW_MS for hosts whose
+  // system clock disagrees with JazzCash's server). The expiry rides off the same
+  // base so the 1-hour window is correct relative to that adjusted now.
+  const now = jazzCashNow();
   // The payment is valid for 1 hour; JazzCash rejects an expired request.
   const expiry = new Date(now.getTime() + 60 * 60 * 1000);
 
   // Amount in the smallest unit (paisa). JazzCash expects an integer string.
   const amountMinor = String(Math.round(opts.amountPkr * 100));
 
+  // JazzCash silently REPLACES the characters <>\*=%/:'"{} (and disallows pipe |)
+  // in free-text fields with a space, then validates the secure hash against the
+  // REPLACED value — so if we sign the raw text but it sanitizes server-side, the
+  // hashes won't match and the request is rejected as "insufficient merchant
+  // information". We pre-sanitize description/bill-ref to the same result so what we
+  // sign is exactly what JazzCash hashes. (A colon in "Subscription: X" is one of
+  // these characters — the silent culprit.)
+  const sanitizeText = (s: string): string =>
+    s.replace(/[<>\\*=%/:'"{}|]/g, " ").trim();
+
   // Field set for HOSTED CHECKOUT v1.1 (the page-redirect form flow). Per the
-  // official sandbox docs, this flow expects the FULL field set — every pp_* below
-  // must be PRESENT, even when empty. pp_TxnType is left EMPTY here (the hosted
-  // page itself lets the customer pick MIGS / MWALLET / OTC); pinning it to one
-  // type — or omitting required fields entirely — is what produces "insufficient
-  // merchant information". Empty values are excluded from the secure hash (the hash
-  // skips empties), but they MUST still be posted as form fields.
+  // official integration guide, the full field set is posted. pp_TxnType is left
+  // EMPTY so the hosted page lets the customer pick the instrument (card / wallet /
+  // OTC); it's documented optional. Fields marked optional (pp_SubMerchantID /
+  // pp_BankID / pp_ProductID) are sent empty. Empty values are excluded from the
+  // secure hash but MUST still be posted as form fields.
   const fields: Record<string, string> = {
     pp_Version: "1.1",
     pp_TxnType: "",
@@ -181,8 +212,8 @@ export function buildJazzCashForm(opts: {
     pp_TxnCurrency: "PKR",
     pp_TxnDateTime: txnDateTime(now),
     pp_TxnExpiryDateTime: txnDateTime(expiry),
-    pp_BillReference: opts.billRef,
-    pp_Description: opts.description,
+    pp_BillReference: sanitizeText(opts.billRef),
+    pp_Description: sanitizeText(opts.description),
     pp_ReturnURL: opts.returnUrl,
     // Up to 5 free-form merchant pass-through fields, echoed back in the response.
     // We carry tenant/plan/txn context here (see passThrough doc above).
