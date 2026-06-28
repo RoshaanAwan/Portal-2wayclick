@@ -4,7 +4,8 @@ import { db } from "@/lib/db";
 import { audit } from "@/lib/audit";
 import { notifyMany } from "@/lib/notifications";
 import { recordActivity } from "@/lib/activityFeed";
-import { can } from "@/lib/permissions";
+import { can, isAdminTier } from "@/lib/permissions";
+import { notifySlackChannel } from "@/lib/integrations/slack";
 import { z } from "zod";
 import { ANNOUNCEMENT_CATEGORIES } from "@/lib/constants";
 
@@ -68,6 +69,17 @@ export async function POST(req: Request) {
         actor: user,
       },
     );
+
+    // Mirror admin-tier announcements (Company Owner / Admin / HR) to the tenant's
+    // configured Slack channel — so company-wide notices like holidays reach Slack
+    // too. Best-effort; notifySlackChannel never throws and no-ops when Slack is
+    // off/disconnected or no notify channel is set. LEAD/PM posts stay portal-only.
+    if (isAdminTier(user.role)) {
+      await notifySlackChannel(
+        user.tenantId,
+        `*${title}* — ${category}\n${body}\n_Posted by ${user.name}_`,
+      );
+    }
 
     return NextResponse.json({ ok: true, id: announcement.id });
   } catch (e: any) {
