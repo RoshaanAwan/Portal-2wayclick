@@ -25,6 +25,7 @@ import { PageHeader } from "@/components/ui/PageHeader";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { Button } from "@/components/ui/Button";
 import { Avatar } from "@/components/ui/Avatar";
+import { ImageAdjustModal } from "@/components/ui/ImageAdjustModal";
 import { Reveal, RevealItem } from "@/components/ui/Reveal";
 import { useTheme, type Theme, type Accent } from "@/components/ThemeProvider";
 import { useBrand } from "@/components/BrandProvider";
@@ -150,10 +151,13 @@ export function SettingsClient({
   // The current (possibly just-uploaded) avatar URL we'd save. null = cleared.
   const [avatarUrl, setAvatarUrl] = useState<string | null>(user.avatarUrl);
   const [uploading, setUploading] = useState(false);
+  // The freshly-picked file awaiting crop/zoom in the adjust modal (null = closed).
+  const [avatarPending, setAvatarPending] = useState<File | null>(null);
   // Cover banner — same upload pattern as the avatar, but a wider image.
   const bannerInput = useRef<HTMLInputElement>(null);
   const [bannerUrl, setBannerUrl] = useState<string | null>(user.bannerUrl);
   const [bannerUploading, setBannerUploading] = useState(false);
+  const [bannerPending, setBannerPending] = useState<File | null>(null);
   const [saving, setSaving] = useState(false);
   const [profileError, setProfileError] = useState("");
   const [saved, setSaved] = useState(false);
@@ -172,11 +176,19 @@ export function SettingsClient({
     setProfileError("");
   }
 
-  async function onPickAvatar(e: React.ChangeEvent<HTMLInputElement>) {
+  // Picking a file no longer uploads straight away — it opens the adjust modal,
+  // which hands back a cropped/zoomed file we then upload.
+  function onPickAvatar(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     e.target.value = ""; // allow re-picking the same file
     if (!file) return;
+    setProfileError("");
+    setSaved(false);
+    setAvatarPending(file);
+  }
 
+  async function uploadAvatar(file: File) {
+    setAvatarPending(null);
     setUploading(true);
     setProfileError("");
     setSaved(false);
@@ -197,11 +209,17 @@ export function SettingsClient({
     }
   }
 
-  async function onPickBanner(e: React.ChangeEvent<HTMLInputElement>) {
+  function onPickBanner(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     e.target.value = ""; // allow re-picking the same file
     if (!file) return;
+    setProfileError("");
+    setSaved(false);
+    setBannerPending(file);
+  }
 
+  async function uploadBanner(file: File) {
+    setBannerPending(null);
     setBannerUploading(true);
     setProfileError("");
     setSaved(false);
@@ -531,13 +549,39 @@ export function SettingsClient({
                     <Button
                       type="submit"
                       loading={saving}
-                      disabled={!dirty || uploading || !form.name.trim()}
+                      disabled={
+                        !dirty ||
+                        uploading ||
+                        bannerUploading ||
+                        !form.name.trim()
+                      }
                     >
                       Save changes
                     </Button>
                   </div>
                 </RevealItem>
               </Reveal>
+
+              {/* Crop/zoom step shown after a file is picked, before upload. */}
+              <ImageAdjustModal
+                open={avatarPending !== null}
+                file={avatarPending}
+                aspect={1}
+                round
+                output={512}
+                title="Adjust profile photo"
+                onCancel={() => setAvatarPending(null)}
+                onConfirm={uploadAvatar}
+              />
+              <ImageAdjustModal
+                open={bannerPending !== null}
+                file={bannerPending}
+                aspect={4}
+                output={1584}
+                title="Adjust cover image"
+                onCancel={() => setBannerPending(null)}
+                onConfirm={uploadBanner}
+              />
             </form>
           )}
 

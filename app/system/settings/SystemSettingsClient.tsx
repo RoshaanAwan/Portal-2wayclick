@@ -6,6 +6,7 @@ import { Camera, Loader2, HardDrive, CheckCircle2, AlertCircle, Link2Off } from 
 import { GlassCard } from "@/components/ui/GlassCard";
 import { Button } from "@/components/ui/Button";
 import { Avatar } from "@/components/ui/Avatar";
+import { ImageAdjustModal } from "@/components/ui/ImageAdjustModal";
 
 export function SystemSettingsClient({
   initialName,
@@ -46,6 +47,8 @@ export function SystemSettingsClient({
   const [avatarUrl, setAvatarUrl] = useState(initialAvatarUrl);
   const [avatarUploading, setAvatarUploading] = useState(false);
   const [avatarError, setAvatarError] = useState("");
+  // Picked file awaiting crop/zoom in the adjust modal (null = closed).
+  const [avatarPending, setAvatarPending] = useState<File | null>(null);
 
   // Profile
   const [name, setName] = useState(initialName);
@@ -59,9 +62,17 @@ export function SystemSettingsClient({
   const [pwSaving, setPwSaving] = useState(false);
   const [pwMsg, setPwMsg] = useState("");
 
-  async function onFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+  // Picking a file opens the adjust modal; the cropped result is uploaded.
+  function onFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
+    e.target.value = ""; // allow re-picking the same file
     if (!file) return;
+    setAvatarError("");
+    setAvatarPending(file);
+  }
+
+  async function uploadAvatar(file: File) {
+    setAvatarPending(null);
     setAvatarUploading(true);
     setAvatarError("");
     const form = new FormData();
@@ -75,8 +86,6 @@ export function SystemSettingsClient({
     } else {
       setAvatarError(json.error ?? "Upload failed.");
     }
-    // Reset so the same file can be re-selected if needed.
-    e.target.value = "";
   }
 
   async function saveProfile(e: React.FormEvent) {
@@ -143,6 +152,16 @@ export function SystemSettingsClient({
               accept="image/jpeg,image/png,image/webp,image/gif"
               className="hidden"
               onChange={onFileChange}
+            />
+            <ImageAdjustModal
+              open={avatarPending !== null}
+              file={avatarPending}
+              aspect={1}
+              round
+              output={512}
+              title="Adjust profile photo"
+              onCancel={() => setAvatarPending(null)}
+              onConfirm={uploadAvatar}
             />
           </div>
           <div>
