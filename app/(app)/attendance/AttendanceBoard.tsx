@@ -25,7 +25,7 @@ export interface AttendanceDay {
 
 export interface PersonDay {
   date: string;
-  status: "PRESENT" | "CHECKED_OUT" | "AWAY";
+  status: "PRESENT" | "CHECKED_OUT" | "AWAY" | "HALF_LEAVE";
   checkInAt: string | null;
   checkOutAt: string | null;
   // Worked time, net of breaks ((checkOut − checkIn) − total break time).
@@ -83,7 +83,14 @@ function fmtMinutes(mins: number | null): string {
   return `${hour}:${String(m).padStart(2, "0")} ${ampm}`;
 }
 
-type CellStatus = "PRESENT" | "CHECKED_OUT" | "AWAY" | "WEEKEND";
+// Statuses a heatmap cell can take (the page maps stored ABSENT → AWAY).
+export type BoardCellStatus =
+  | "PRESENT"
+  | "CHECKED_OUT"
+  | "AWAY"
+  | "HALF_LEAVE";
+
+type CellStatus = BoardCellStatus | "WEEKEND";
 
 function cellStyle(status: CellStatus): string {
   switch (status) {
@@ -91,6 +98,8 @@ function cellStyle(status: CellStatus): string {
       return "bg-success shadow-[0_0_0_1px_rgba(var(--c-success),0.3)]";
     case "CHECKED_OUT":
       return "bg-info/70";
+    case "HALF_LEAVE":
+      return "bg-warn/70";
     case "AWAY":
       return "bg-line";
     case "WEEKEND":
@@ -175,6 +184,7 @@ export function AttendanceBoard({ data }: { data: AttendanceBoardData }) {
         <div className="flex items-center gap-4 text-[11px] text-ink-400">
           <LegendItem color="bg-success" label="Present" />
           <LegendItem color="bg-info/70" label="Checked out" />
+          <LegendItem color="bg-warn/70" label="Half-leave" />
           <LegendItem color="bg-line" label="Absent" />
         </div>
 
@@ -276,7 +286,9 @@ export function AttendanceBoard({ data }: { data: AttendanceBoardData }) {
                                   ? "Present"
                                   : status === "CHECKED_OUT"
                                     ? "Checked out"
-                                    : "Absent"
+                                    : status === "HALF_LEAVE"
+                                      ? "Half-leave"
+                                      : "Absent"
                               }${pd?.checkInAt ? ` · in ${fmtTime(pd.checkInAt)}` : ""}${pd?.checkOutAt ? ` · out ${fmtTime(pd.checkOutAt)}` : ""}`}
                               className={cn(
                                 "flex-1 h-6 rounded-[3px] transition-all",
@@ -402,16 +414,26 @@ export function AttendanceBoard({ data }: { data: AttendanceBoardData }) {
                               "inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[11px] font-medium",
                               pd.status === "PRESENT"
                                 ? "bg-success-soft text-success"
-                                : "bg-info-soft text-info",
+                                : pd.status === "HALF_LEAVE"
+                                  ? "bg-warn-soft text-warn"
+                                  : "bg-info-soft text-info",
                             )}
                           >
                             <span
                               className={cn(
                                 "h-1.5 w-1.5 rounded-full",
-                                pd.status === "PRESENT" ? "bg-success" : "bg-info",
+                                pd.status === "PRESENT"
+                                  ? "bg-success"
+                                  : pd.status === "HALF_LEAVE"
+                                    ? "bg-warn"
+                                    : "bg-info",
                               )}
                             />
-                            {pd.status === "PRESENT" ? "Present" : "Checked out"}
+                            {pd.status === "PRESENT"
+                              ? "Present"
+                              : pd.status === "HALF_LEAVE"
+                                ? "Half-leave"
+                                : "Checked out"}
                           </span>
                         </td>
                         <td className="px-4 py-2.5 tabular-nums text-[13px] text-ink">

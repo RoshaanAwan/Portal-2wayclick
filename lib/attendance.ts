@@ -13,7 +13,14 @@ import { recordActivity } from "./activityFeed";
 // event counter and keeps the earliest checkInAt; a check-out always advances
 // checkOutAt to the latest time seen.
 
-export type AttendanceStatus = "PRESENT" | "CHECKED_OUT";
+// PRESENT / CHECKED_OUT come from the Slack flow. ABSENT and HALF_LEAVE are
+// admin-set overrides (see /api/attendance/update): ABSENT marks the day off
+// explicitly (distinct from "AWAY" = no row at all), HALF_LEAVE = a partial day.
+export type AttendanceStatus =
+  | "PRESENT"
+  | "CHECKED_OUT"
+  | "ABSENT"
+  | "HALF_LEAVE";
 
 // Result of a break event. "ignored" carries a reason so the webhook can return
 // a benign 202 (no retry) rather than an error the bot would keep redelivering.

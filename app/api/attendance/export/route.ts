@@ -82,7 +82,13 @@ export async function GET(req: Request) {
   const lines = [header.map(csvCell).join(",")];
   for (const u of users) {
     const a = byUser.get(u.id);
-    const status = !a ? "Not in" : a.status === "PRESENT" ? "Present" : "Checked out";
+    const STATUS_LABELS: Record<string, string> = {
+      PRESENT: "Present",
+      CHECKED_OUT: "Checked out",
+      ABSENT: "Absent",
+      HALF_LEAVE: "Half-leave",
+    };
+    const status = !a ? "Not in" : STATUS_LABELS[a.status] ?? a.status;
     const breakMins = a ? breakMinutes(a.breaks) : 0;
     const net = a ? netWorkedMinutes(a.checkInAt, a.checkOutAt, a.breaks) : null;
     lines.push(

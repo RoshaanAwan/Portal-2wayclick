@@ -1,8 +1,22 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { FeedItem } from "@/app/(app)/dashboard/PulseFeed";
 import { usePolling } from "@/lib/usePolling";
+
+// One activity-feed entry, as served by /api/activity/since and pushed by the
+// notifications bus. (Previously co-located with the dashboard Pulse feed, which
+// the Calendar replaced; kept here so the stream hook is self-contained.)
+export interface FeedItem {
+  id: string;
+  verb: string;
+  target: string;
+  createdAt: string;
+  user: {
+    name: string;
+    avatarUrl?: string | null;
+    title: string;
+  };
+}
 
 // Client store for the Live Activity Wall. Seeds from the server-rendered feed,
 // then keeps it live via a Web Push nudge (the service worker postMessages on

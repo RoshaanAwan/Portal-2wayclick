@@ -293,7 +293,7 @@ export function SharedBoardClient({
                   {list.cards.length}
                 </span>
               </div>
-              <div className="flex flex-1 flex-col gap-2 px-0.5">
+              <div className="flex max-h-[calc(100vh-16rem)] flex-1 flex-col gap-2 overflow-y-auto px-0.5">
                 {list.cards.length === 0 && !dragId && (
                   <p className="rounded-xl border border-dashed border-line px-3 py-5 text-center text-[11px] text-ink-400">
                     Nothing here yet

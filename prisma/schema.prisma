@@ -315,6 +315,10 @@ model Announcement {
   category   String   @default("General") // General, Product, People, Policy, Event
   pinned     Boolean  @default(false)
   coverColor String   @default("accent")
+  // Optional calendar date this post pins to (e.g. a holiday or event day). When
+  // set, the dashboard Calendar surfaces it on that day. Null = a plain feed post
+  // with no calendar placement. Normalized to UTC midnight of the chosen date.
+  eventDate  DateTime?
   // null for System Owner posts (no tenant user row); authorName stores display name
   authorId   String?
   author     User?    @relation("PostAuthor", fields: [authorId], references: [id])
@@ -328,6 +332,8 @@ model Announcement {
   // The feed orders by (pinned desc, createdAt desc); index the sort key.
   @@index([authorId])
   @@index([createdAt])
+  // The calendar fetches posts in a date window; index the calendar date.
+  @@index([eventDate])
   @@index([tenantId])
 }
 

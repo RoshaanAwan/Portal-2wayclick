@@ -119,6 +119,12 @@ export const can = {
     isAdminTier(role) || role === "PROJECT_MANAGER",
   /** See the whole company's attendance (not just one's own). Manager tier. */
   viewAllAttendance: (role?: string | null) => isManagerTier(role),
+  /**
+   * Edit attendance records (set/clear a person's check-in/out for a day).
+   * Admin tier only — a correction/override path on top of the Slack-sourced
+   * data, e.g. fixing a missed check-in.
+   */
+  editAttendance: (role?: string | null) => isAdminTier(role),
   /** Edit the white-label brand (name, colors, logo, contact). Admin tier. */
   manageBranding: (role?: string | null) => isAdminTier(role),
   /** Enable/disable & configure the third-party app integrations. Admin tier. */

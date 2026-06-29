@@ -48,6 +48,7 @@ export type AuditAction =
   | "leave.decide"
   | "leave.update"
   | "leave.delete"
+  | "attendance.update"
   | "announcement.create"
   | "announcement.update"
   | "announcement.delete"
