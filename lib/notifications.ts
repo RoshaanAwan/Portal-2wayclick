@@ -2,7 +2,6 @@ import "server-only";
 import { EventEmitter } from "events";
 import { db } from "./db";
 import { sendPushToUser, sendPushToUsers } from "./push";
-import { notifySlackChannel } from "./integrations/slack";
 import { BRAND } from "./brand";
 import { resolveTenantId } from "./tenantContext";
 
@@ -166,11 +165,11 @@ export async function notify(input: NotifyInput): Promise<void> {
       tag: input.type,
     });
 
-    // Fan the event into the tenant's Slack notify channel, if connected+routed.
-    // Fire-and-forget; carries the captured tenantId since the request context
-    // may have unwound. No-ops when Slack routing isn't set up.
-    const actorPrefix = input.actor?.name ? `*${input.actor.name}* — ` : "";
-    void notifySlackChannel(tenantId, `${actorPrefix}${input.message}`);
+    // NOTE: notifications are intentionally NOT mirrored to Slack here. Only
+    // announcements reach the tenant's Slack channel, and they do so via an
+    // explicit notifySlackChannel() call in the announcement-create route — so
+    // per-user noise (task comments, assignments, leave decisions, …) stays in
+    // the portal bell and doesn't flood the shared channel.
   } catch (err) {
     console.error("[notify] failed", input.type, err);
   }
@@ -263,10 +262,9 @@ export async function notifyMany(
       tag: input.type,
     });
 
-    // One Slack post for the whole fan-out (the channel needs a single copy, not
-    // one per recipient). Fire-and-forget; no-ops when routing isn't configured.
-    const actorPrefix = actorName ? `*${actorName}* — ` : "";
-    void notifySlackChannel(tenantId, `${actorPrefix}${input.message}`);
+    // NOTE: not mirrored to Slack — see the note in notify(). Announcements are
+    // the only thing that reaches the tenant's Slack channel, and that mirror
+    // lives in the announcement-create route, not here.
   } catch (err) {
     console.error("[notifyMany] failed", input.type, err);
   }

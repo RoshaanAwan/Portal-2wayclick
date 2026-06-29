@@ -48,6 +48,7 @@ export function IssueDetailsPanel({
       reporterId?: string | null;
       sprintId?: string | null;
       labels?: string[];
+      dueDate?: string | null;
     },
   ) => Promise<boolean>;
   onAddLink: (
@@ -215,6 +216,21 @@ export function IssueDetailsPanel({
           </select>
         </Field>
       )}
+
+      {/* Due date — drives the dashboard Calendar. Stored as a UTC-midnight
+          instant; the date input wants YYYY-MM-DD, so slice it off. Clearing the
+          field sends null. */}
+      <Field label="Due date">
+        <input
+          type="date"
+          value={task.dueDate ? task.dueDate.slice(0, 10) : ""}
+          disabled={!canManage}
+          onChange={(e) =>
+            onPatchIssue(task.id, { dueDate: e.target.value || null })
+          }
+          className="h-8 w-full rounded-lg border border-line bg-surface px-2 text-xs font-medium text-ink focus:border-accent/40 focus:outline-none disabled:opacity-60"
+        />
+      </Field>
 
       {/* Labels */}
       <Field label="Labels">

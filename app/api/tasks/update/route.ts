@@ -31,6 +31,13 @@ const schema = z
     status: z.enum(WORKFLOW_STATUSES).optional(),
     // storyPoints: null clears the estimate.
     storyPoints: z.number().int().min(0).max(999).nullable().optional(),
+    // dueDate: a YYYY-MM-DD calendar day (anchored to UTC midnight below, like
+    // the announcement eventDate). null clears it. Drives the dashboard calendar.
+    dueDate: z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/, "Invalid date")
+      .nullable()
+      .optional(),
     labels: z.array(z.string().trim().min(1).max(40)).max(20).optional(),
     reporterId: z.string().nullable().optional(),
     // sprintId: null moves the card to the backlog.
@@ -51,6 +58,7 @@ const schema = z
       v.issueType !== undefined ||
       v.status !== undefined ||
       v.storyPoints !== undefined ||
+      v.dueDate !== undefined ||
       v.labels !== undefined ||
       v.reporterId !== undefined ||
       v.sprintId !== undefined ||
@@ -70,6 +78,7 @@ export async function POST(req: Request) {
       issueType,
       status,
       storyPoints,
+      dueDate,
       labels,
       reporterId,
       sprintId,
@@ -123,6 +132,7 @@ export async function POST(req: Request) {
       issueType === undefined &&
       status === undefined &&
       storyPoints === undefined &&
+      dueDate === undefined &&
       labels === undefined &&
       reporterId === undefined &&
       sprintId === undefined &&
@@ -137,6 +147,7 @@ export async function POST(req: Request) {
       priority === undefined &&
       issueType === undefined &&
       storyPoints === undefined &&
+      dueDate === undefined &&
       labels === undefined &&
       reporterId === undefined &&
       sprintId === undefined &&
@@ -239,6 +250,9 @@ export async function POST(req: Request) {
           ? { listId: relocateListId, position: relocatePosition }
           : {}),
         ...(storyPoints !== undefined ? { storyPoints } : {}),
+        ...(dueDate !== undefined
+          ? { dueDate: dueDate ? new Date(`${dueDate}T00:00:00.000Z`) : null }
+          : {}),
         ...(labels !== undefined ? { labels } : {}),
         ...(reporterId !== undefined ? { reporterId } : {}),
         ...(sprintId !== undefined ? { sprintId } : {}),
@@ -252,6 +266,7 @@ export async function POST(req: Request) {
         issueType: true,
         status: true,
         storyPoints: true,
+        dueDate: true,
         labels: true,
         reporterId: true,
         sprintId: true,
@@ -327,6 +342,7 @@ export async function POST(req: Request) {
         ...(issueType !== undefined ? { issueType } : {}),
         ...(status !== undefined ? { status } : {}),
         ...(storyPoints !== undefined ? { storyPoints } : {}),
+        ...(dueDate !== undefined ? { dueDate } : {}),
         ...(labels !== undefined ? { labels } : {}),
         ...(reporterId !== undefined ? { reporterId } : {}),
         ...(sprintId !== undefined ? { sprintId } : {}),

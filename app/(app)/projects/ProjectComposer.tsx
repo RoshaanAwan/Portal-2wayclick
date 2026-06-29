@@ -8,6 +8,10 @@ import { GlassCard } from "@/components/ui/GlassCard";
 import { Button } from "@/components/ui/Button";
 import { Avatar } from "@/components/ui/Avatar";
 import { cn } from "@/lib/utils";
+import {
+  PROJECT_TEMPLATES,
+  DEFAULT_PROJECT_TEMPLATE_ID,
+} from "@/lib/constants";
 import type { MemberDTO } from "./ProjectsClient";
 
 export function ProjectComposer({ onDone }: { onDone: () => void }) {
@@ -17,6 +21,7 @@ export function ProjectComposer({ onDone }: { onDone: () => void }) {
   const [memberIds, setMemberIds] = useState<Set<string>>(new Set());
   const [projectLeadId, setProjectLeadId] = useState("");
   const [techLeadId, setTechLeadId] = useState("");
+  const [template, setTemplate] = useState(DEFAULT_PROJECT_TEMPLATE_ID);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [roster, setRoster] = useState<MemberDTO[]>([]);
@@ -64,6 +69,7 @@ export function ProjectComposer({ onDone }: { onDone: () => void }) {
         memberIds: Array.from(memberIds),
         projectLeadId: projectLeadId || null,
         techLeadId: techLeadId || null,
+        template,
       }),
     });
 
@@ -74,6 +80,7 @@ export function ProjectComposer({ onDone }: { onDone: () => void }) {
       setMemberIds(new Set());
       setProjectLeadId("");
       setTechLeadId("");
+      setTemplate(DEFAULT_PROJECT_TEMPLATE_ID);
       onDone();
       router.refresh();
       if (data.id) router.push(`/projects/${data.id}`);
@@ -127,6 +134,54 @@ export function ProjectComposer({ onDone }: { onDone: () => void }) {
             placeholder="What is this project about?"
             className="input resize-y leading-relaxed"
           />
+        </div>
+
+        {/* Board template — Trello-style starting columns. */}
+        <div>
+          <label className="mb-1.5 block text-xs font-medium text-ink-500">
+            Board template
+          </label>
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            {PROJECT_TEMPLATES.map((t) => {
+              const selected = template === t.id;
+              return (
+                <button
+                  key={t.id}
+                  type="button"
+                  onClick={() => setTemplate(t.id)}
+                  aria-pressed={selected}
+                  className={cn(
+                    "flex flex-col gap-1.5 rounded-xl border p-2.5 text-left transition-colors",
+                    selected
+                      ? "border-accent/50 bg-accent-soft/40"
+                      : "border-line bg-surface-2 hover:border-line/80",
+                  )}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs font-semibold text-ink">
+                      {t.label}
+                    </span>
+                    {selected && (
+                      <Check className="h-3.5 w-3.5 shrink-0 text-accent" />
+                    )}
+                  </div>
+                  <span className="text-[10px] leading-snug text-ink-400">
+                    {t.description}
+                  </span>
+                  <div className="flex flex-wrap gap-1 pt-0.5">
+                    {t.columns.map((c) => (
+                      <span
+                        key={c}
+                        className="rounded bg-surface px-1.5 py-0.5 text-[9px] font-medium text-ink-500"
+                      >
+                        {c}
+                      </span>
+                    ))}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
         </div>
 
         <div>

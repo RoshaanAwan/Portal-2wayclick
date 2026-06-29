@@ -819,7 +819,7 @@ export function BillingClient({
                     separate provider from Stripe; shown when configured and not the
                     current plan. Pay-per-period: it activates a fresh period for
                     this plan regardless of any existing subscription. */}
-                {jazzCashReady && !isCurrent && !isScheduled && (
+                {/* {jazzCashReady && !isCurrent && !isScheduled && (
                   <Button
                     className="mt-2.5 w-full justify-center"
                     variant="glass"
@@ -834,7 +834,7 @@ export function BillingClient({
                       </>
                     )}
                   </Button>
-                )}
+                )} */}
 
                 {/* Feature list */}
                 {p.features.length > 0 && (

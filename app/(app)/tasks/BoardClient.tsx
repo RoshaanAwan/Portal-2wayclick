@@ -163,6 +163,8 @@ export function BoardClient({
   const loadedDetailIds = useRef<Set<string>>(new Set());
   // Which card is being edited inline (swaps the card for the edit form).
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
+  // Which column header is being renamed inline (swaps the title for an input).
+  const [editingListId, setEditingListId] = useState<string | null>(null);
   // The card awaiting delete confirmation (drives the confirm dialog).
   const [deleteTarget, setDeleteTarget] = useState<{
     id: string;
@@ -190,7 +192,7 @@ export function BoardClient({
             `${l.id}:${l.tasks
               .map(
                 (t) =>
-                  `${t.id}#${t.assignees.map((a) => a.id).join("+")}#${t.commentCount}#${t.attachmentCount}#${t.status}#${t.storyPoints}#${t.issueType}#${t.sprintId}#${t.labels.join(".")}#${t.linkCount}`,
+                  `${t.id}#${t.assignees.map((a) => a.id).join("+")}#${t.commentCount}#${t.attachmentCount}#${t.status}#${t.storyPoints}#${t.issueType}#${t.sprintId}#${t.labels.join(".")}#${t.linkCount}#${t.dueDate}`,
               )
               .join(",")}`,
         )
@@ -559,6 +561,8 @@ export function BoardClient({
         reporterId?: string | null;
         sprintId?: string | null;
         labels?: string[];
+        // YYYY-MM-DD calendar day, or null to clear. Drives the dashboard calendar.
+        dueDate?: string | null;
       },
     ): Promise<boolean> => {
       const snapshot = findTask(taskId)?.task;
@@ -587,6 +591,15 @@ export function BoardClient({
           : {}),
         ...(payload.sprintId !== undefined ? { sprintId: payload.sprintId } : {}),
         ...(payload.labels !== undefined ? { labels: payload.labels } : {}),
+        ...(payload.dueDate !== undefined
+          ? {
+              // Store as an ISO instant (UTC midnight) so the modal's
+              // formatDate(task.dueDate) keeps working; null clears it.
+              dueDate: payload.dueDate
+                ? `${payload.dueDate}T00:00:00.000Z`
+                : null,
+            }
+          : {}),
       }));
 
       try {
@@ -606,6 +619,7 @@ export function BoardClient({
           reporter: snapshot.reporter,
           sprintId: snapshot.sprintId,
           labels: snapshot.labels,
+          dueDate: snapshot.dueDate,
         }));
         return false;
       }
@@ -867,6 +881,36 @@ export function BoardClient({
       }
     },
     [listDrag, lists, router],
+  );
+
+  // ── List (column) rename ────────────────────────────────────────────────────
+  // Inline rename from the column header, mirroring the card-title edit. Trim +
+  // no-op short-circuit; optimistic with revert on failure.
+  const renameList = useCallback(
+    async (listId: string, raw: string) => {
+      const name = raw.trim();
+      setEditingListId(null);
+      const current = lists.find((l) => l.id === listId);
+      if (!current || !name || name === current.name) return;
+
+      const snapshot = lists;
+      setLists((prev) =>
+        prev.map((l) => (l.id === listId ? { ...l, name } : l)),
+      );
+
+      try {
+        const res = await fetch("/api/projects/list/rename", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ listId, name }),
+        });
+        if (!res.ok) throw new Error("list rename failed");
+        router.refresh();
+      } catch {
+        setLists(snapshot); // restore on failure
+      }
+    },
+    [lists, router],
   );
 
   if (lists.length === 0) {
@@ -1158,9 +1202,12 @@ export function BoardClient({
                 <div className="absolute -left-2.5 inset-y-2 w-0.5 rounded-full bg-accent" />
               )}
 
-              {/* Header doubles as the column drag handle. */}
+              {/* Header doubles as the column drag handle. Managers can rename
+                  the column inline (like a card title) by clicking the name;
+                  while editing, the header isn't draggable so typing/selection
+                  works. */}
               <div
-                draggable
+                draggable={editingListId !== list.id}
                 onDragStart={() => {
                   setListDrag(list.id);
                   setDrag(null); // ensure card-drag isn't also active
@@ -1169,15 +1216,49 @@ export function BoardClient({
                   setListDrag(null);
                   setListDropHint(null);
                 }}
-                className="group/header mb-2 flex cursor-grab items-center justify-between rounded-lg px-1.5 pt-0.5 pb-1 hover:bg-surface-2/60 active:cursor-grabbing"
+                className={cn(
+                  "group/header mb-2 flex items-center justify-between rounded-lg px-1.5 pt-0.5 pb-1",
+                  editingListId === list.id
+                    ? "bg-surface-2/60"
+                    : "cursor-grab hover:bg-surface-2/60 active:cursor-grabbing",
+                )}
               >
-                <div className="flex min-w-0 items-center gap-1">
+                <div className="flex min-w-0 flex-1 items-center gap-1">
                   <GripVertical className="h-3.5 w-3.5 shrink-0 text-ink-400/40 opacity-0 transition-opacity group-hover/header:opacity-100" />
-                  <h2 className="truncate text-[13px] font-semibold text-ink">
-                    {list.name}
-                  </h2>
+                  {editingListId === list.id ? (
+                    <input
+                      autoFocus
+                      defaultValue={list.name}
+                      maxLength={80}
+                      onClick={(e) => e.stopPropagation()}
+                      onBlur={(e) => void renameList(list.id, e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") e.currentTarget.blur();
+                        else if (e.key === "Escape") {
+                          // Discard: reset to the stored name so blur is a no-op.
+                          e.currentTarget.value = list.name;
+                          e.currentTarget.blur();
+                        }
+                      }}
+                      className="min-w-0 flex-1 rounded border border-accent/40 bg-surface px-1 py-0.5 text-[13px] font-semibold text-ink focus:outline-none"
+                      aria-label="Rename column"
+                    />
+                  ) : isManager ? (
+                    <button
+                      type="button"
+                      onClick={() => setEditingListId(list.id)}
+                      title="Click to rename"
+                      className="min-w-0 truncate rounded text-left text-[13px] font-semibold text-ink hover:text-accent-ink"
+                    >
+                      {list.name}
+                    </button>
+                  ) : (
+                    <h2 className="truncate text-[13px] font-semibold text-ink">
+                      {list.name}
+                    </h2>
+                  )}
                 </div>
-                <span className="rounded-full bg-surface-2 px-2 py-0.5 text-[11px] font-medium text-ink-400">
+                <span className="ml-1 shrink-0 rounded-full bg-surface-2 px-2 py-0.5 text-[11px] font-medium text-ink-400">
                   {visibleTasks.length}
                 </span>
               </div>

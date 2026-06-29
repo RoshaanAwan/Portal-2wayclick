@@ -51,6 +51,22 @@ export default async function AppLayout({
     pathname.startsWith("/billing") || pathname.startsWith("/trial-ended");
   if (!access.hasAccess && !gateExempt) redirect("/trial-ended");
 
+  // Trial lapsed: render a LOCKED shell — no sidebar nav, no topbar actions, no
+  // AI widget — so the only thing reachable is the gate-exempt content itself
+  // (/trial-ended and /billing). This is the real lock: even though every other
+  // route already redirects here, hiding the chrome means there is nothing left
+  // to click, so the workspace is fully blocked until they subscribe.
+  if (!access.hasAccess) {
+    const lockedBrand = await resolveClientBrand();
+    return (
+      <BrandProvider brand={lockedBrand}>
+        <div className="min-h-screen">
+          <main className="px-4 py-6 lg:px-8">{children}</main>
+        </div>
+      </BrandProvider>
+    );
+  }
+
   // Plan entitlements: the tenant's plan decides which modules it may use. This
   // is the central guard — even pages that don't call requireFeature() are caught
   // here. Unmapped/core routes (dashboard, billing, settings) are always allowed;

@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback } from "react";
-import { useRouter } from "next/navigation";
 import { ShieldCheck } from "lucide-react";
 import { useQrLogin } from "@/lib/useQrLogin";
 import { QrCodeSurface } from "@/components/QrCodeSurface";
@@ -16,16 +15,16 @@ import { useBrand } from "@/components/BrandProvider";
  * own session; the server mints a fresh one here on claim. See lib/useQrLogin.
  */
 export function QrLogin() {
-  const router = useRouter();
   const brand = useBrand();
 
   const onSignedIn = useCallback(() => {
-    // Brief beat so the success state is visible, then into the app.
+    // Brief beat so the success state is visible, then into the app. Hard
+    // navigation (not router.push) so the server's (app)-layout gate runs fresh
+    // — a lapsed-trial tenant is 307'd to /trial-ended with no flash/limbo.
     setTimeout(() => {
-      router.push("/dashboard");
-      router.refresh();
+      window.location.assign("/dashboard");
     }, 700);
-  }, [router]);
+  }, []);
 
   const { phase, linkUrl, restart } = useQrLogin({ onSignedIn });
 
