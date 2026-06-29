@@ -1182,7 +1182,11 @@ export function BoardClient({
                 </span>
               </div>
 
-              <div className="flex flex-1 flex-col gap-2 px-0.5">
+              <div className="flex flex-1 flex-col px-0.5">
+                {/* Cards scroll within the column so a long list never pushes the
+                    "Add a card" button (below) out of view. Capped to the
+                    viewport height minus the board chrome. */}
+                <div className="flex max-h-[calc(100vh-22rem)] flex-col gap-2 overflow-y-auto pr-0.5">
                 {visibleTasks.map((task) =>
                   editingTaskId === task.id ? (
                     <EditTaskForm
@@ -1242,13 +1246,16 @@ export function BoardClient({
                       : "min-h-[4px]"
                   }
                 />
+                </div>
 
                 {!filterActive && (
-                  <AddTask
-                    listId={list.id}
-                    currentUserId={currentUserId}
-                    defaultSprintId={activeSprint?.id ?? null}
-                  />
+                  <div className="pt-2">
+                    <AddTask
+                      listId={list.id}
+                      currentUserId={currentUserId}
+                      defaultSprintId={activeSprint?.id ?? null}
+                    />
+                  </div>
                 )}
               </div>
             </div>

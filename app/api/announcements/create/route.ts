@@ -22,6 +22,14 @@ const schema = z.object({
   body: z.string().trim().min(1).max(4000),
   category: z.enum(ANNOUNCEMENT_CATEGORIES),
   pinned: z.boolean().optional().default(false),
+  // Optional calendar date (YYYY-MM-DD) to pin this post to — used when posting
+  // from the dashboard Calendar (a holiday/event on a specific day). Stored at
+  // UTC midnight so it reads as that calendar date regardless of server TZ.
+  eventDate: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, "Invalid date")
+    .optional()
+    .nullable(),
 });
 
 export async function POST(req: Request) {
@@ -33,7 +41,15 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    const { title, body, category, pinned } = schema.parse(await req.json());
+    const { title, body, category, pinned, eventDate } = schema.parse(
+      await req.json(),
+    );
+
+    // Anchor a calendar date at UTC midnight so it groups by the chosen day. A
+    // holiday is an Event-category post with a date — it's surfaced on the
+    // calendar and (below) named in the Slack mirror.
+    const eventAt = eventDate ? new Date(`${eventDate}T00:00:00.000Z`) : null;
+    const isHoliday = category === "Event" && !!eventAt;
 
     const announcement = await db.announcement.create({
       data: {
@@ -42,6 +58,7 @@ export async function POST(req: Request) {
         body,
         category,
         pinned,
+        eventDate: eventAt,
         coverColor: COVER_BY_CATEGORY[category] ?? "accent",
         authorId: user.id,
       },
@@ -75,10 +92,13 @@ export async function POST(req: Request) {
     // too. Best-effort; notifySlackChannel never throws and no-ops when Slack is
     // off/disconnected or no notify channel is set. LEAD/PM posts stay portal-only.
     if (isAdminTier(user.role)) {
-      await notifySlackChannel(
-        user.tenantId,
-        `*${title}* — ${category}\n${body}\n_Posted by ${user.name}_`,
-      );
+      // A holiday (Event + date) gets a calendar-flavored line that names the
+      // date and the announcer, per the requirement that holidays reach Slack
+      // "with the person name". Everything else uses the standard mirror.
+      const slackText = isHoliday
+        ? `:palm_tree: *Holiday — ${title}*\n${eventAt!.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric", timeZone: "UTC" })}\n${body}\n_Announced by ${user.name}_`
+        : `*${title}* — ${category}\n${body}\n_Posted by ${user.name}_`;
+      await notifySlackChannel(user.tenantId, slackText);
     }
 
     return NextResponse.json({ ok: true, id: announcement.id });

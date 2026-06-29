@@ -5,8 +5,7 @@ import { redirect } from "next/navigation";
 import { Skeleton, SkeletonCard } from "@/components/ui/Skeleton";
 import { HeroSection } from "./HeroSection";
 import { StatTilesSection } from "./StatTilesSection";
-import { PulseFeedSection } from "./PulseFeedSection";
-import { HeadcountSection } from "./HeadcountSection";
+import { CalendarSection } from "./CalendarSection";
 import { AssignedCardsSection } from "./AssignedCardsSection";
 import { RightRailSection } from "./RightRailSection";
 
@@ -33,11 +32,8 @@ export default async function DashboardPage() {
           <Suspense fallback={<AssignedCardsFallback />}>
             <AssignedCardsSection user={user} />
           </Suspense>
-          <Suspense fallback={<PulseFeedFallback />}>
-            <PulseFeedSection />
-          </Suspense>
-          <Suspense fallback={<HeadcountFallback />}>
-            <HeadcountSection />
+          <Suspense fallback={<CalendarFallback />}>
+            <CalendarSection user={user} />
           </Suspense>
         </div>
 
@@ -94,30 +90,16 @@ function AssignedCardsFallback() {
   );
 }
 
-function PulseFeedFallback() {
+function CalendarFallback() {
   return (
     <SkeletonCard>
       <Skeleton className="h-4 w-32" />
-      <div className="mt-5 space-y-4">
-        {Array.from({ length: 5 }).map((_, i) => (
-          <div key={i} className="flex items-start gap-3">
-            <Skeleton className="h-9 w-9 rounded-full" />
-            <div className="flex-1 space-y-2">
-              <Skeleton className="h-3.5 w-3/4" />
-              <Skeleton className="h-3 w-24" />
-            </div>
-          </div>
+      <Skeleton className="mt-3 mx-auto h-4 w-28" />
+      <div className="mt-4 grid grid-cols-7 gap-1">
+        {Array.from({ length: 42 }).map((_, i) => (
+          <Skeleton key={i} className="h-12 rounded-lg" />
         ))}
       </div>
-    </SkeletonCard>
-  );
-}
-
-function HeadcountFallback() {
-  return (
-    <SkeletonCard>
-      <Skeleton className="h-4 w-44" />
-      <Skeleton className="mt-5 h-56 w-full rounded-xl" />
     </SkeletonCard>
   );
 }

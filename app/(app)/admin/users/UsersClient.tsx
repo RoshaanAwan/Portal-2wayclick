@@ -17,11 +17,13 @@ import {
   Ban,
   CircleCheck,
   KeyRound,
+  Trash2,
 } from "lucide-react";
 import { Avatar } from "@/components/ui/Avatar";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { GlassCard } from "@/components/ui/GlassCard";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { Pagination } from "@/components/ui/Pagination";
 import { useBrand } from "@/components/BrandProvider";
 import {
@@ -263,8 +265,10 @@ function RowActions({
   onChanged: () => void;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
-  const [busy, setBusy] = useState<null | "disable" | "reset">(null);
+  const [busy, setBusy] = useState<null | "disable" | "reset" | "delete">(null);
   const [error, setError] = useState<string | null>(null);
+  // Whether the destructive delete confirmation is open.
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const [coords, setCoords] = useState<{ top: number; right: number } | null>(
     null,
@@ -328,6 +332,25 @@ function RowActions({
       onResetDone(data.password as string);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Something went wrong.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function deleteUser() {
+    setBusy("delete");
+    setError(null);
+    try {
+      const res = await fetch(`/api/admin/users/${user.id}/delete`, {
+        method: "POST",
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error ?? "Could not delete user.");
+      setConfirmDelete(false);
+      onChanged();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Something went wrong.");
+      // Keep the dialog open so the (FK / permission) error is visible.
     } finally {
       setBusy(null);
     }
@@ -401,6 +424,19 @@ function RowActions({
                     <KeyRound className="h-4 w-4" />
                     Reset password
                   </button>
+                  <div className="my-1 border-t border-line" />
+                  <button
+                    onClick={() => {
+                      setMenuOpen(false);
+                      setError(null);
+                      setConfirmDelete(true);
+                    }}
+                    disabled={busy !== null}
+                    className="hover-surface flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-danger-ink hover:bg-danger-soft disabled:opacity-50"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                    Delete user
+                  </button>
                   {error && (
                     <p className="px-3 py-1.5 text-[11px] text-danger-ink">
                       {error}
@@ -412,6 +448,30 @@ function RowActions({
           </AnimatePresence>,
           document.body,
         )}
+
+      <ConfirmDialog
+        open={confirmDelete}
+        title="Delete user"
+        confirmLabel="Delete user"
+        loading={busy === "delete"}
+        message={
+          <>
+            Permanently delete <strong>{user.name}</strong> ({user.email})? This
+            removes their account, sessions, and attendance — and can&apos;t be
+            undone. To keep their history, use <strong>Disable</strong> instead.
+            {error && (
+              <span className="mt-2 block text-xs text-danger-ink">{error}</span>
+            )}
+          </>
+        }
+        onConfirm={deleteUser}
+        onClose={() => {
+          if (busy !== "delete") {
+            setConfirmDelete(false);
+            setError(null);
+          }
+        }}
+      />
     </div>
   );
 }

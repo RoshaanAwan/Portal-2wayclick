@@ -15,6 +15,8 @@ import {
 } from "@/lib/attendance";
 import { AttendanceDateNav } from "./AttendanceDateNav";
 import { AttendanceBoardWrapper } from "./AttendanceBoardWrapper";
+import type { BoardCellStatus } from "./AttendanceBoard";
+import { EditAttendanceButton } from "./EditAttendanceButton";
 
 export const metadata = { title: "Attendance" };
 
@@ -35,6 +37,18 @@ function fmtTime(d: Date | null): string {
   });
 }
 
+/** "HH:MM" (24h) in the business TZ, for a <input type=time> value. "" if null. */
+function fmtTimeInput(d: Date | null): string {
+  if (!d) return "";
+  // en-GB gives 24h "HH:MM" which the time input expects.
+  return d.toLocaleTimeString("en-GB", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+    timeZone: ATTENDANCE_TZ,
+  });
+}
+
 /** Minutes as "Hh Mm" (or "Mm" under an hour); "—" for null. */
 function fmtMinutes(mins: number | null): string {
   if (mins === null) return "—";
@@ -44,11 +58,20 @@ function fmtMinutes(mins: number | null): string {
   return h > 0 ? `${h}h ${m}m` : `${m}m`;
 }
 
-function StatusPill({ status }: { status: "PRESENT" | "CHECKED_OUT" | "AWAY" }) {
+type RosterStatus =
+  | "PRESENT"
+  | "CHECKED_OUT"
+  | "AWAY"
+  | "ABSENT"
+  | "HALF_LEAVE";
+
+function StatusPill({ status }: { status: RosterStatus }) {
   const map = {
     PRESENT: { label: "Present", cls: "bg-success-soft text-success" },
     CHECKED_OUT: { label: "Checked out", cls: "bg-surface-2 text-ink-500" },
     AWAY: { label: "Not in", cls: "bg-warn-soft text-warn" },
+    ABSENT: { label: "Absent", cls: "bg-danger-soft text-danger-ink" },
+    HALF_LEAVE: { label: "Half-leave", cls: "bg-info-soft text-info" },
   } as const;
   const { label, cls } = map[status];
   return (
@@ -56,6 +79,15 @@ function StatusPill({ status }: { status: "PRESENT" | "CHECKED_OUT" | "AWAY" }) 
       {label}
     </span>
   );
+}
+
+/** Map a stored/derived roster status to the edit modal's 3-way disposition. */
+function toEditStatus(
+  status: RosterStatus,
+): "PRESENT" | "HALF_LEAVE" | "ABSENT" {
+  if (status === "ABSENT") return "ABSENT";
+  if (status === "HALF_LEAVE") return "HALF_LEAVE";
+  return "PRESENT"; // PRESENT / CHECKED_OUT / AWAY all seed "Present"
 }
 
 const PUNCTUAL_HOUR = 10; // checked in by 10 AM = punctual
@@ -76,6 +108,8 @@ export default async function AttendancePage({
 
   const today = dayKey(new Date());
   const seeAll = can.viewAllAttendance(user.role);
+  // Admin tier may correct attendance from the roster (an extra column).
+  const canEdit = can.editAttendance(user.role);
 
   if (seeAll) {
     const sp = await searchParams;
@@ -96,11 +130,10 @@ export default async function AttendancePage({
       }),
     ]);
 
-    type RowStatus = "PRESENT" | "CHECKED_OUT" | "AWAY";
     const byUser = new Map(daysRows.map((a) => [a.userId, a]));
     const rows = users.map((u) => {
       const a = byUser.get(u.id);
-      const status: RowStatus = !a ? "AWAY" : (a.status as "PRESENT" | "CHECKED_OUT");
+      const status: RosterStatus = !a ? "AWAY" : (a.status as RosterStatus);
       return {
         user: u,
         status,
@@ -114,6 +147,8 @@ export default async function AttendancePage({
     const present = rows.filter((r) => r.status === "PRESENT").length;
     const out = rows.filter((r) => r.status === "CHECKED_OUT").length;
     const away = rows.filter((r) => r.status === "AWAY").length;
+    const absent = rows.filter((r) => r.status === "ABSENT").length;
+    const halfLeave = rows.filter((r) => r.status === "HALF_LEAVE").length;
 
     const selectedLabel = isToday
       ? "Today"
@@ -183,9 +218,22 @@ export default async function AttendancePage({
             ? netWorkedMinutes(rec.checkInAt, rec.checkOutAt, rec.breaks)
             : null;
           const breakMins = rec ? breakMinutes(rec.breaks) : 0;
+          // ABSENT reads like AWAY on the heatmap (a non-working day, not
+          // presence); HALF_LEAVE is surfaced as its own shade.
+          const raw = (rec?.status ?? "AWAY") as RosterStatus;
+          const cellStatus: BoardCellStatus =
+            raw === "ABSENT"
+              ? "AWAY"
+              : raw === "HALF_LEAVE"
+                ? "HALF_LEAVE"
+                : raw === "CHECKED_OUT"
+                  ? "CHECKED_OUT"
+                  : raw === "PRESENT"
+                    ? "PRESENT"
+                    : "AWAY";
           return {
             date: d.dateStr,
-            status: (rec?.status ?? "AWAY") as "PRESENT" | "CHECKED_OUT" | "AWAY",
+            status: cellStatus,
             checkInAt: rec?.checkInAt?.toISOString() ?? null,
             checkOutAt: rec?.checkOutAt?.toISOString() ?? null,
             durationMinutes,
@@ -291,7 +339,10 @@ export default async function AttendancePage({
           subtitle={
             view === "board"
               ? "30-day heatmap — presence and check-in times across the team."
-              : `${selectedLabel} — ${present} present, ${out} checked out, ${away} not in.`
+              : `${selectedLabel} — ${present} present, ${out} checked out, ${away} not in` +
+                (absent ? `, ${absent} absent` : "") +
+                (halfLeave ? `, ${halfLeave} half-leave` : "") +
+                "."
           }
           icon={Clock}
         />
@@ -321,6 +372,7 @@ export default async function AttendancePage({
                     <th className="px-4 py-3">Check-out</th>
                     <th className="px-4 py-3">Break</th>
                     <th className="px-4 py-3">Net worked</th>
+                    {canEdit && <th className="px-4 py-3 text-right">Edit</th>}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-line">
@@ -343,6 +395,20 @@ export default async function AttendancePage({
                       <td className="px-4 py-3 text-ink-500 tabular-nums">
                         {fmtMinutes(r.netMins)}
                       </td>
+                      {canEdit && (
+                        <td className="px-4 py-3 text-right">
+                          <EditAttendanceButton
+                            target={{
+                              userId: r.user.id,
+                              name: r.user.name,
+                              day: dayKeyToString(selected),
+                              checkIn: fmtTimeInput(r.checkInAt),
+                              checkOut: fmtTimeInput(r.checkOutAt),
+                              status: toEditStatus(r.status),
+                            }}
+                          />
+                        </td>
+                      )}
                     </tr>
                   ))}
                 </tbody>
@@ -405,7 +471,7 @@ export default async function AttendancePage({
                       })}
                     </td>
                     <td className="px-4 py-3">
-                      <StatusPill status={a.status as "PRESENT" | "CHECKED_OUT"} />
+                      <StatusPill status={a.status as RosterStatus} />
                     </td>
                     <td className="px-4 py-3 text-ink-500">{fmtTime(a.checkInAt)}</td>
                     <td className="px-4 py-3 text-ink-500">{fmtTime(a.checkOutAt)}</td>
