@@ -175,7 +175,10 @@ export default async function ProjectsPage({
   const projectDTOs: ProjectDTO[] = projects.map((p) => ({
     id: p.id,
     name: p.name,
-    description: p.description,
+    // The card only shows a 2-line clamp, so cap the blurb server-side. This
+    // bounds the list payload — a tenant with very long descriptions can't
+    // bloat the RSC stream (the full text lives on the project detail page).
+    description: p.description ? p.description.slice(0, 160) : null,
     active: p.active,
     completedAt: p.completedAt ? p.completedAt.toISOString() : null,
     createdAt: p.createdAt.toISOString(),

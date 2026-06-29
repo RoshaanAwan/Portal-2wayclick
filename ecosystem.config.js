@@ -25,15 +25,15 @@ module.exports = {
       exec_mode: 'fork',
 
       // Cap V8's heap so the Next server can't drift toward 1GB+ and push a
-      // small (512MB–2GB) droplet into swap/OOM — the cause of the multi-second
-      // page stalls. 320MB leaves room for Postgres + the OS on a tight box;
-      // raise it (e.g. 512) if the droplet has 2GB+. Tune to your plan.
-      node_args: '--max-old-space-size=320',
+      // small droplet into swap/OOM — the cause of the multi-second page stalls.
+      // Sized for the 1GB SGP box: 768MB heap leaves room for Postgres + the OS.
+      // Drop back toward 320 on a 512MB box; raise toward 1536 on 2GB+.
+      node_args: '--max-old-space-size=768',
 
       // Belt-and-suspenders: if RSS still climbs past this, pm2 recycles the
       // process gracefully instead of letting the kernel OOM-kill it (which
       // shows up as a hard stall). Keep above the heap cap + native overhead.
-      max_memory_restart: '420M',
+      max_memory_restart: '850M',
 
       // Environment variables
       env: {
