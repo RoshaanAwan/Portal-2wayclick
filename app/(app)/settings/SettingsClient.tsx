@@ -19,6 +19,7 @@ import {
   Camera,
   Loader2,
   KeyRound,
+  ImagePlus,
 } from "lucide-react";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { GlassCard } from "@/components/ui/GlassCard";
@@ -42,6 +43,7 @@ interface SettingsUser {
   title: string;
   department: string;
   avatarUrl: string | null;
+  bannerUrl: string | null;
   bio: string | null;
   phone: string | null;
   location: string | null;
@@ -148,6 +150,10 @@ export function SettingsClient({
   // The current (possibly just-uploaded) avatar URL we'd save. null = cleared.
   const [avatarUrl, setAvatarUrl] = useState<string | null>(user.avatarUrl);
   const [uploading, setUploading] = useState(false);
+  // Cover banner — same upload pattern as the avatar, but a wider image.
+  const bannerInput = useRef<HTMLInputElement>(null);
+  const [bannerUrl, setBannerUrl] = useState<string | null>(user.bannerUrl);
+  const [bannerUploading, setBannerUploading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [profileError, setProfileError] = useState("");
   const [saved, setSaved] = useState(false);
@@ -157,7 +163,8 @@ export function SettingsClient({
     form.bio !== (user.bio ?? "") ||
     form.phone !== (user.phone ?? "") ||
     form.location !== (user.location ?? "") ||
-    avatarUrl !== user.avatarUrl;
+    avatarUrl !== user.avatarUrl ||
+    bannerUrl !== user.bannerUrl;
 
   function setField(key: keyof typeof form, value: string) {
     setForm((f) => ({ ...f, [key]: value }));
@@ -190,6 +197,31 @@ export function SettingsClient({
     }
   }
 
+  async function onPickBanner(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // allow re-picking the same file
+    if (!file) return;
+
+    setBannerUploading(true);
+    setProfileError("");
+    setSaved(false);
+    try {
+      const body = new FormData();
+      body.append("file", file);
+      const res = await fetch("/api/user/banner/upload", { method: "POST", body });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setProfileError(data.error || "Upload failed");
+      } else {
+        setBannerUrl(data.url);
+      }
+    } catch {
+      setProfileError("Upload failed");
+    } finally {
+      setBannerUploading(false);
+    }
+  }
+
   async function saveProfile(e: React.FormEvent) {
     e.preventDefault();
     setSaving(true);
@@ -199,7 +231,11 @@ export function SettingsClient({
       const res = await fetch("/api/user/profile/update", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...form, avatarUrl: avatarUrl ?? "" }),
+        body: JSON.stringify({
+          ...form,
+          avatarUrl: avatarUrl ?? "",
+          bannerUrl: bannerUrl ?? "",
+        }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -315,10 +351,59 @@ export function SettingsClient({
             <form onSubmit={saveProfile}>
               <Reveal className="space-y-5">
                 <RevealItem>
-                  <GlassCard hover={false}>
-                    <div className="flex flex-col items-start gap-5 sm:flex-row sm:items-center">
-                      {/* Avatar with upload affordance */}
-                      <div className="relative shrink-0">
+                  <GlassCard hover={false} className="overflow-hidden p-0">
+                    {/* Cover banner — LinkedIn-style ~4:1 image with an upload
+                        affordance. Falls back to the brand gradient. */}
+                    <div className="group relative aspect-[4/1] w-full bg-accent-grad">
+                      {bannerUrl ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={bannerUrl}
+                          alt="Profile cover"
+                          className="h-full w-full object-cover"
+                        />
+                      ) : (
+                        <div className="absolute inset-0 bg-grid opacity-20" />
+                      )}
+                      <div className="absolute right-3 top-3 flex items-center gap-2">
+                        {bannerUrl && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setBannerUrl(null);
+                              setSaved(false);
+                            }}
+                            className="rounded-full bg-black/35 px-2.5 py-1 text-xs font-medium text-white backdrop-blur transition hover:bg-black/50"
+                          >
+                            Remove
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => bannerInput.current?.click()}
+                          disabled={bannerUploading}
+                          className="inline-flex items-center gap-1.5 rounded-full bg-black/35 px-2.5 py-1 text-xs font-medium text-white backdrop-blur transition hover:bg-black/50 disabled:opacity-60"
+                        >
+                          {bannerUploading ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          ) : (
+                            <ImagePlus className="h-3.5 w-3.5" />
+                          )}
+                          {bannerUrl ? "Change cover" : "Add cover"}
+                        </button>
+                      </div>
+                      <input
+                        ref={bannerInput}
+                        type="file"
+                        accept="image/png,image/jpeg,image/webp,image/gif"
+                        className="hidden"
+                        onChange={onPickBanner}
+                      />
+                    </div>
+
+                    <div className="flex flex-col items-start gap-5 px-5 pb-5 sm:flex-row sm:items-end sm:px-6 sm:pb-6">
+                      {/* Avatar with upload affordance — overlaps the banner. */}
+                      <div className="relative -mt-12 shrink-0 rounded-full ring-4 ring-surface">
                         <Avatar
                           name={form.name || user.name}
                           src={avatarUrl}
@@ -348,24 +433,30 @@ export function SettingsClient({
                       </div>
                       <div className="min-w-0 flex-1">
                         <h2 className="font-display text-xl font-semibold tracking-tight text-ink">
-                          {form.name || user.name}
+                          {form.name || user.name || user.email.split("@")[0]}
                         </h2>
                         <p className="mt-0.5 text-sm text-ink-500">
                           {user.title} · {user.department}
                         </p>
                         <p className="mt-0.5 text-xs text-ink-400">{user.email}</p>
-                        {avatarUrl && (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setAvatarUrl(null);
-                              setSaved(false);
-                            }}
-                            className="mt-2 text-xs font-medium text-ink-400 underline-offset-2 hover:text-danger-ink hover:underline"
-                          >
-                            Remove photo
-                          </button>
-                        )}
+                        <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
+                          {avatarUrl && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setAvatarUrl(null);
+                                setSaved(false);
+                              }}
+                              className="text-xs font-medium text-ink-400 underline-offset-2 hover:text-danger-ink hover:underline"
+                            >
+                              Remove photo
+                            </button>
+                          )}
+                          <span className="text-xs text-ink-400">
+                            Cover image: recommended 1584 × 396 px (4:1), like a
+                            LinkedIn banner.
+                          </span>
+                        </div>
                       </div>
                       {canViewProfile && (
                         <Link href={`/directory/${user.id}`}>
