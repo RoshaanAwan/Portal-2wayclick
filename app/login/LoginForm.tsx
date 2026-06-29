@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { motion } from "framer-motion";
 import { Mail, Lock, ArrowRight } from "lucide-react";
 import { Logo } from "@/components/ui/Logo";
@@ -16,7 +16,6 @@ function safeNext(next: string | null): string {
 }
 
 export function LoginForm() {
-  const router = useRouter();
   const searchParams = useSearchParams();
   const brand = useBrand();
   const [email, setEmail] = useState("");
@@ -34,8 +33,11 @@ export function LoginForm() {
       body: JSON.stringify({ email, password }),
     });
     if (res.ok) {
-      router.push(safeNext(searchParams.get("next")));
-      router.refresh();
+      // Hard navigation (not router.push) so the server runs the (app) layout's
+      // gate fresh: a tenant whose trial has lapsed is 307'd to /trial-ended by
+      // the server with no client-router limbo and no flash of /dashboard. A
+      // soft push + refresh races that server redirect and can hang the router.
+      window.location.assign(safeNext(searchParams.get("next")));
     } else {
       const data = await res.json().catch(() => ({}));
       setError(data.error || "Login failed");

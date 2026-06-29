@@ -38,6 +38,7 @@ export type AuditAction =
   | "project.complete"
   | "project.reopen"
   | "project.list_create"
+  | "project.list_rename"
   | "project.list_move"
   | "project.member_add"
   | "project.member_remove"

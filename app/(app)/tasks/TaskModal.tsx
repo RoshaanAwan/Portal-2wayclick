@@ -207,6 +207,7 @@ export function TaskModal({
       reporterId?: string | null;
       sprintId?: string | null;
       labels?: string[];
+      dueDate?: string | null;
     },
   ) => Promise<boolean>;
   onAddLink: (

@@ -138,3 +138,75 @@ export type SprintStatus = (typeof SPRINT_STATUSES)[number];
 // JIRA default). Stored as a plain Int on the card, so any value is accepted by
 // the API — these just drive the picker.
 export const STORY_POINT_OPTIONS = [1, 2, 3, 5, 8, 13, 21] as const;
+
+// ── Project board templates ───────────────────────────────────────────────────
+// Trello-style starting points: each template only seeds a different set of
+// board columns (no cards). The project-create form offers these; the create
+// route maps the chosen id → columns (falling back to `defaultProjectTemplate`).
+export interface ProjectTemplate {
+  id: string;
+  label: string;
+  description: string;
+  columns: string[];
+}
+
+export const PROJECT_TEMPLATES: ProjectTemplate[] = [
+  {
+    id: "scrum",
+    label: "Scrum / Software",
+    description: "Backlog-driven dev flow with review.",
+    columns: ["Backlog", "To Do", "In Progress", "Review", "Done"],
+  },
+  {
+    id: "kanban",
+    label: "Kanban",
+    description: "Simple continuous flow board.",
+    columns: ["To Do", "Doing", "Done"],
+  },
+  {
+    id: "bug-tracking",
+    label: "Bug Tracking",
+    description: "Triage and resolve reported issues.",
+    columns: ["Reported", "Confirmed", "In Progress", "Testing", "Resolved"],
+  },
+  {
+    id: "content-calendar",
+    label: "Content Calendar",
+    description: "Plan, write, and publish content.",
+    columns: ["Ideas", "Drafting", "Editing", "Scheduled", "Published"],
+  },
+  {
+    id: "product-roadmap",
+    label: "Product Roadmap",
+    description: "Take ideas from concept to launch.",
+    columns: ["Ideas", "Planned", "Building", "Launched"],
+  },
+  {
+    id: "sales-pipeline",
+    label: "Sales Pipeline",
+    description: "Move deals through the funnel.",
+    columns: ["Leads", "Contacted", "Negotiation", "Won", "Lost"],
+  },
+  {
+    id: "event-planning",
+    label: "Event Planning",
+    description: "Organize everything for an event.",
+    columns: ["To Plan", "Booked", "In Progress", "Confirmed", "Done"],
+  },
+  {
+    id: "blank",
+    label: "Blank",
+    description: "Start from scratch with one column.",
+    columns: ["To Do"],
+  },
+];
+
+// The template applied when none is chosen / an unknown id is sent.
+export const DEFAULT_PROJECT_TEMPLATE_ID = "scrum";
+
+export function templateColumns(id?: string | null): string[] {
+  const t =
+    PROJECT_TEMPLATES.find((t) => t.id === id) ??
+    PROJECT_TEMPLATES.find((t) => t.id === DEFAULT_PROJECT_TEMPLATE_ID)!;
+  return t.columns;
+}

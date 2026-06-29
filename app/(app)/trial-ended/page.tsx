@@ -4,6 +4,7 @@ import { Lock, ArrowRight } from "lucide-react";
 import { getCurrentUser } from "@/lib/auth";
 import { can } from "@/lib/permissions";
 import { getTenantAccess } from "@/lib/billing";
+import { SignOutButton } from "./SignOutButton";
 
 export const metadata = { title: "Free trial ended" };
 
@@ -47,6 +48,10 @@ export default async function TrialEndedPage() {
             <ArrowRight className="h-4 w-4" />
           </Link>
         )}
+
+        <div className="mt-2">
+          <SignOutButton />
+        </div>
       </div>
     </main>
   );

@@ -6,6 +6,7 @@ import { audit } from "@/lib/audit";
 import { recordActivity } from "@/lib/activityFeed";
 import { can } from "@/lib/permissions";
 import { newShareToken, shareUrl } from "@/lib/share";
+import { templateColumns } from "@/lib/constants";
 import { z } from "zod";
 
 const schema = z.object({
@@ -17,10 +18,10 @@ const schema = z.object({
   // unassigned, to be set later from the project page.
   projectLeadId: z.string().nullish(),
   techLeadId: z.string().nullish(),
+  // Board template id (lib/constants PROJECT_TEMPLATES). Decides the starting
+  // columns; an unknown/omitted id falls back to the default template.
+  template: z.string().nullish(),
 });
-
-// Default Trello columns every new project board starts with.
-const DEFAULT_LISTS = ["Backlog", "To Do", "In Progress", "Review", "Done"];
 
 export async function POST(req: Request) {
   try {
@@ -29,8 +30,12 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Admins only" }, { status: 403 });
     }
 
-    const { name, description, memberIds, projectLeadId, techLeadId } =
+    const { name, description, memberIds, projectLeadId, techLeadId, template } =
       schema.parse(await req.json());
+
+    // Resolve the chosen board template → starting columns (falls back to the
+    // default template for an unknown/omitted id).
+    const lists = templateColumns(template);
 
     // The creator is always a member; de-dup any explicit ids.
     const allMemberIds = Array.from(new Set([actor.id, ...memberIds]));
@@ -63,7 +68,7 @@ export async function POST(req: Request) {
             tenantId: actor.tenantId,
             name,
             lists: {
-              create: DEFAULT_LISTS.map((listName, i) => ({
+              create: lists.map((listName, i) => ({
                 name: listName,
                 position: i * 1000,
               })),
@@ -84,7 +89,7 @@ export async function POST(req: Request) {
       entity: "Project",
       entityId: project.id,
       summary: `${actor.name} created project “${name}”`,
-      detail: { name, memberCount: allMemberIds.length, projectLeadId: leadId, techLeadId: techId },
+      detail: { name, memberCount: allMemberIds.length, projectLeadId: leadId, techLeadId: techId, template: template ?? null },
     });
 
     // Build the share link on this tenant's host (subdomain from middleware).
