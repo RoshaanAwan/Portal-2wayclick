@@ -1,7 +1,8 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import Link from "@/components/Link";
+import { motion } from "framer-motion";
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -18,19 +19,31 @@ import {
   CheckCircle2,
   AlertTriangle,
   Zap,
-  ChevronDown,
-  CalendarDays,
-  ListTodo,
-  Activity,
+  ChevronRight,
 } from "lucide-react";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { CountUp } from "@/components/ui/CountUp";
 import { Avatar } from "@/components/ui/Avatar";
 import { useTheme, useAccentColor } from "@/components/ThemeProvider";
 import { cn } from "@/lib/utils";
-import type { PerformanceReport, PerformancePerson } from "@/lib/performance";
+import type {
+  PerformanceReport,
+  PerformancePerson,
+  PerformanceFilters as PerfFilters,
+} from "@/lib/performance";
 import { CATEGORY_LABELS } from "@/lib/auditScore";
 import { PerformanceFilters } from "./PerformanceFilters";
+
+/** Serialize the active filters into a query string so the per-person detail
+ *  page opens for the SAME period the board is showing. */
+function filtersQuery(f: PerfFilters): string {
+  const q = new URLSearchParams();
+  q.set("period", f.period);
+  q.set("year", String(f.year));
+  if (f.period === "month") q.set("month", String(f.month));
+  const s = q.toString();
+  return s ? `?${s}` : "";
+}
 
 ChartJS.register(
   CategoryScale,
@@ -57,8 +70,8 @@ function onTimeTint(rate: number | null) {
 
 export function PerformanceBoard({ report }: { report: PerformanceReport }) {
   const [sort, setSort] = useState<SortKey>("score");
-  // Which person's detail row is expanded (click a row to toggle).
-  const [openId, setOpenId] = useState<string | null>(null);
+  // Carry the active period to each person's detail page.
+  const query = filtersQuery(report.filters);
 
   const people = useMemo(() => {
     const list = [...report.people];
@@ -129,15 +142,7 @@ export function PerformanceBoard({ report }: { report: PerformanceReport }) {
           <GlassCard hover={false} className="p-0">
             <ul className="divide-y divide-line">
               {people.map((p, i) => (
-                <PersonRow
-                  key={p.id}
-                  person={p}
-                  rank={i + 1}
-                  open={openId === p.id}
-                  onToggle={() =>
-                    setOpenId((cur) => (cur === p.id ? null : p.id))
-                  }
-                />
+                <PersonRow key={p.id} person={p} rank={i + 1} query={query} />
               ))}
             </ul>
           </GlassCard>
@@ -267,21 +272,18 @@ function TrendChart({ report }: { report: PerformanceReport }) {
 function PersonRow({
   person: p,
   rank,
-  open,
-  onToggle,
+  query,
 }: {
   person: PerformancePerson;
   rank: number;
-  open: boolean;
-  onToggle: () => void;
+  /** Active-period query string, forwarded to the detail page. */
+  query: string;
 }) {
   return (
-    <li className={cn(open && "bg-surface-2/40")}>
-      {/* The whole row is a toggle that reveals the detail panel below. */}
-      <button
-        type="button"
-        onClick={onToggle}
-        aria-expanded={open}
+    <li>
+      {/* The whole row links to the person's full detail page. */}
+      <Link
+        href={`/performance/${p.id}${query}`}
         className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-surface-2/60 sm:px-5"
       >
         <span className="w-5 shrink-0 text-center text-xs font-semibold tabular-nums text-ink-300">
@@ -330,173 +332,9 @@ function PersonRow({
           </span>
         </div>
 
-        <ChevronDown
-          className={cn(
-            "h-4 w-4 shrink-0 text-ink-300 transition-transform",
-            open && "rotate-180",
-          )}
-        />
-      </button>
-
-      <AnimatePresence initial={false}>
-        {open && (
-          <motion.div
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: "auto", opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
-            className="overflow-hidden"
-          >
-            <PersonDetail person={p} />
-          </motion.div>
-        )}
-      </AnimatePresence>
+        <ChevronRight className="h-4 w-4 shrink-0 text-ink-300" />
+      </Link>
     </li>
-  );
-}
-
-// ── Expanded person detail ────────────────────────────────────────────────────
-// A glance card under a clicked row: who they are, the headline stats, and a
-// breakdown of their work score by category. All from the report payload — no
-// extra fetch.
-function PersonDetail({ person: p }: { person: PerformancePerson }) {
-  // Categories this person scored in, biggest first, for the breakdown bars.
-  const cats = (
-    Object.entries(p.byCategory) as [keyof typeof CATEGORY_LABELS, number][]
-  )
-    .filter(([, v]) => v > 0)
-    .sort((a, b) => b[1] - a[1]);
-  const maxCat = cats.length ? cats[0][1] : 0;
-
-  return (
-    <div className="border-t border-line bg-surface px-4 py-4 sm:px-5">
-      <div className="mb-4 flex items-center gap-3">
-        <Avatar name={p.name} src={p.avatarUrl} size="md" />
-        <div className="min-w-0">
-          <p className="truncate text-sm font-semibold text-ink">{p.name}</p>
-          <p className="truncate text-xs text-ink-400">
-            {p.title}
-            {p.department ? ` · ${p.department}` : ""}
-          </p>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
-        <DetailStat
-          icon={<Zap className="h-3.5 w-3.5" />}
-          tone="accent"
-          value={String(p.workScore)}
-          label="Work score"
-        />
-        <DetailStat
-          icon={<Activity className="h-3.5 w-3.5" />}
-          tone="info"
-          value={String(p.actionCount)}
-          label="Actions"
-        />
-        <DetailStat
-          icon={<CheckCircle2 className="h-3.5 w-3.5" />}
-          tone="success"
-          value={String(p.delivered)}
-          label="Delivered"
-        />
-        <DetailStat
-          icon={<CalendarDays className="h-3.5 w-3.5" />}
-          tone="neutral"
-          value={String(p.activeDays)}
-          label="Active days"
-        />
-      </div>
-
-      <div className="mt-3 grid grid-cols-2 gap-2.5 sm:grid-cols-4">
-        <DetailStat
-          icon={<ListTodo className="h-3.5 w-3.5" />}
-          tone="neutral"
-          value={String(p.openTasks)}
-          label="Open tasks"
-        />
-        <DetailStat
-          icon={<AlertTriangle className="h-3.5 w-3.5" />}
-          tone={p.overdueTasks > 0 ? "danger" : "neutral"}
-          value={String(p.overdueTasks)}
-          label="Overdue"
-        />
-        <DetailStat
-          icon={<CheckCircle2 className="h-3.5 w-3.5" />}
-          tone="success"
-          value={p.onTimeRate === null ? "—" : `${p.onTimeRate}%`}
-          label="On time"
-        />
-        <DetailStat
-          icon={<Zap className="h-3.5 w-3.5" />}
-          tone="neutral"
-          value={
-            p.topCategory ? CATEGORY_LABELS[p.topCategory] : "—"
-          }
-          label="Focus"
-        />
-      </div>
-
-      {/* Work-score breakdown by category */}
-      {cats.length > 0 && (
-        <div className="mt-4">
-          <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-ink-400">
-            Score by category
-          </p>
-          <div className="space-y-2">
-            {cats.map(([cat, val]) => (
-              <div key={cat} className="flex items-center gap-2.5">
-                <span className="w-24 shrink-0 truncate text-[11px] text-ink-500">
-                  {CATEGORY_LABELS[cat]}
-                </span>
-                <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-line">
-                  <div
-                    className="h-full rounded-full bg-accent"
-                    style={{ width: `${maxCat ? Math.round((val / maxCat) * 100) : 0}%` }}
-                  />
-                </div>
-                <span className="w-8 shrink-0 text-right text-[11px] font-medium tabular-nums text-ink-600">
-                  {val}
-                </span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-const DETAIL_TONE: Record<string, { icon: string; bg: string; value: string }> = {
-  accent: { icon: "text-accent", bg: "bg-accent-soft", value: "text-accent-ink" },
-  success: { icon: "text-success", bg: "bg-success-soft", value: "text-success" },
-  info: { icon: "text-info", bg: "bg-info-soft", value: "text-info" },
-  danger: { icon: "text-danger", bg: "bg-danger-soft", value: "text-danger-ink" },
-  neutral: { icon: "text-ink-400", bg: "bg-surface-2", value: "text-ink" },
-};
-
-function DetailStat({
-  icon,
-  tone,
-  value,
-  label,
-}: {
-  icon: React.ReactNode;
-  tone: string;
-  value: string;
-  label: string;
-}) {
-  const t = DETAIL_TONE[tone] ?? DETAIL_TONE.neutral;
-  return (
-    <div className="rounded-xl border border-line bg-surface-2/50 p-2.5">
-      <span className={cn("inline-grid h-7 w-7 place-items-center rounded-lg", t.bg)}>
-        <span className={t.icon}>{icon}</span>
-      </span>
-      <p className={cn("mt-1.5 truncate text-base font-semibold tabular-nums leading-none", t.value)}>
-        {value}
-      </p>
-      <p className="mt-1 text-[10px] text-ink-400">{label}</p>
-    </div>
   );
 }
 

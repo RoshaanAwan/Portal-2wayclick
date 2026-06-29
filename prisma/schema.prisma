@@ -149,6 +149,9 @@ model User {
   // migration; backfilled into isSystemOwner. Dropped in a follow-up migration.
   isPlatformAdmin Boolean @default(false)
   avatarUrl    String?
+  // Profile cover image (LinkedIn-style banner, ~4:1). Stored in the tenant's
+  // Google Drive and served via /api/user/banner/proxy, same as avatarUrl.
+  bannerUrl    String?
   phone        String?
   location     String?
   bio          String?

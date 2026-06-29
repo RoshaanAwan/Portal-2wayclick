@@ -16,6 +16,9 @@ const schema = z.object({
   // A hosted URL (Vercel Blob) or an inline data URL from the upload route.
   // Empty string clears the avatar; omitted leaves it unchanged.
   avatarUrl: z.string().max(2_000_000).optional(),
+  // Profile cover image — a /api/user/banner/proxy URL from the banner upload
+  // route. Empty string clears the banner; omitted leaves it unchanged.
+  bannerUrl: z.string().max(2000).optional(),
 });
 
 // Normalize optional text: empty string → null so we don't store "".
@@ -39,8 +42,11 @@ export async function POST(req: Request) {
         ...(data.avatarUrl !== undefined
           ? { avatarUrl: data.avatarUrl.trim() || null }
           : {}),
+        ...(data.bannerUrl !== undefined
+          ? { bannerUrl: data.bannerUrl.trim() || null }
+          : {}),
       },
-      select: { id: true, name: true, avatarUrl: true },
+      select: { id: true, name: true, avatarUrl: true, bannerUrl: true },
     });
 
     // Track which fields the user touched (never log full field values — the
@@ -49,6 +55,8 @@ export async function POST(req: Request) {
     if (actor.name !== updated.name) changed.push("name");
     if (data.avatarUrl !== undefined && actor.avatarUrl !== updated.avatarUrl)
       changed.push("avatar");
+    if (data.bannerUrl !== undefined && actor.bannerUrl !== updated.bannerUrl)
+      changed.push("banner");
     if (actor.bio !== orNull(data.bio)) changed.push("bio");
     if (actor.phone !== orNull(data.phone)) changed.push("phone");
     if (actor.location !== orNull(data.location)) changed.push("location");

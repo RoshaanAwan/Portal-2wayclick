@@ -73,6 +73,10 @@ export default async function PersonDetailPage({
   if (!user) notFound();
 
   const isKnownRole = (ROLES as readonly string[]).includes(user.role);
+  // Some accounts (e.g. a Company Owner provisioned without a display name) can
+  // have a blank name — fall back to the email local-part so the header and
+  // avatar initials never render empty.
+  const displayName = user.name?.trim() || user.email.split("@")[0];
 
   return (
     <div className="mx-auto max-w-5xl space-y-5">
@@ -86,18 +90,29 @@ export default async function PersonDetailPage({
 
       {/* Profile header */}
       <GlassCard strong hover={false} className="overflow-hidden p-0">
-        <div className="relative h-28 bg-accent-grad">
-          <div className="absolute inset-0 bg-grid opacity-20" />
+        <div className="relative h-40 bg-accent-grad">
+          {user.bannerUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={user.bannerUrl}
+              alt={`${displayName} cover`}
+              className="h-full w-full object-cover"
+            />
+          ) : (
+            <div className="absolute inset-0 bg-grid opacity-20" />
+          )}
         </div>
         <div className="px-6 pb-6 sm:px-8 sm:pb-8">
-          <div className="-mt-12 flex flex-col gap-4 sm:flex-row sm:items-end">
-            <div className="ring-4 ring-surface rounded-full">
-              <Avatar name={user.name} src={user.avatarUrl} size="xl" />
-            </div>
-            <div className="flex-1 pb-1">
+          {/* Avatar overlaps the banner; the name/title sit BELOW it on the dark
+              surface so text never washes out against the bright banner. */}
+          <div className="-mt-12 w-fit rounded-full ring-4 ring-surface">
+            <Avatar name={displayName} src={user.avatarUrl} size="xl" />
+          </div>
+          <div className="mt-4 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+            <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2.5">
                 <h1 className="text-2xl font-semibold tracking-[-0.02em] text-ink">
-                  {user.name}
+                  {displayName}
                 </h1>
                 {isKnownRole && (
                   <Badge variant={isAdminTier(user.role) ? "accent" : "neutral"}>
@@ -110,7 +125,7 @@ export default async function PersonDetailPage({
                 {user.title}
               </p>
             </div>
-            <div className="pb-1">
+            <div className="shrink-0">
               <Badge variant={deptColor(user.department)}>{user.department}</Badge>
             </div>
           </div>
@@ -202,7 +217,7 @@ export default async function PersonDetailPage({
 
         {user.reports.length === 0 ? (
           <p className="mt-3 text-sm text-ink-400">
-            {user.name.split(" ")[0]} has no direct reports.
+            {displayName.split(" ")[0]} has no direct reports.
           </p>
         ) : (
           <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
