@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "@/components/Link";
 import { motion } from "framer-motion";
@@ -20,6 +20,7 @@ import {
   Loader2,
   KeyRound,
   ImagePlus,
+  Trash2,
 } from "lucide-react";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { GlassCard } from "@/components/ui/GlassCard";
@@ -153,6 +154,42 @@ export function SettingsClient({
   const [uploading, setUploading] = useState(false);
   // The freshly-picked file awaiting crop/zoom in the adjust modal (null = closed).
   const [avatarPending, setAvatarPending] = useState<File | null>(null);
+  // Click-the-avatar menu offering Change / Remove photo. Rendered fixed-position
+  // (anchored to the trigger) so the card's overflow-hidden doesn't clip it.
+  const [avatarMenuOpen, setAvatarMenuOpen] = useState(false);
+  const avatarTriggerRef = useRef<HTMLButtonElement>(null);
+  const avatarMenuRef = useRef<HTMLDivElement>(null);
+  const [avatarMenuPos, setAvatarMenuPos] = useState({ top: 0, left: 0 });
+  const placeAvatarMenu = () => {
+    const r = avatarTriggerRef.current?.getBoundingClientRect();
+    if (r) setAvatarMenuPos({ top: r.bottom + 8, left: r.left + r.width / 2 });
+  };
+  // Close on outside click / Escape; keep the menu anchored on scroll / resize.
+  useEffect(() => {
+    if (!avatarMenuOpen) return;
+    const onPointer = (e: PointerEvent) => {
+      const t = e.target as Node;
+      if (
+        !avatarMenuRef.current?.contains(t) &&
+        !avatarTriggerRef.current?.contains(t)
+      ) {
+        setAvatarMenuOpen(false);
+      }
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setAvatarMenuOpen(false);
+    };
+    document.addEventListener("pointerdown", onPointer);
+    document.addEventListener("keydown", onKey);
+    window.addEventListener("scroll", placeAvatarMenu, true);
+    window.addEventListener("resize", placeAvatarMenu);
+    return () => {
+      document.removeEventListener("pointerdown", onPointer);
+      document.removeEventListener("keydown", onKey);
+      window.removeEventListener("scroll", placeAvatarMenu, true);
+      window.removeEventListener("resize", placeAvatarMenu);
+    };
+  }, [avatarMenuOpen]);
   // Cover banner — same upload pattern as the avatar, but a wider image.
   const bannerInput = useRef<HTMLInputElement>(null);
   const [bannerUrl, setBannerUrl] = useState<string | null>(user.bannerUrl);
@@ -370,9 +407,10 @@ export function SettingsClient({
               <Reveal className="space-y-5">
                 <RevealItem>
                   <GlassCard hover={false} className="overflow-hidden p-0">
-                    {/* Cover banner — LinkedIn-style ~4:1 image with an upload
-                        affordance. Falls back to the brand gradient. */}
-                    <div className="group relative aspect-[4/1] w-full bg-accent-grad">
+                    {/* Cover banner — LinkedIn cover ratio 1584 × 396 px = 4:1,
+                        capped at the native 396px height. Falls back to the brand
+                        gradient. */}
+                    <div className="group relative aspect-[4/1] max-h-[396px] w-full bg-accent-grad">
                       {bannerUrl ? (
                         // eslint-disable-next-line @next/next/no-img-element
                         <img
@@ -420,27 +458,85 @@ export function SettingsClient({
                     </div>
 
                     <div className="flex flex-col items-start gap-5 px-5 pb-5 sm:flex-row sm:items-end sm:px-6 sm:pb-6">
-                      {/* Avatar with upload affordance — overlaps the banner. */}
-                      <div className="relative -mt-12 shrink-0 rounded-full ring-4 ring-surface">
-                        <Avatar
-                          name={form.name || user.name}
-                          src={avatarUrl}
-                          size="xl"
-                          ring
-                        />
+                      {/* Avatar with upload affordance — overlaps the banner.
+                          Click it to open a Change / Remove photo menu. */}
+                      <div className="relative -mt-12 shrink-0 ring-4 ring-surface rounded-full">
                         <button
+                          ref={avatarTriggerRef}
                           type="button"
-                          onClick={() => fileInput.current?.click()}
+                          onClick={() => {
+                            placeAvatarMenu();
+                            setAvatarMenuOpen((o) => !o);
+                          }}
                           disabled={uploading}
-                          aria-label="Change profile photo"
-                          className="absolute -bottom-1 -right-1 grid h-8 w-8 place-items-center rounded-full bg-accent-grad text-white transition hover:brightness-105 active:scale-95 disabled:opacity-60"
+                          aria-label="Profile photo options"
+                          aria-haspopup="menu"
+                          aria-expanded={avatarMenuOpen}
+                          className="group relative block rounded-full transition active:scale-95 disabled:opacity-60"
                         >
+                          <Avatar
+                            name={form.name || user.name}
+                            src={avatarUrl}
+                            size="xl"
+                            ring
+                          />
+                          {/* Hover/focus scrim hinting the photo is clickable. */}
+                          <span className="pointer-events-none absolute inset-0 grid place-items-center rounded-full bg-black/0 text-white opacity-0 transition group-hover:bg-black/40 group-hover:opacity-100">
+                            {uploading ? (
+                              <Loader2 className="h-5 w-5 animate-spin" />
+                            ) : (
+                              <Camera className="h-5 w-5" />
+                            )}
+                          </span>
+                        </button>
+                        {/* Small badge so the affordance is visible without hovering. */}
+                        <span className="pointer-events-none absolute -bottom-1 -right-1 grid h-8 w-8 place-items-center rounded-full bg-accent-grad text-white shadow">
                           {uploading ? (
                             <Loader2 className="h-4 w-4 animate-spin" />
                           ) : (
                             <Camera className="h-4 w-4" />
                           )}
-                        </button>
+                        </span>
+
+                        {avatarMenuOpen && (
+                          <div
+                            ref={avatarMenuRef}
+                            role="menu"
+                            style={{
+                              top: avatarMenuPos.top,
+                              left: avatarMenuPos.left,
+                            }}
+                            className="fixed z-50 w-44 -translate-x-1/2 overflow-hidden rounded-xl border border-line bg-surface py-1 shadow-lg"
+                          >
+                            <button
+                              type="button"
+                              role="menuitem"
+                              onClick={() => {
+                                setAvatarMenuOpen(false);
+                                fileInput.current?.click();
+                              }}
+                              className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm text-ink transition hover:bg-line/50"
+                            >
+                              <ImagePlus className="h-4 w-4 text-ink-500" />
+                              {avatarUrl ? "Change photo" : "Upload photo"}
+                            </button>
+                            {avatarUrl && (
+                              <button
+                                type="button"
+                                role="menuitem"
+                                onClick={() => {
+                                  setAvatarUrl(null);
+                                  setSaved(false);
+                                  setAvatarMenuOpen(false);
+                                }}
+                                className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm text-danger-ink transition hover:bg-danger-ink/10"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                                Remove photo
+                              </button>
+                            )}
+                          </div>
+                        )}
                         <input
                           ref={fileInput}
                           type="file"
@@ -450,35 +546,17 @@ export function SettingsClient({
                         />
                       </div>
                       <div className="min-w-0 flex-1">
-                        <h2 className="font-display text-xl font-semibold tracking-tight text-ink">
+                        {/* <h2 className="font-display text-xl font-semibold tracking-tight text-ink">
                           {form.name || user.name || user.email.split("@")[0]}
-                        </h2>
+                        </h2> */}
                         <p className="mt-0.5 text-sm text-ink-500">
                           {user.title} · {user.department}
                         </p>
-                        <p className="mt-0.5 text-xs text-ink-400">{user.email}</p>
-                        <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
-                          {avatarUrl && (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setAvatarUrl(null);
-                                setSaved(false);
-                              }}
-                              className="text-xs font-medium text-ink-400 underline-offset-2 hover:text-danger-ink hover:underline"
-                            >
-                              Remove photo
-                            </button>
-                          )}
-                          <span className="text-xs text-ink-400">
-                            Cover image: recommended 1584 × 396 px (4:1), like a
-                            LinkedIn banner.
-                          </span>
-                        </div>
+                        {/* <p className="mt-0.5 text-xs text-ink-400">{user.email}</p> */}
                       </div>
                       {canViewProfile && (
                         <Link href={`/directory/${user.id}`}>
-                          <Button type="button" variant="glass" size="sm">
+                          <Button type="button" className="mt-1" variant="glass" size="sm">
                             View public profile
                             <ExternalLink className="h-3.5 w-3.5" />
                           </Button>
@@ -823,7 +901,7 @@ export function SettingsClient({
                 </GlassCard>
               </RevealItem>
 
-              <RevealItem>
+              {/* <RevealItem>
                 <GlassCard hover={false} className="border-danger/20">
                   <h3 className="font-display text-[15px] font-semibold tracking-tight text-danger-ink">
                     Danger zone
@@ -838,7 +916,7 @@ export function SettingsClient({
                     </Button>
                   </div>
                 </GlassCard>
-              </RevealItem>
+              </RevealItem> */}
             </Reveal>
           )}
         </div>

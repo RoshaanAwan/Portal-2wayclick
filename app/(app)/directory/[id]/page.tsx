@@ -90,7 +90,9 @@ export default async function PersonDetailPage({
 
       {/* Profile header */}
       <GlassCard strong hover={false} className="overflow-hidden p-0">
-        <div className="relative h-40 bg-accent-grad">
+        {/* LinkedIn cover ratio: 1584 × 396 px = 4:1. Capped at the native 396px
+            height so it never blows up past the source resolution on wide screens. */}
+        <div className="relative aspect-[4/1] max-h-[396px] w-full bg-accent-grad">
           {user.bannerUrl ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img
