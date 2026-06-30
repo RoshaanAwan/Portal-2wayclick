@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { AlertTriangle, X } from "lucide-react";
 import { Button } from "@/components/ui/Button";
@@ -27,6 +28,12 @@ export function ConfirmDialog({
   onConfirm: () => void;
   onClose: () => void;
 }) {
+  // Portal to <body> so the fixed/centered overlay is never trapped by an
+  // ancestor's stacking/containing block — e.g. a disabled table row's
+  // `opacity-60` was anchoring this dialog to the row instead of the viewport.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+
   // Close on Escape (ignored while the action is in flight).
   useEffect(() => {
     if (!open) return;
@@ -37,7 +44,9 @@ export function ConfirmDialog({
     return () => document.removeEventListener("keydown", onKey);
   }, [open, loading, onClose]);
 
-  return (
+  if (!mounted) return null;
+
+  return createPortal(
     <AnimatePresence>
       {open && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
@@ -100,6 +109,7 @@ export function ConfirmDialog({
           </motion.div>
         </div>
       )}
-    </AnimatePresence>
+    </AnimatePresence>,
+    document.body,
   );
 }
