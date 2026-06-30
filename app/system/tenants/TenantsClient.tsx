@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Plus, Ban, Play, ExternalLink, Loader2, LogIn, Pencil, X } from "lucide-react";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { Button } from "@/components/ui/Button";
+import { PasswordInput } from "@/components/ui/PasswordInput";
 
 interface TenantRow {
   id: string;
@@ -346,7 +347,11 @@ function Input({
   return (
     <label className="block">
       <span className="mb-1.5 block text-sm font-medium text-ink-700">{label}</span>
-      <input type={type} className="input" value={value} placeholder={placeholder} onChange={(e) => onChange(e.target.value)} required />
+      {type === "password" ? (
+        <PasswordInput value={value} placeholder={placeholder} onChange={(e) => onChange(e.target.value)} required />
+      ) : (
+        <input type={type} className="input" value={value} placeholder={placeholder} onChange={(e) => onChange(e.target.value)} required />
+      )}
       {hint && <span className="mt-1 block text-xs text-ink-400">{hint}</span>}
     </label>
   );

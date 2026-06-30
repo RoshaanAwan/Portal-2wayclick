@@ -26,6 +26,7 @@ import Link from "@/components/Link";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
+import { PasswordInput } from "@/components/ui/PasswordInput";
 import { cn } from "@/lib/utils";
 import { integrationIcon } from "../../tools/integrationIcons";
 
@@ -422,10 +423,8 @@ function GitHubCard({ row, apiBase, testApiBase }: { row: Row; apiBase: string; 
             Personal access token{" "}
             <span className="text-ink-400">(repo read scope)</span>
           </span>
-          <input
-            type="password"
+          <PasswordInput
             autoComplete="off"
-            className="input"
             value={token}
             placeholder={connected ? "•••••••• (saved — leave blank to keep)" : "ghp_…"}
             onChange={(e) => {
@@ -818,10 +817,8 @@ function GoogleDriveCard({
             <span className="mb-1.5 block text-xs font-medium text-ink-700">
               Client Secret
             </span>
-            <input
-              type="password"
+            <PasswordInput
               autoComplete="off"
-              className="input"
               value={clientSecret}
               placeholder={
                 connected ? "•••••••• (saved — leave blank to keep)" : "GOCSPX-…"
@@ -1239,10 +1236,8 @@ function SlackCard({
             <span className="mb-1.5 block text-xs font-medium text-ink-700">
               Client Secret
             </span>
-            <input
-              type="password"
+            <PasswordInput
               autoComplete="off"
-              className="input"
               value={clientSecret}
               placeholder={
                 credSaved ? "•••••••• (saved — leave blank to keep)" : "••••••••"

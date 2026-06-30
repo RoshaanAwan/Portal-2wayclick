@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { motion } from "framer-motion";
 import { Mail, Lock, ArrowRight } from "lucide-react";
+import { PasswordInput } from "@/components/ui/PasswordInput";
 import { Logo } from "@/components/ui/Logo";
 import { Button } from "@/components/ui/Button";
 import { useBrand } from "@/components/BrandProvider";
@@ -96,17 +97,15 @@ export function LoginForm() {
           <label className="mb-1.5 block text-xs font-medium text-ink-500">
             Password
           </label>
-          <div className="relative">
-            <Lock className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-300" />
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-              className="input pl-10"
-              placeholder="••••••••"
-            />
-          </div>
+          <PasswordInput
+            leadingIcon={
+              <Lock className="absolute left-3 top-1/2 z-[1] h-4 w-4 -translate-y-1/2 text-ink-300" />
+            }
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            required
+            placeholder="••••••••"
+          />
         </div>
 
         {error && (

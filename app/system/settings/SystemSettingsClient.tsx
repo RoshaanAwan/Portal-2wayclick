@@ -7,6 +7,7 @@ import { GlassCard } from "@/components/ui/GlassCard";
 import { Button } from "@/components/ui/Button";
 import { Avatar } from "@/components/ui/Avatar";
 import { ImageAdjustModal } from "@/components/ui/ImageAdjustModal";
+import { PasswordInput } from "@/components/ui/PasswordInput";
 
 export function SystemSettingsClient({
   initialName,
@@ -270,32 +271,29 @@ export function SystemSettingsClient({
         <form onSubmit={changePassword} className="space-y-4">
           <div>
             <label className="mb-1 block text-xs font-medium text-ink-500">Current password</label>
-            <input
-              type="password"
+            <PasswordInput
               value={currentPassword}
               onChange={(e) => setCurrentPassword(e.target.value)}
               required autoComplete="current-password"
-              className="input w-full"
+              className="w-full"
             />
           </div>
           <div>
             <label className="mb-1 block text-xs font-medium text-ink-500">New password</label>
-            <input
-              type="password"
+            <PasswordInput
               value={newPassword}
               onChange={(e) => setNewPassword(e.target.value)}
               required minLength={8} autoComplete="new-password"
-              className="input w-full"
+              className="w-full"
             />
           </div>
           <div>
             <label className="mb-1 block text-xs font-medium text-ink-500">Confirm new password</label>
-            <input
-              type="password"
+            <PasswordInput
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}
               required autoComplete="new-password"
-              className="input w-full"
+              className="w-full"
             />
           </div>
           {pwMsg && (

@@ -151,7 +151,7 @@ export function Hero({
             </div>
           </DeviceLinkButton>
 
-          <Link
+          {/* <Link
             href="/announcements"
             className="group/cta flex items-center gap-3 rounded-xl border border-line bg-surface-2 px-4 py-3 transition hover:border-accent/40 hover:bg-accent-soft"
           >
@@ -165,12 +165,12 @@ export function Hero({
               </p>
             </div>
             <ArrowUpRight className="h-4 w-4 text-ink-300 transition group-hover/cta:translate-x-0.5 group-hover/cta:text-accent" />
-          </Link>
+          </Link> */}
         </motion.div>
       </div>
 
       {/* Live "today" snapshot — animated count-ups, real numbers. */}
-      {todayStats && (
+      {/* {todayStats && (
         <motion.div
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
@@ -196,7 +196,7 @@ export function Hero({
             label="open tasks"
           />
         </motion.div>
-      )}
+      )} */}
     </motion.div>
   );
 }

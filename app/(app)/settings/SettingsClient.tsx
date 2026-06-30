@@ -27,6 +27,7 @@ import { GlassCard } from "@/components/ui/GlassCard";
 import { Button } from "@/components/ui/Button";
 import { Avatar } from "@/components/ui/Avatar";
 import { ImageAdjustModal } from "@/components/ui/ImageAdjustModal";
+import { PasswordInput } from "@/components/ui/PasswordInput";
 import { Reveal, RevealItem } from "@/components/ui/Reveal";
 import { useTheme, type Theme, type Accent } from "@/components/ThemeProvider";
 import { useBrand } from "@/components/BrandProvider";
@@ -1035,12 +1036,10 @@ function PasswordField({
       <label className="mb-1.5 block text-xs font-medium text-ink-500">
         {label}
       </label>
-      <input
-        type="password"
+      <PasswordInput
         value={value}
         onChange={(e) => onChange(e.target.value)}
         autoComplete={autoComplete}
-        className="input"
       />
     </div>
   );

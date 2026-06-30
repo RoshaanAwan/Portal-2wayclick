@@ -1,4 +1,5 @@
 import "server-only";
+import { formatSlackText } from "./slackFormat";
 
 // ── Slack OAuth v2 + Web API client ───────────────────────────────────────────
 // "Add to Slack" connects the tenant's Slack workspace ONCE (admin-authorized);
@@ -203,8 +204,9 @@ async function slack<T>(
       throw new SlackError(
         "The Slack app is missing a required scope — reconnect Slack.",
         403,
+        err,
       );
-    throw new SlackError(`Slack error (${err}).`, 502);
+    throw new SlackError(`Slack error (${err}).`, 502, err);
   }
   return data;
 }
@@ -310,25 +312,50 @@ export async function channelHistory(
   channelId: string,
   limit = 25,
 ): Promise<SlackMessage[]> {
-  const [r, dir] = await Promise.all([
-    slack<{
-      messages: {
-        ts: string;
-        user?: string;
-        bot_id?: string;
-        username?: string;
-        text?: string;
-      }[];
-    }>("conversations.history", token, { channel: channelId, limit }),
-    userDirectory(token),
-  ]);
+  let r: {
+    messages: {
+      ts: string;
+      user?: string;
+      bot_id?: string;
+      username?: string;
+      text?: string;
+    }[];
+  };
+  let dir: Map<string, string>;
+  try {
+    [r, dir] = await Promise.all([
+      slack<{
+        messages: {
+          ts: string;
+          user?: string;
+          bot_id?: string;
+          username?: string;
+          text?: string;
+        }[];
+      }>("conversations.history", token, { channel: channelId, limit }),
+      userDirectory(token),
+    ]);
+  } catch (e) {
+    // The bot simply isn't in this channel (or it was deleted) — that's not an
+    // error worth a red banner; the UI already says "No recent messages, or the
+    // bot isn't a member of this channel." Treat it as empty history.
+    if (
+      e instanceof SlackError &&
+      (e.code === "not_in_channel" || e.code === "channel_not_found")
+    ) {
+      return [];
+    }
+    throw e;
+  }
   return (r.messages ?? []).map((m) => {
     const id = m.user ?? (m.bot_id ? "bot" : null);
     // Prefer the directory name; bots carry their own `username`; else the id.
     const userName = m.user
       ? dir.get(m.user) ?? m.user
       : m.username || (m.bot_id ? "bot" : "unknown");
-    return { ts: m.ts, user: id, userName, text: m.text ?? "" };
+    // Decode entities + render emoji shortcodes/links so the pane shows ✨ not
+    // ":sparkles:" and ">" not "&gt;".
+    return { ts: m.ts, user: id, userName, text: formatSlackText(m.text ?? "") };
   });
 }
 
