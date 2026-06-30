@@ -11,9 +11,13 @@ import { Slack, Check, Loader2 } from "lucide-react";
 export function SlackLinkEditor({
   userId,
   initial,
+  canEdit,
 }: {
   userId: string;
   initial: string | null;
+  // Whether the current viewer may change this Slack ID. When false the field is
+  // shown read-only rather than as a Save button that's guaranteed to 403.
+  canEdit: boolean;
 }) {
   const router = useRouter();
   const [value, setValue] = useState(initial ?? "");
@@ -60,6 +64,14 @@ export function SlackLinkEditor({
         <code className="rounded bg-surface-2 px-1 text-ink-500">U012ABCDEF</code>
         ).
       </p>
+      {!canEdit ? (
+        <div className="mt-3 rounded-lg border border-line bg-surface-2 px-3 py-2 font-mono text-sm text-ink-500">
+          {initial || (
+            <span className="font-sans text-ink-400">No Slack ID linked.</span>
+          )}
+        </div>
+      ) : (
+      <>
       <div className="mt-3 flex items-center gap-2">
         <input
           value={value}
@@ -85,6 +97,8 @@ export function SlackLinkEditor({
         </button>
       </div>
       {error && <p className="mt-2 text-xs text-rose-400">{error}</p>}
+      </>
+      )}
     </div>
   );
 }

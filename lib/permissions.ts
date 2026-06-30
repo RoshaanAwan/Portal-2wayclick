@@ -130,6 +130,13 @@ export const can = {
   /** Enable/disable & configure the third-party app integrations. Admin tier. */
   manageIntegrations: (role?: string | null) => isAdminTier(role),
   /**
+   * Link/clear a user's Slack identity (for attendance attribution). Admin tier
+   * — unlike disable/reset-password this is NOT gated by canManageUser's
+   * strictly-below/no-self rule: an admin may set any user's Slack ID, including
+   * their own, since it carries no privilege-escalation risk.
+   */
+  manageSlackIdentity: (role?: string | null) => isAdminTier(role),
+  /**
    * View and manage the workspace's subscription/billing (choose a plan, pay,
    * open the Stripe billing portal). Company Owner (SUPER_ADMIN) only — paying
    * for the workspace is the owner's responsibility, not a delegated Admin task.

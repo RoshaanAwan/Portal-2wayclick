@@ -16,7 +16,7 @@ import { GlassCard } from "@/components/ui/GlassCard";
 import { Avatar } from "@/components/ui/Avatar";
 import { Badge } from "@/components/ui/Badge";
 import { ROLES, ROLE_LABELS } from "@/lib/constants";
-import { isAdminTier } from "@/lib/permissions";
+import { isAdminTier, can } from "@/lib/permissions";
 import { formatDate } from "@/lib/utils";
 import { SlackLinkEditor } from "./SlackLinkEditor";
 
@@ -169,7 +169,11 @@ export default async function PersonDetailPage({
             </p>
           </GlassCard>
           <GlassCard hover={false} className="p-6">
-            <SlackLinkEditor userId={user.id} initial={user.slackUserId} />
+            <SlackLinkEditor
+              userId={user.id}
+              initial={user.slackUserId}
+              canEdit={can.manageSlackIdentity(viewer.role)}
+            />
           </GlassCard>
         </div>
 

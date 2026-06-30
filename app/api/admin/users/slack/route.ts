@@ -3,7 +3,7 @@ import { z } from "zod";
 import { requireTenantUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { audit } from "@/lib/audit";
-import { isAdminTier, canManageUser } from "@/lib/permissions";
+import { can } from "@/lib/permissions";
 
 // Admin-only: link (or clear) a user's Slack identity so the attendance webhook
 // (POST /api/attendance/slack) can attribute Slack check-in/out events to the
@@ -24,8 +24,15 @@ const schema = z.object({
 export async function POST(req: Request) {
   try {
     const actor = await requireTenantUser();
-    if (!isAdminTier(actor.role)) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    // Admin tier (Super Admin / Admin) may link or clear ANY user's Slack
+    // identity, including their own. Unlike disable/reset-password this is not
+    // gated by canManageUser's strictly-below/no-self rule — a Slack ID carries
+    // no privilege-escalation risk, and the owner needs a path to set their own.
+    if (!can.manageSlackIdentity(actor.role)) {
+      return NextResponse.json(
+        { error: "You do not have permission to manage Slack identities." },
+        { status: 403 },
+      );
     }
 
     const { userId, slackUserId } = schema.parse(await req.json());
@@ -37,17 +44,6 @@ export async function POST(req: Request) {
     });
     if (!target) {
       return NextResponse.json({ error: "Not found" }, { status: 404 });
-    }
-
-    // Enforce the same authority hierarchy as the other admin/users routes: an
-    // admin may only manage users STRICTLY BELOW their own authority, and never
-    // themselves. Previously this route checked only isAdminTier, letting a plain
-    // ADMIN rewrite a SUPER_ADMIN's (or their own) Slack identity.
-    if (!canManageUser(actor, target)) {
-      return NextResponse.json(
-        { error: "You do not have permission to manage this user." },
-        { status: 403 },
-      );
     }
 
     // The slackUserId column is unique — guard against linking an ID that's
