@@ -192,6 +192,7 @@ model User {
   ledProjects             Project[]            @relation("ProjectLead")
   techLedProjects         Project[]            @relation("ProjectTechLead")
   projectMemberships      ProjectMember[]
+  projectOrders           ProjectOrder[]
   auditLogs               AuditLog[]           @relation("AuditActor")
   auditedBy               AuditLog[]           @relation("AuditTargetUser")
   notifications           Notification[]       @relation("NotifRecipient")
@@ -709,6 +710,10 @@ model Project {
   // createdAt desc — this composite covers both the filter and the sort so
   // Postgres never does a full tenant scan.
   @@index([tenantId, active, completedAt, createdAt(sort: Desc)])
+
+  // Per-user manual drag-and-drop ordering of this project on the projects list.
+  // One row per (user, project) the user has positioned; see ProjectOrder.
+  orders ProjectOrder[]
 }
 
 // ── Client submissions ────────────────────────────────────────────────────────
@@ -753,6 +758,26 @@ model ProjectMember {
   // Compound unique covers projectId lookups; index userId for "my projects".
   @@unique([projectId, userId])
   @@index([userId])
+}
+
+// ── Per-user project ordering ──────────────────────────────────────────────────
+// Each user can drag-and-drop the projects list into their own preferred order.
+// One row per (user, project) the user has positioned — projects a user has
+// never dragged simply have no row and fall back to the default createdAt-desc
+// order behind any positioned ones. Lowest sortOrder shows first. This is a
+// child join (no tenantId column): tenancy is inherited through the project
+// relation, so it is deliberately NOT in SCOPED_MODELS in lib/db.ts.
+model ProjectOrder {
+  id        String  @id @default(cuid())
+  userId    String
+  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  projectId String
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  sortOrder Int
+
+  // One ordering row per user per project; fast lookup of "my order".
+  @@unique([userId, projectId])
+  @@index([userId, sortOrder])
 }
 
 // ── Chat / messaging ──────────────────────────────────────────────────────────

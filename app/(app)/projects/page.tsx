@@ -86,42 +86,86 @@ export default async function ProjectsPage({
   // scoped `db` client resolves the tenant from the request context the same way
   // every other page does. The status-count groupBy and the first-page fetch are
   // independent, so run them in parallel.
+  // Projects are ordered by THIS user's personal drag-and-drop order
+  // (ProjectOrder) first, then newest-first for any projects they've never
+  // positioned. Because the sort key lives in a per-user relation, Prisma can't
+  // order by it directly — so we first fetch the matching projects' ids with
+  // their createdAt and this user's sortOrder (a light id-only query), sort and
+  // paginate that list in JS, then hydrate the full records for just the page.
+  const userId = user?.id ?? "";
   mark = performance.now();
-  const [grouped, projects] = await Promise.all([
+  const [grouped, ordered] = await Promise.all([
     db.project.groupBy({
       by: ["active", "completedAt"],
       where: countBase,
       _count: { _all: true },
     }),
     db.project.findMany({
-      orderBy: { createdAt: "desc" },
       where,
-      skip: (safePage - 1) * PAGE_SIZE,
-      take: PAGE_SIZE,
-      include: {
-        owner: { select: { id: true, name: true, avatarUrl: true } },
-        projectLead: { select: { id: true, name: true, avatarUrl: true } },
-        techLead: { select: { id: true, name: true, avatarUrl: true } },
-        _count: { select: { members: true } },
-        members: {
-          take: 5,
-          include: {
-            user: {
-              select: { id: true, name: true, avatarUrl: true, title: true },
-            },
-          },
-        },
-        board: {
-          select: {
-            id: true,
-            _count: { select: { lists: true } },
-          },
-        },
+      select: {
+        id: true,
+        createdAt: true,
+        orders: { where: { userId }, select: { sortOrder: true } },
       },
     }),
   ]);
 
-  lap("groupBy + findMany (parallel, cached)", mark);
+  // Sort: positioned projects (have a ProjectOrder row for this user) first by
+  // sortOrder asc; the rest after, newest-first. Stable + deterministic.
+  const ranked = ordered
+    .map((p) => ({
+      id: p.id,
+      createdAt: p.createdAt,
+      sortOrder: p.orders[0]?.sortOrder ?? null,
+    }))
+    .sort((a, b) => {
+      const ao = a.sortOrder;
+      const bo = b.sortOrder;
+      if (ao !== null && bo !== null) return ao - bo;
+      if (ao !== null) return -1; // positioned items lead unpositioned
+      if (bo !== null) return 1;
+      // Both unpositioned → newest first.
+      return b.createdAt.getTime() - a.createdAt.getTime();
+    });
+
+  // Slice the current page out of the fully-ordered id list, then hydrate.
+  const pageIds = ranked
+    .slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE)
+    .map((p) => p.id);
+
+  const hydrated = pageIds.length
+    ? await db.project.findMany({
+        where: { id: { in: pageIds } },
+        include: {
+          owner: { select: { id: true, name: true, avatarUrl: true } },
+          projectLead: { select: { id: true, name: true, avatarUrl: true } },
+          techLead: { select: { id: true, name: true, avatarUrl: true } },
+          _count: { select: { members: true } },
+          members: {
+            take: 5,
+            include: {
+              user: {
+                select: { id: true, name: true, avatarUrl: true, title: true },
+              },
+            },
+          },
+          board: {
+            select: {
+              id: true,
+              _count: { select: { lists: true } },
+            },
+          },
+        },
+      })
+    : [];
+
+  // Re-apply the page order (the `in` fetch doesn't preserve it).
+  const byId = new Map(hydrated.map((p) => [p.id, p]));
+  const projects = pageIds
+    .map((id) => byId.get(id))
+    .filter((p): p is (typeof hydrated)[number] => p != null);
+
+  lap("groupBy + ordered ids + hydrate", mark);
 
   let activeCount = 0;
   let inactiveCount = 0;

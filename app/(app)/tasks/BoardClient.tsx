@@ -1022,7 +1022,7 @@ export function BoardClient({
           )}
         >
           <User className="h-3.5 w-3.5" />
-          Only my issues
+          Only my cards
           <span
             className={cn(
               "rounded-full px-1.5 py-0.5 text-[10px] font-semibold",

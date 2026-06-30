@@ -8,6 +8,7 @@ import {
   ArrowRight,
   CheckCircle2,
   FolderKanban,
+  GripVertical,
   KanbanSquare,
   LayoutGrid,
   List,
@@ -134,6 +135,66 @@ export function ProjectsClient({
   const [togglingId, setTogglingId] = useState<string | null>(null);
   // The id of the project whose completed flag is mid-toggle.
   const [completingId, setCompletingId] = useState<string | null>(null);
+
+  // ── Drag-and-drop ordering (admin only) ───────────────────────────────────
+  // We mirror the server `projects` into local state so a drag can reorder
+  // optimistically (the persisted order arrives later via router.refresh()).
+  // Re-sync whenever the server list changes (page/filter/refresh).
+  const [items, setItems] = useState<ProjectDTO[]>(projects);
+  useEffect(() => setItems(projects), [projects]);
+  // The id of the row/card currently being dragged (null when idle).
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+  // Whether a reorder request is in flight (locks dragging to avoid races).
+  const [savingOrder, setSavingOrder] = useState(false);
+  // Every user can arrange their own list; we only disable dragging during a
+  // page transition or while a previous reorder is still saving.
+  const canReorder = !isPending && !savingOrder;
+
+  // Move the dragged project to sit before the project it was dropped on, in
+  // local state. Returns the new ordered list (or null if nothing changed).
+  function reorder(dragId: string, overId: string): ProjectDTO[] | null {
+    if (dragId === overId) return null;
+    const from = items.findIndex((p) => p.id === dragId);
+    const to = items.findIndex((p) => p.id === overId);
+    if (from === -1 || to === -1) return null;
+    const next = [...items];
+    const [moved] = next.splice(from, 1);
+    next.splice(to, 0, moved);
+    return next;
+  }
+
+  function onDragStart(id: string) {
+    if (!canReorder) return;
+    setDraggingId(id);
+  }
+
+  function onDragOverItem(overId: string) {
+    if (!canReorder || !draggingId) return;
+    const next = reorder(draggingId, overId);
+    if (next) setItems(next);
+  }
+
+  async function onDragEnd() {
+    const dragged = draggingId;
+    setDraggingId(null);
+    if (!dragged || !canReorder) return;
+    // Persist the current local order for this page. The order is derived from
+    // `items` (already reflecting the drag), so just send the id sequence.
+    const ids = items.map((p) => p.id);
+    setSavingOrder(true);
+    const res = await fetch(`/api/projects/reorder`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ids }),
+    });
+    setSavingOrder(false);
+    if (res.ok) {
+      router.refresh();
+    } else {
+      // Roll back to the server order on failure.
+      setItems(projects);
+    }
+  }
 
   async function toggleActive(project: ProjectDTO) {
     if (togglingId) return;
@@ -313,11 +374,16 @@ export function ProjectsClient({
                 isPending && "opacity-60",
               )}
             >
-              {projects.map((p) => (
+              {items.map((p) => (
                 <ProjectCard
                   key={p.id}
                   project={p}
                   isAdmin={isAdmin}
+                  draggable={canReorder}
+                  dragging={draggingId === p.id}
+                  onDragStart={() => onDragStart(p.id)}
+                  onDragOverItem={() => onDragOverItem(p.id)}
+                  onDragEnd={onDragEnd}
                   toggling={togglingId === p.id}
                   completing={completingId === p.id}
                   onManage={() => setManaging(p)}
@@ -335,11 +401,16 @@ export function ProjectsClient({
                 isPending && "opacity-60",
               )}
             >
-              {projects.map((p) => (
+              {items.map((p) => (
                 <ProjectRow
                   key={p.id}
                   project={p}
                   isAdmin={isAdmin}
+                  draggable={canReorder}
+                  dragging={draggingId === p.id}
+                  onDragStart={() => onDragStart(p.id)}
+                  onDragOverItem={() => onDragOverItem(p.id)}
+                  onDragEnd={onDragEnd}
                   toggling={togglingId === p.id}
                   completing={completingId === p.id}
                   onManage={() => setManaging(p)}
@@ -389,9 +460,43 @@ export function ProjectsClient({
   );
 }
 
+// A grip handle that carries the HTML5 drag. Only the handle is `draggable`, so
+// dragging never hijacks link clicks or text selection elsewhere on the card.
+function DragHandle({
+  onDragStart,
+  onDragEnd,
+}: {
+  onDragStart: () => void;
+  onDragEnd: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      draggable
+      onDragStart={(e) => {
+        // Firefox requires data to be set for a drag to begin.
+        e.dataTransfer.effectAllowed = "move";
+        e.dataTransfer.setData("text/plain", "");
+        onDragStart();
+      }}
+      onDragEnd={onDragEnd}
+      aria-label="Drag to reorder"
+      title="Drag to reorder"
+      className="grid h-7 w-5 shrink-0 cursor-grab place-items-center rounded text-ink-400 transition-colors hover:text-ink active:cursor-grabbing"
+    >
+      <GripVertical className="h-4 w-4" />
+    </button>
+  );
+}
+
 function ProjectCard({
   project,
   isAdmin,
+  draggable,
+  dragging,
+  onDragStart,
+  onDragOverItem,
+  onDragEnd,
   toggling,
   completing,
   onManage,
@@ -402,6 +507,11 @@ function ProjectCard({
 }: {
   project: ProjectDTO;
   isAdmin: boolean;
+  draggable: boolean;
+  dragging: boolean;
+  onDragStart: () => void;
+  onDragOverItem: () => void;
+  onDragEnd: () => void;
   toggling: boolean;
   completing: boolean;
   onManage: () => void;
@@ -412,14 +522,32 @@ function ProjectCard({
 }) {
   return (
     <GlassCard
+      // Drag is initiated from the grip handle (which sets `draggable`); the
+      // card itself only listens for items being dragged over it so we can
+      // reorder live. dragOver must preventDefault to allow a drop.
+      onDragOver={(e) => {
+        if (draggable) {
+          e.preventDefault();
+          onDragOverItem();
+        }
+      }}
       className={cn(
         "group flex flex-col p-5",
         (!project.active || project.completedAt) && "opacity-70",
+        dragging && "opacity-40",
       )}
     >
       <div className="mb-3 flex items-start justify-between gap-2">
-        <div className="grid h-10 w-10 place-items-center rounded-xl border border-line bg-accent-soft text-accent shadow-xs">
-          <KanbanSquare className="h-5 w-5" />
+        <div className="flex items-center gap-1.5">
+          {draggable && (
+            <DragHandle
+              onDragStart={onDragStart}
+              onDragEnd={onDragEnd}
+            />
+          )}
+          <div className="grid h-10 w-10 place-items-center rounded-xl border border-line bg-accent-soft text-accent shadow-xs">
+            <KanbanSquare className="h-5 w-5" />
+          </div>
         </div>
         {isAdmin && (
           <ProjectActions
@@ -676,6 +804,11 @@ function ProjectActions({
 function ProjectRow({
   project,
   isAdmin,
+  draggable,
+  dragging,
+  onDragStart,
+  onDragOverItem,
+  onDragEnd,
   toggling,
   completing,
   onManage,
@@ -686,6 +819,11 @@ function ProjectRow({
 }: {
   project: ProjectDTO;
   isAdmin: boolean;
+  draggable: boolean;
+  dragging: boolean;
+  onDragStart: () => void;
+  onDragOverItem: () => void;
+  onDragEnd: () => void;
   toggling: boolean;
   completing: boolean;
   onManage: () => void;
@@ -696,11 +834,21 @@ function ProjectRow({
 }) {
   return (
     <GlassCard
+      onDragOver={(e) => {
+        if (draggable) {
+          e.preventDefault();
+          onDragOverItem();
+        }
+      }}
       className={cn(
         "group flex items-center gap-4 px-4 py-3",
         (!project.active || project.completedAt) && "opacity-70",
+        dragging && "opacity-40",
       )}
     >
+      {draggable && (
+        <DragHandle onDragStart={onDragStart} onDragEnd={onDragEnd} />
+      )}
       <div className="grid h-9 w-9 shrink-0 place-items-center rounded-xl border border-line bg-accent-soft text-accent shadow-xs">
         <KanbanSquare className="h-4.5 w-4.5" />
       </div>
