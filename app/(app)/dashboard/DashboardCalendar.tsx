@@ -15,6 +15,7 @@ import {
 import Link from "@/components/Link";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { Button } from "@/components/ui/Button";
+import { DatePicker } from "@/components/ui/DatePicker";
 import { cn } from "@/lib/utils";
 
 // One overlay on a calendar day: a task due that day, or an announcement /
@@ -478,12 +479,11 @@ function AnnounceModal({
                 <span className="mb-1.5 block text-xs font-medium text-ink-500">
                   Date
                 </span>
-                <input
+                <DatePicker
                   required
-                  type="date"
                   value={eventDate}
-                  onChange={(e) => setEventDate(e.target.value)}
-                  className="input"
+                  onChange={setEventDate}
+                  aria-label="Date"
                 />
               </label>
             </div>

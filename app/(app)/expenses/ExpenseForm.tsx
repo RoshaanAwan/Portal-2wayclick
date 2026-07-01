@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { Button } from "@/components/ui/Button";
+import { DatePicker } from "@/components/ui/DatePicker";
 import { SlipField } from "@/components/finance/SlipField";
 import {
   CURRENCIES,
@@ -222,11 +223,10 @@ export function ExpenseForm({
             <label className="mb-1.5 block text-xs font-medium text-ink-500">
               Date
             </label>
-            <input
-              type="date"
+            <DatePicker
               value={spentOn}
-              onChange={(e) => setSpentOn(e.target.value)}
-              className="input"
+              onChange={setSpentOn}
+              aria-label="Date"
             />
           </div>
           <div>

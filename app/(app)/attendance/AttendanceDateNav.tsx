@@ -4,6 +4,7 @@ import { ChevronLeft, ChevronRight, Download } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useTransition } from "react";
 import { Button } from "@/components/ui/Button";
+import { DatePicker } from "@/components/ui/DatePicker";
 
 /**
  * Date controls for the manager attendance roster. The page reads the selected
@@ -48,17 +49,17 @@ export function AttendanceDateNav({
         <ChevronLeft className="h-4 w-4" />
       </Button>
 
-      <input
-        type="date"
-        value={selected}
-        max={today}
-        onChange={(e) => {
-          if (e.target.value) go(e.target.value);
-        }}
-        disabled={isPending}
-        className="input max-w-[160px] py-2 sm:max-w-[180px]"
-        aria-label="Pick a date"
-      />
+      <div className="max-w-[160px] sm:max-w-[180px]">
+        <DatePicker
+          value={selected}
+          max={today}
+          onChange={(v) => {
+            if (v) go(v);
+          }}
+          disabled={isPending}
+          aria-label="Pick a date"
+        />
+      </div>
 
       <Button
         variant="glass"

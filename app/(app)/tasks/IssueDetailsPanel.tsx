@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Link2, Plus, Tag, X } from "lucide-react";
 import { Avatar } from "@/components/ui/Avatar";
+import { DatePicker } from "@/components/ui/DatePicker";
 import { cn } from "@/lib/utils";
 import {
   ISSUE_LINK_TYPES,
@@ -221,13 +222,11 @@ export function IssueDetailsPanel({
           instant; the date input wants YYYY-MM-DD, so slice it off. Clearing the
           field sends null. */}
       <Field label="Due date">
-        <input
-          type="date"
+        <DatePicker
           value={task.dueDate ? task.dueDate.slice(0, 10) : ""}
           disabled={!canManage}
-          onChange={(e) =>
-            onPatchIssue(task.id, { dueDate: e.target.value || null })
-          }
+          onChange={(v) => onPatchIssue(task.id, { dueDate: v || null })}
+          aria-label="Due date"
           className="h-8 w-full rounded-lg border border-line bg-surface px-2 text-xs font-medium text-ink focus:border-accent/40 focus:outline-none disabled:opacity-60"
         />
       </Field>

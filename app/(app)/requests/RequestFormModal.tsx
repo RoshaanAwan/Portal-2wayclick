@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, CalendarPlus, CalendarClock } from "lucide-react";
 import { Button } from "@/components/ui/Button";
+import { DatePicker } from "@/components/ui/DatePicker";
 import { LEAVE_TYPES, type LeaveType } from "@/lib/constants";
 import type { RequestRow } from "./page";
 
@@ -168,28 +169,26 @@ export function RequestFormModal({
                   <label className="mb-1.5 block text-xs font-medium text-ink-500">
                     Start date
                   </label>
-                  <input
-                    type="date"
+                  <DatePicker
                     value={startDate}
-                    onChange={(e) => {
-                      setStartDate(e.target.value);
-                      if (endDate < e.target.value) setEndDate(e.target.value);
+                    onChange={(v) => {
+                      setStartDate(v);
+                      if (endDate < v) setEndDate(v);
                     }}
                     required
-                    className="input [color-scheme:light]"
+                    aria-label="Start date"
                   />
                 </div>
                 <div>
                   <label className="mb-1.5 block text-xs font-medium text-ink-500">
                     End date
                   </label>
-                  <input
-                    type="date"
+                  <DatePicker
                     value={endDate}
                     min={startDate}
-                    onChange={(e) => setEndDate(e.target.value)}
+                    onChange={setEndDate}
                     required
-                    className="input [color-scheme:light]"
+                    aria-label="End date"
                   />
                 </div>
               </div>

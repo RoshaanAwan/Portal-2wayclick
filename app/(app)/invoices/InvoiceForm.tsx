@@ -6,6 +6,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Plus, Trash2 } from "lucide-react";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { Button } from "@/components/ui/Button";
+import { DatePicker } from "@/components/ui/DatePicker";
 import {
   CURRENCIES,
   computeTotals,
@@ -229,22 +230,21 @@ export function InvoiceForm({
             <label className="mb-1.5 block text-xs font-medium text-ink-500">
               Issue date
             </label>
-            <input
-              type="date"
+            <DatePicker
               value={issueDate}
-              onChange={(e) => setIssueDate(e.target.value)}
-              className="input"
+              onChange={setIssueDate}
+              aria-label="Issue date"
             />
           </div>
           <div>
             <label className="mb-1.5 block text-xs font-medium text-ink-500">
               Due date
             </label>
-            <input
-              type="date"
+            <DatePicker
               value={dueDate}
-              onChange={(e) => setDueDate(e.target.value)}
-              className="input"
+              onChange={setDueDate}
+              min={issueDate}
+              aria-label="Due date"
             />
           </div>
         </div>

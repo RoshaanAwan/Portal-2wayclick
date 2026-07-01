@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import Link from "@/components/Link";
 import { motion } from "framer-motion";
@@ -163,7 +164,9 @@ export function SettingsClient({
   const [avatarMenuPos, setAvatarMenuPos] = useState({ top: 0, left: 0 });
   const placeAvatarMenu = () => {
     const r = avatarTriggerRef.current?.getBoundingClientRect();
-    if (r) setAvatarMenuPos({ top: r.bottom + 8, left: r.left + r.width / 2 });
+    // Nudged right of the avatar's center to sit clear of the card's left edge.
+    if (r)
+      setAvatarMenuPos({ top: r.bottom + 8, left: r.left + r.width / 2 + 24 });
   };
   // Close on outside click / Escape; keep the menu anchored on scroll / resize.
   useEffect(() => {
@@ -499,16 +502,18 @@ export function SettingsClient({
                           )}
                         </span>
 
-                        {avatarMenuOpen && (
-                          <div
-                            ref={avatarMenuRef}
-                            role="menu"
-                            style={{
-                              top: avatarMenuPos.top,
-                              left: avatarMenuPos.left,
-                            }}
-                            className="fixed z-50 w-44 -translate-x-1/2 overflow-hidden rounded-xl border border-line bg-surface py-1 shadow-lg"
-                          >
+                        {avatarMenuOpen &&
+                          typeof document !== "undefined" &&
+                          createPortal(
+                            <div
+                              ref={avatarMenuRef}
+                              role="menu"
+                              style={{
+                                top: avatarMenuPos.top,
+                                left: avatarMenuPos.left,
+                              }}
+                              className="fixed z-[60] w-44 -translate-x-1/2 overflow-hidden rounded-xl border border-line bg-surface py-1 shadow-lg"
+                            >
                             <button
                               type="button"
                               role="menuitem"
@@ -536,8 +541,9 @@ export function SettingsClient({
                                 Remove photo
                               </button>
                             )}
-                          </div>
-                        )}
+                            </div>,
+                            document.body,
+                          )}
                         <input
                           ref={fileInput}
                           type="file"

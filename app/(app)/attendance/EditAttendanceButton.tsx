@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import { Loader2, Pencil, X } from "lucide-react";
 import { Button } from "@/components/ui/Button";
+import { TimePicker } from "@/components/ui/TimePicker";
 import { cn } from "@/lib/utils";
 
 // The states the admin can set from this modal. PRESENT is time-driven (and the
@@ -181,22 +182,20 @@ function EditModal({
                     <span className="mb-1.5 block text-xs font-medium text-ink-500">
                       Check-in
                     </span>
-                    <input
-                      type="time"
+                    <TimePicker
                       value={checkIn}
-                      onChange={(e) => setCheckIn(e.target.value)}
-                      className="input"
+                      onChange={setCheckIn}
+                      aria-label="Check-in time"
                     />
                   </label>
                   <label className="block">
                     <span className="mb-1.5 block text-xs font-medium text-ink-500">
                       Check-out
                     </span>
-                    <input
-                      type="time"
+                    <TimePicker
                       value={checkOut}
-                      onChange={(e) => setCheckOut(e.target.value)}
-                      className="input"
+                      onChange={setCheckOut}
+                      aria-label="Check-out time"
                     />
                   </label>
                 </div>

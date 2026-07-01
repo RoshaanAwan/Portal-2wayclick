@@ -1,0 +1,155 @@
+/*
+ * Theme overrides for react-datepicker so the calendar matches the portal's
+ * glass/accent look and works in both dark and light themes. We map its
+ * hardcoded colors onto our CSS custom properties (--c-accent, --c-surface,
+ * --c-line, --c-ink, …), which flip automatically with [data-theme].
+ *
+ * Loaded alongside the library's own dist CSS from DatePicker.tsx.
+ */
+
+.portal-datepicker-popper {
+  z-index: 60;
+}
+
+.react-datepicker.portal-datepicker {
+  font-family: inherit;
+  background-color: rgb(var(--c-surface-2));
+  border: 1px solid rgb(var(--c-line));
+  border-radius: 0.9rem;
+  box-shadow:
+    0 10px 30px -12px rgba(0, 0, 0, 0.45),
+    0 0 0 1px rgb(var(--c-line));
+  overflow: hidden;
+  color: rgb(var(--c-ink));
+}
+
+.portal-datepicker .react-datepicker__header {
+  background-color: rgb(var(--c-surface));
+  border-bottom: 1px solid rgb(var(--c-line));
+  padding-top: 0.75rem;
+}
+
+.portal-datepicker .react-datepicker__current-month,
+.portal-datepicker .react-datepicker-time__header {
+  color: rgb(var(--c-ink));
+  font-weight: 600;
+  font-size: 0.85rem;
+}
+
+.portal-datepicker .react-datepicker__day-name {
+  color: rgb(var(--c-ink-400));
+  font-size: 0.7rem;
+}
+
+.portal-datepicker .react-datepicker__day {
+  color: rgb(var(--c-ink));
+  border-radius: 0.55rem;
+  transition:
+    background-color 0.12s ease,
+    color 0.12s ease;
+}
+
+.portal-datepicker .react-datepicker__day:hover {
+  background-color: rgb(var(--c-accent) / 0.15);
+  color: rgb(var(--c-ink));
+}
+
+.portal-datepicker .react-datepicker__day--selected,
+.portal-datepicker .react-datepicker__day--keyboard-selected {
+  background-color: rgb(var(--c-accent));
+  color: #fff;
+}
+
+.portal-datepicker .react-datepicker__day--selected:hover {
+  background-color: rgb(var(--c-accent-600));
+}
+
+.portal-datepicker .react-datepicker__day--today:not(.react-datepicker__day--selected) {
+  font-weight: 700;
+  color: rgb(var(--c-accent-ink));
+}
+
+.portal-datepicker .react-datepicker__day--outside-month {
+  color: rgb(var(--c-ink-300));
+}
+
+.portal-datepicker .react-datepicker__day--disabled {
+  color: rgb(var(--c-ink-300));
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.portal-datepicker .react-datepicker__navigation-icon::before {
+  border-color: rgb(var(--c-ink-400));
+}
+
+.portal-datepicker .react-datepicker__navigation:hover *::before {
+  border-color: rgb(var(--c-accent));
+}
+
+/* Triangle is hidden via showPopperArrow={false}, but belt-and-braces. */
+.portal-datepicker .react-datepicker__triangle {
+  display: none;
+}
+
+/* ── Time-only picker (TimePicker.tsx) ─────────────────────────────────────
+ * Replaces the browser's native <input type="time"> popup with a themed,
+ * scrollable list of options. */
+
+.portal-timepicker .react-datepicker__time-container,
+.portal-timepicker .react-datepicker__time-box {
+  width: 8rem;
+}
+
+.portal-timepicker .react-datepicker__time {
+  background-color: rgb(var(--c-surface-2));
+}
+
+.portal-timepicker .react-datepicker__time-list {
+  padding: 0.35rem;
+  scrollbar-width: thin;
+  scrollbar-color: rgb(var(--c-line-strong)) transparent;
+}
+
+.portal-timepicker .react-datepicker__time-list::-webkit-scrollbar {
+  width: 8px;
+}
+
+.portal-timepicker .react-datepicker__time-list::-webkit-scrollbar-thumb {
+  background-color: rgb(var(--c-line-strong));
+  border-radius: 9999px;
+}
+
+.portal-timepicker li.react-datepicker__time-list-item {
+  height: auto;
+  margin: 2px 0;
+  padding: 0.4rem 0.6rem;
+  border-radius: 0.55rem;
+  color: rgb(var(--c-ink));
+  font-size: 0.82rem;
+  display: flex;
+  align-items: center;
+  transition:
+    background-color 0.12s ease,
+    color 0.12s ease;
+}
+
+.portal-timepicker li.react-datepicker__time-list-item:hover {
+  background-color: rgb(var(--c-accent) / 0.15);
+}
+
+.portal-timepicker
+  li.react-datepicker__time-list-item--selected {
+  background-color: rgb(var(--c-accent)) !important;
+  color: #fff !important;
+  font-weight: 600;
+}
+
+.portal-timepicker
+  li.react-datepicker__time-list-item--selected:hover {
+  background-color: rgb(var(--c-accent-600)) !important;
+}
+
+.portal-timepicker li.react-datepicker__time-list-item--disabled {
+  color: rgb(var(--c-ink-300));
+}
