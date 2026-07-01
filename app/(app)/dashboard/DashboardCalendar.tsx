@@ -34,6 +34,20 @@ export interface CalendarEvent {
   done?: boolean;
 }
 
+// A Slack channel the announce modal can route a holiday to.
+export interface SlackChannelOption {
+  id: string;
+  name: string;
+}
+
+// Slack routing context passed to the announce modal: the workspace's channels
+// and the tenant's default notify channel (preselected). Null when Slack is off
+// or disconnected — the modal then shows no picker.
+export interface SlackRouting {
+  channels: SlackChannelOption[];
+  defaultChannelId: string | null;
+}
+
 const WEEKDAYS = ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"];
 
 const KIND_DOT: Record<CalendarEvent["kind"], string> = {
@@ -63,9 +77,11 @@ function buildGrid(year: number, month: number): Date[] {
 export function DashboardCalendar({
   events,
   canAnnounce,
+  slack,
 }: {
   events: CalendarEvent[];
   canAnnounce: boolean;
+  slack?: SlackRouting | null;
 }) {
   const now = new Date();
   // The month being viewed (anchored to its 1st, UTC).
@@ -261,6 +277,7 @@ export function DashboardCalendar({
         {announceFor && (
           <AnnounceModal
             date={announceFor}
+            slack={slack}
             onClose={() => setAnnounceFor(null)}
           />
         )}
@@ -348,12 +365,20 @@ function AgendaRow({ event }: { event: CalendarEvent }) {
 // ── Announce modal (Admin-tier) ──────────────────────────────────────────────
 // Posts an announcement pinned to the chosen calendar date. "Holiday" maps to
 // the Event category, which the create route additionally mirrors to Slack with
-// the announcer's name. See app/api/announcements/create/route.ts.
+// the announcer's name. When Slack is connected, a holiday can be routed to a
+// specific channel here (per-post; the saved default is untouched) or opted out.
+// See app/api/announcements/create/route.ts.
+
+// Sentinel <select> value meaning "don't post this holiday to Slack".
+const NO_SLACK = "__none__";
+
 function AnnounceModal({
   date,
+  slack,
   onClose,
 }: {
   date: string;
+  slack?: SlackRouting | null;
   onClose: () => void;
 }) {
   const router = useRouter();
@@ -364,11 +389,33 @@ function AnnounceModal({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Which Slack channel this holiday routes to. Preselect the tenant default,
+  // but only if it's actually in the list (a default that's since been archived
+  // or that the bot left won't render as an option) — otherwise the first
+  // channel. The picker only shows when Slack is connected AND ≥1 channel.
+  const hasSlack = !!slack && slack.channels.length > 0;
+  const [channelId, setChannelId] = useState(() => {
+    if (!slack) return NO_SLACK;
+    const hasDefault = slack.channels.some(
+      (c) => c.id === slack.defaultChannelId,
+    );
+    return hasDefault
+      ? slack.defaultChannelId!
+      : slack.channels[0]?.id ?? NO_SLACK;
+  });
+
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setSubmitting(true);
     setError(null);
     try {
+      // Only holidays mirror to Slack; NO_SLACK opts this one out. For a
+      // non-holiday or when Slack is off, leave it unset (server keeps its
+      // default behaviour).
+      const slackChannelId =
+        isHoliday && hasSlack && channelId !== NO_SLACK ? channelId : undefined;
+      const skipSlack = isHoliday && hasSlack && channelId === NO_SLACK;
+
       const res = await fetch("/api/announcements/create", {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -377,6 +424,8 @@ function AnnounceModal({
           body,
           category: isHoliday ? "Event" : "General",
           eventDate,
+          slackChannelId,
+          skipSlack,
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -506,12 +555,37 @@ function AnnounceModal({
               />
             </label>
 
-            {isHoliday && (
-              <p className="rounded-lg border border-warn/20 bg-warn-soft px-3 py-2 text-[11px] text-warn">
-                Holidays are also posted to your team's Slack channel with your
-                name.
-              </p>
-            )}
+            {isHoliday &&
+              (hasSlack ? (
+                <label className="block">
+                  <span className="mb-1.5 block text-xs font-medium text-ink-500">
+                    Post to Slack channel
+                  </span>
+                  <select
+                    value={channelId}
+                    onChange={(e) => setChannelId(e.target.value)}
+                    className="input"
+                    aria-label="Slack channel"
+                  >
+                    {slack!.channels.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        #{c.name}
+                        {c.id === slack!.defaultChannelId ? " (default)" : ""}
+                      </option>
+                    ))}
+                    <option value={NO_SLACK}>Don&apos;t post to Slack</option>
+                  </select>
+                  <span className="mt-1.5 block text-[11px] text-ink-400">
+                    Posted with your name. Just for this holiday — your default
+                    channel isn&apos;t changed.
+                  </span>
+                </label>
+              ) : (
+                <p className="rounded-lg border border-warn/20 bg-warn-soft px-3 py-2 text-[11px] text-warn">
+                  Holidays are also posted to your team's Slack channel with your
+                  name.
+                </p>
+              ))}
 
             {error && (
               <p className="rounded-lg border border-danger/20 bg-danger-soft px-3 py-2 text-xs text-danger-ink">

@@ -5,7 +5,7 @@ import { audit } from "@/lib/audit";
 import { notifyMany } from "@/lib/notifications";
 import { recordActivity } from "@/lib/activityFeed";
 import { can, isAdminTier } from "@/lib/permissions";
-import { notifySlackChannel } from "@/lib/integrations/slack";
+import { notifySlackChannel, notifySlackChannelExplicit } from "@/lib/integrations/slack";
 import { z } from "zod";
 import { ANNOUNCEMENT_CATEGORIES } from "@/lib/constants";
 
@@ -30,6 +30,12 @@ const schema = z.object({
     .regex(/^\d{4}-\d{2}-\d{2}$/, "Invalid date")
     .optional()
     .nullable(),
+  // Optional per-post Slack routing (holiday from the dashboard Calendar):
+  // route the Slack mirror to THIS channel instead of the tenant default. The
+  // saved default is NOT changed. `skipSlack` opts this holiday out of Slack
+  // entirely. Both are validated/honored only for holidays; ignored otherwise.
+  slackChannelId: z.string().trim().min(1).max(40).optional(),
+  skipSlack: z.boolean().optional().default(false),
 });
 
 export async function POST(req: Request) {
@@ -41,9 +47,8 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    const { title, body, category, pinned, eventDate } = schema.parse(
-      await req.json(),
-    );
+    const { title, body, category, pinned, eventDate, slackChannelId, skipSlack } =
+      schema.parse(await req.json());
 
     // Anchor a calendar date at UTC midnight so it groups by the chosen day. A
     // holiday is an Event-category post with a date — it's surfaced on the
@@ -98,7 +103,19 @@ export async function POST(req: Request) {
       const slackText = isHoliday
         ? `:palm_tree: *Holiday — ${title}*\n${eventAt!.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric", timeZone: "UTC" })}\n${body}\n_Announced by ${user.name}_`
         : `*${title}* — ${category}\n${body}\n_Posted by ${user.name}_`;
-      await notifySlackChannel(user.tenantId, slackText);
+
+      // Holidays support per-post Slack routing from the dashboard modal:
+      //   • skipSlack        → don't mirror this one at all,
+      //   • slackChannelId   → mirror to THAT channel (validated live),
+      //   • neither          → the tenant default channel (standard mirror).
+      // The saved default is never changed here.
+      if (isHoliday && skipSlack) {
+        // Opted out — no Slack post.
+      } else if (isHoliday && slackChannelId) {
+        await notifySlackChannelExplicit(user.tenantId, slackChannelId, slackText);
+      } else {
+        await notifySlackChannel(user.tenantId, slackText);
+      }
     }
 
     return NextResponse.json({ ok: true, id: announcement.id });

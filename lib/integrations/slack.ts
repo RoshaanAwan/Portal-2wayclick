@@ -413,3 +413,50 @@ export async function notifySlackChannel(
     console.error("[slack] notifySlackChannel failed", err);
   }
 }
+
+/**
+ * Like notifySlackChannel, but posts to an EXPLICIT channel id (a per-post
+ * routing override — e.g. an admin picking which channel a holiday goes to). The
+ * caller supplies the channel id; we still gate on Slack being connected +
+ * enabled and validate the id against the live channel list so a stale/typo id
+ * can't be posted to. Best-effort and NEVER throws (same contract as the sibling
+ * above). Falls back to the tenant default channel only when `channelId` is
+ * empty; pass a real id to force that channel.
+ */
+export async function notifySlackChannelExplicit(
+  tenantId: string,
+  channelId: string,
+  text: string,
+): Promise<void> {
+  try {
+    const { adminDb } = await import("../db");
+    const { open } = await import("../cryptoBox");
+
+    const integ = await adminDb.integration.findFirst({
+      where: { tenantId, provider: "slack" },
+      select: { enabled: true },
+    });
+    if (!integ?.enabled) return;
+
+    const conn = await adminDb.slackConnection.findUnique({
+      where: { tenantId },
+      select: { botToken: true, notifyChannelId: true },
+    });
+    if (!conn) return;
+
+    const botToken = open(conn.botToken);
+    if (!botToken) return;
+
+    const target = channelId || conn.notifyChannelId;
+    if (!target) return;
+
+    // Validate the requested channel is really in this workspace (name-only
+    // helper already excludes archived) — guards against a spoofed/stale id.
+    const channels = await listChannels(botToken);
+    if (!channels.some((c) => c.id === target)) return;
+
+    await postMessage(botToken, target, text);
+  } catch (err) {
+    console.error("[slack] notifySlackChannelExplicit failed", err);
+  }
+}

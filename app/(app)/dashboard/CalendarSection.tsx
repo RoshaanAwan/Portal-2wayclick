@@ -2,7 +2,9 @@ import { db } from "@/lib/db";
 import type { SafeUser } from "@/lib/auth";
 import { isAdminTier } from "@/lib/permissions";
 import { issueKey } from "@/lib/issues";
-import { DashboardCalendar, type CalendarEvent } from "./DashboardCalendar";
+import { getSlackConnection, isIntegrationEnabled } from "@/lib/integrationsServer";
+import { listChannels } from "@/lib/integrations/slack";
+import { DashboardCalendar, type CalendarEvent, type SlackChannelOption } from "./DashboardCalendar";
 
 // ── Dashboard Calendar (replaces the Pulse feed) ─────────────────────────────
 // A month calendar that overlays two streams onto each day:
@@ -111,7 +113,34 @@ export async function CalendarSection({ user }: { user: SafeUser }) {
     })),
   ];
 
+  // Admins get a Slack channel picker in the announce modal so a holiday can be
+  // routed to a specific channel (not just the tenant default). Best-effort: any
+  // Slack hiccup (off, disconnected, revoked token) just yields no picker — the
+  // holiday still posts and falls back to the default channel server-side.
+  let slack: {
+    channels: SlackChannelOption[];
+    defaultChannelId: string | null;
+  } | null = null;
+  if (isAdmin) {
+    try {
+      const enabled = await isIntegrationEnabled("slack");
+      if (enabled) {
+        const conn = await getSlackConnection();
+        if (conn) {
+          const channels = await listChannels(conn.botToken);
+          slack = {
+            channels: channels.map((c) => ({ id: c.id, name: c.name })),
+            defaultChannelId: conn.notifyChannelId,
+          };
+        }
+      }
+    } catch {
+      // Slack unreachable / token revoked — skip the picker silently.
+      slack = null;
+    }
+  }
+
   return (
-    <DashboardCalendar events={items} canAnnounce={isAdmin} />
+    <DashboardCalendar events={items} canAnnounce={isAdmin} slack={slack} />
   );
 }
