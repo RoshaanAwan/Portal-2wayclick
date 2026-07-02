@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import { Plus, X } from "lucide-react";
 import { Button } from "@/components/ui/Button";
@@ -21,13 +20,25 @@ export function AddTask({
   listId,
   currentUserId,
   defaultSprintId = null,
+  onAdd,
 }: {
   listId: string;
   currentUserId: string | null;
   // When a sprint is active, new board cards join it by default (JIRA-style).
   defaultSprintId?: string | null;
+  // Optimistic add owned by the board: inserts the card into local state
+  // immediately, then reconciles with the server. Resolves false on failure.
+  onAdd: (input: {
+    listId: string;
+    title: string;
+    priority: TaskPriority;
+    issueType: IssueType;
+    storyPoints: number | null;
+    estimateMinutes: number | null;
+    sprintId: string | null;
+    assignSelf: boolean;
+  }) => Promise<boolean>;
 }) {
-  const router = useRouter();
   const [open, setOpen] = useState(false);
   const [title, setTitle] = useState("");
   const [issueType, setIssueType] = useState<IssueType>("TASK");
@@ -36,7 +47,6 @@ export function AddTask({
   const [assignSelf, setAssignSelf] = useState(false);
   // Free-text time estimate the creator can give ("2h 30m"); optional.
   const [estimate, setEstimate] = useState("");
-  const [loading, setLoading] = useState(false);
 
   const canSubmit = title.trim().length > 0;
   const parsedEstimate = parseDuration(estimate);
@@ -51,32 +61,25 @@ export function AddTask({
     setOpen(false);
   }
 
-  async function submit(e: React.FormEvent) {
+  function submit(e: React.FormEvent) {
     e.preventDefault();
-    if (!canSubmit || loading) return;
-    setLoading(true);
+    if (!canSubmit) return;
 
-    const res = await fetch("/api/tasks/create", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        listId,
-        title: title.trim(),
-        priority,
-        issueType,
-        storyPoints: storyPoints ?? undefined,
-        sprintId: defaultSprintId ?? undefined,
-        assigneeId: assignSelf && currentUserId ? currentUserId : undefined,
-        estimateMinutes:
-          parsedEstimate && parsedEstimate > 0 ? parsedEstimate : undefined,
-      }),
+    // Fire the optimistic add — the board inserts the card and reconciles with
+    // the server on its own. Reset immediately so the card appears instantly and
+    // the form is ready for the next entry (no spinner, no round-trip wait).
+    void onAdd({
+      listId,
+      title: title.trim(),
+      priority,
+      issueType,
+      storyPoints,
+      estimateMinutes:
+        parsedEstimate && parsedEstimate > 0 ? parsedEstimate : null,
+      sprintId: defaultSprintId,
+      assignSelf,
     });
-
-    setLoading(false);
-    if (res.ok) {
-      reset();
-      router.refresh();
-    }
+    reset();
   }
 
   if (!open) {
@@ -218,7 +221,7 @@ export function AddTask({
         )}
 
         <div className="mt-2.5 flex items-center gap-2">
-          <Button type="submit" size="sm" loading={loading} disabled={!canSubmit}>
+          <Button type="submit" size="sm" disabled={!canSubmit}>
             Add card
           </Button>
           <button

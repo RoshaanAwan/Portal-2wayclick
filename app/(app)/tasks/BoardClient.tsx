@@ -384,6 +384,118 @@ export function BoardClient({
     [findTask, members, currentUserId, patchTask, router],
   );
 
+  // ── Add card (optimistic insert, reconciled with the server's row) ─────────
+  // Renders a temporary card the instant the user submits, then swaps in the
+  // real id/issueKey from the create endpoint — no full board re-fetch, no
+  // flash. On failure the temp card is removed. Mirrors addComment's pattern.
+  const addCard = useCallback(
+    async (input: {
+      listId: string;
+      title: string;
+      priority: TaskPriority;
+      issueType: string;
+      storyPoints: number | null;
+      estimateMinutes: number | null;
+      sprintId: string | null;
+      assignSelf: boolean;
+    }): Promise<boolean> => {
+      const tempId = `temp-card-${Date.now()}`;
+      const dest = lists.find((l) => l.id === input.listId);
+      const me = input.assignSelf
+        ? members.find((m) => m.id === currentUserId)
+        : undefined;
+      const optimistic: TaskDTO = {
+        id: tempId,
+        title: input.title,
+        description: null,
+        priority: input.priority,
+        // Append to the end of the column, matching the server's positioning.
+        position: (dest?.tasks.length ?? 0) + 1,
+        dueDate: null,
+        estimateMinutes: input.estimateMinutes,
+        timeSpentMinutes: 0,
+        listId: input.listId,
+        issueNumber: null,
+        // No real key until the server mints one; blank keeps the card's key
+        // badge from showing a bogus number mid-flight.
+        issueKey: "",
+        issueType: input.issueType,
+        status: dest ? statusForListName(dest.name) : "TODO",
+        storyPoints: input.storyPoints,
+        labels: [],
+        reporter: null,
+        sprintId: input.sprintId,
+        links: [],
+        creator: {
+          id: currentUserId ?? "",
+          name: me?.name ?? "You",
+          avatarUrl: me?.avatarUrl ?? null,
+        },
+        assignees: me ? [me] : [],
+        comments: [],
+        attachments: [],
+        commentCount: 0,
+        attachmentCount: 0,
+        linkCount: 0,
+        cover: null,
+      };
+
+      setLists((prev) =>
+        prev.map((l) =>
+          l.id === input.listId
+            ? { ...l, tasks: [...l.tasks, optimistic] }
+            : l,
+        ),
+      );
+
+      try {
+        const res = await fetch("/api/tasks/create", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            listId: input.listId,
+            title: input.title,
+            priority: input.priority,
+            issueType: input.issueType,
+            storyPoints: input.storyPoints ?? undefined,
+            sprintId: input.sprintId ?? undefined,
+            assigneeId:
+              input.assignSelf && currentUserId ? currentUserId : undefined,
+            estimateMinutes:
+              input.estimateMinutes && input.estimateMinutes > 0
+                ? input.estimateMinutes
+                : undefined,
+          }),
+        });
+        if (!res.ok) throw new Error("create failed");
+        const data = (await res.json()) as {
+          id: string;
+          issueNumber: number;
+          issueKey: string;
+        };
+        // Swap the temp card for its server identity in place.
+        patchTask(tempId, (t) => ({
+          ...t,
+          id: data.id,
+          issueNumber: data.issueNumber,
+          issueKey: data.issueKey,
+        }));
+        router.refresh();
+        return true;
+      } catch {
+        setLists((prev) =>
+          prev.map((l) =>
+            l.id === input.listId
+              ? { ...l, tasks: l.tasks.filter((t) => t.id !== tempId) }
+              : l,
+          ),
+        );
+        return false;
+      }
+    },
+    [lists, members, currentUserId, patchTask, router],
+  );
+
   // ── Image attachments (upload to tenant Drive; optimistic remove) ──────────
   const addAttachment = useCallback(
     async (taskId: string, file: File): Promise<string | null> => {
@@ -1335,6 +1447,7 @@ export function BoardClient({
                       listId={list.id}
                       currentUserId={currentUserId}
                       defaultSprintId={activeSprint?.id ?? null}
+                      onAdd={addCard}
                     />
                   </div>
                 )}
