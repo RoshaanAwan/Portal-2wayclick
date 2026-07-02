@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { motion } from "framer-motion";
 import {
   CalendarClock,
@@ -85,12 +86,29 @@ export function TaskCard({
     task.linkCount > 0;
 
   // Card overflow menu (Edit / Delete). Closes on outside click or Escape.
-  // The trigger lives inside the card (which is `overflow-hidden` to clip the
-  // priority stripe), but the dropdown panel is rendered in the outer wrapper
-  // so it isn't clipped — hence two refs for the outside-click check.
+  // The trigger lives inside the card, but the board's columns scroll
+  // (overflow-x/y-auto), which would clip a normally-positioned dropdown. So the
+  // panel is rendered in a portal on `document.body` with fixed positioning,
+  // anchored to the trigger's screen rect — escaping every scroll ancestor.
   const [menuOpen, setMenuOpen] = useState(false);
+  const [menuPos, setMenuPos] = useState<{ top: number; right: number } | null>(
+    null,
+  );
   const triggerRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
+
+  // Pin the panel to the trigger's current screen position (right-aligned,
+  // just below the button). Recomputed on open and whenever the board scrolls.
+  const positionMenu = useCallback(() => {
+    const r = triggerRef.current?.getBoundingClientRect();
+    if (!r) return;
+    setMenuPos({ top: r.bottom + 4, right: window.innerWidth - r.right });
+  }, []);
+
+  useLayoutEffect(() => {
+    if (menuOpen) positionMenu();
+  }, [menuOpen, positionMenu]);
+
   useEffect(() => {
     if (!menuOpen) return;
     function onDocClick(e: MouseEvent) {
@@ -105,13 +123,19 @@ export function TaskCard({
     function onKey(e: KeyboardEvent) {
       if (e.key === "Escape") setMenuOpen(false);
     }
+    // Keep the panel glued to the button while the board scrolls; close nothing,
+    // just reposition. Capture so it catches scrolls on inner containers too.
     document.addEventListener("mousedown", onDocClick);
     document.addEventListener("keydown", onKey);
+    window.addEventListener("scroll", positionMenu, true);
+    window.addEventListener("resize", positionMenu);
     return () => {
       document.removeEventListener("mousedown", onDocClick);
       document.removeEventListener("keydown", onKey);
+      window.removeEventListener("scroll", positionMenu, true);
+      window.removeEventListener("resize", positionMenu);
     };
-  }, [menuOpen]);
+  }, [menuOpen, positionMenu]);
 
   return (
     <div className="relative">
@@ -329,14 +353,19 @@ export function TaskCard({
         )}
       </motion.div>
 
-      {/* Overflow menu panel — rendered outside the `overflow-hidden` card so
-          it isn't clipped. Positioned to the card's top-right. */}
-      {canManage && menuOpen && (
-        <div
-          ref={panelRef}
-          role="menu"
-          className="absolute right-1 top-9 z-30 w-32 max-w-[calc(100vw-2rem)] overflow-hidden rounded-lg border border-line bg-surface py-1 shadow-lg"
-        >
+      {/* Overflow menu panel — portaled to <body> with fixed positioning so the
+          board's scrolling columns (overflow-x/y-auto) can't clip it. Anchored
+          to the trigger's screen rect via menuPos. */}
+      {canManage &&
+        menuOpen &&
+        menuPos &&
+        createPortal(
+          <div
+            ref={panelRef}
+            role="menu"
+            style={{ top: menuPos.top, right: menuPos.right }}
+            className="fixed z-50 w-32 max-w-[calc(100vw-2rem)] overflow-hidden rounded-lg border border-line bg-surface py-1 shadow-lg"
+          >
           <button
             type="button"
             role="menuitem"
@@ -363,8 +392,9 @@ export function TaskCard({
             <Trash2 className="h-3.5 w-3.5" />
             Delete
           </button>
-        </div>
-      )}
+          </div>,
+          document.body,
+        )}
     </div>
   );
 }
